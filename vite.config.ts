@@ -12,7 +12,6 @@ export default defineConfig({
 	clearScreen: false,
 	server: {
 		port: 4000,
-		// open: true,
 		strictPort: true,
 		host: "0.0.0.0",
 		watch: {
