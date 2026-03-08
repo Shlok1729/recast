@@ -4,9 +4,12 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
+		"ui:dev": "vite dev",
+		"ui:build": "vite build",
+		"ui:preview": "vite preview",
+		"tauri": "tauri",
+		"dev": "tauri dev",
+		"build": "tauri build",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
@@ -29,6 +32,10 @@
 		"vite": "^7.3.1"
 	},
 	"dependencies": {
-		"@fontsource-variable/google-sans": "^5.2.1"
+		"@fontsource-variable/google-sans": "^5.2.1",
+		"@lucide/svelte": "^0.577.0",
+		"bits-ui": "^2.16.3",
+		"mode-watcher": "^1.1.0",
+		"svelte-sonner": "^1.0.8"
 	}
 }

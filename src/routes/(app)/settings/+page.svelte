@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { Button } from "$components/ui/button";
+    import { Input } from "$components/ui/input";
+    import { Label } from "$components/ui/label";
     import { invoke } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
 
@@ -30,97 +33,85 @@
 </script>
 
 <div class="flex-1 flex flex-col p-8 w-full max-w-3xl mx-auto">
-    <div class="mb-10 border-b border-black/5 dark:border-white/5 pb-6">
-        <h2
-            class="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white"
-        >
+    <div class="mb-10 border-b pb-6">
+        <h2 class="text-2xl font-bold tracking-tight text-foreground">
             Settings
         </h2>
-        <p class="text-sm text-neutral-500 mt-1">
+        <p class="text-sm text-muted-foreground mt-1">
             Configure Trace defaults and preferences.
         </p>
     </div>
 
-    <!-- General Settings -->
     <div class="flex flex-col gap-6">
         <section>
             <h3
-                class="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4"
+                class="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4"
             >
                 Storage
             </h3>
 
-            <div
-                class="p-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1C1C1E] shadow-sm"
-            >
+            <div class="p-5 rounded-xl border bg-card shadow-sm">
                 <div class="flex flex-col gap-2">
-                    <label
-                        class="text-sm font-medium text-neutral-900 dark:text-neutral-100"
-                        >Output Directory</label
-                    >
-                    <p class="text-[13px] text-neutral-500 mb-2">
+                    <Label>Output Directory</Label>
+                    <p class="text-[13px] text-muted-foreground mb-2">
                         Choose the folder where your Trace recordings are saved.
                     </p>
 
-                    {#if isEditingDir}
-                        <input
-                            type="text"
-                            bind:value={newDirInput}
-                            placeholder="C:\Users\Name\Videos"
-                            class="w-full px-3 py-2.5 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-black text-[13.5px] text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50 shadow-sm"
+                    <div class="flex items-center gap-3">
+                        <Input
+                            class="flex-1 px-3 py-2.5 rounded-lg truncate"
+                            title={outputDir}
+                            value={outputDir || "Default Temporary Directory"}
+                            readonly
+                            disabled
+                            id="output-dir"
                         />
-                        <div class="flex items-center gap-2 mt-3">
-                            <button
-                                onclick={() => (isEditingDir = false)}
-                                class="px-4 py-2 text-xs font-medium rounded-lg text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800 transition-colors border border-transparent"
-                                >Cancel</button
-                            >
-                            <button
-                                onclick={saveSettings}
-                                class="px-4 py-2 text-xs font-semibold rounded-lg text-white bg-violet-600 hover:bg-violet-700 transition-colors shadow-sm active:scale-[0.98]"
-                                >Save Directory</button
-                            >
-                        </div>
-                    {:else}
-                        <div class="flex items-center gap-3">
-                            <div
-                                class="flex-1 px-3 py-2.5 rounded-lg bg-neutral-50 dark:bg-black/50 border border-neutral-200 dark:border-neutral-800 text-[13.5px] font-mono tracking-tight text-neutral-600 dark:text-neutral-400 truncate"
-                                title={outputDir}
-                            >
-                                {outputDir || "Default Temporary Directory"}
-                            </div>
-                            <button
-                                onclick={() => {
-                                    newDirInput = outputDir;
-                                    isEditingDir = true;
-                                }}
-                                class="px-4 py-2.5 rounded-lg text-xs font-medium border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-100 transition-colors shadow-sm active:scale-[0.98]"
-                            >
-                                Change
-                            </button>
-                        </div>
-                    {/if}
+                        <Button
+                            variant="outline"
+                            type="button"
+                            onclick={async () => {
+                                const { open } = await import(
+                                    "@tauri-apps/plugin-dialog"
+                                );
+                                const selected = await open({
+                                    directory: true,
+                                    multiple: false,
+                                    title: "Select Recording Directory",
+                                });
+                                if (selected && typeof selected === "string") {
+                                    try {
+                                        await invoke("set_output_dir", {
+                                            path: selected,
+                                        });
+                                        outputDir = selected;
+                                    } catch (e) {
+                                        alert(`Could not set directory: ${e}`);
+                                    }
+                                }
+                            }}
+                        >
+                            Change
+                        </Button>
+                    </div>
                 </div>
             </div>
         </section>
 
         <section class="mt-4">
             <h3
-                class="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-4"
+                class="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4"
             >
                 About
             </h3>
 
             <div
-                class="p-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#1C1C1E] shadow-sm flex items-center justify-between"
+                class="p-5 rounded-xl border bg-card shadow-sm flex items-center justify-between"
             >
                 <div>
-                    <h4
-                        class="text-sm font-medium text-neutral-900 dark:text-neutral-100"
-                    >
+                    <h4 class="text-sm font-medium text-foreground">
                         Trace MVP
                     </h4>
-                    <p class="text-[13px] text-neutral-500 mt-0.5">
+                    <p class="text-sm text-muted-foreground mt-0.5">
                         Version 0.0.1
                     </p>
                 </div>

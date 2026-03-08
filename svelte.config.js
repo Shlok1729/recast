@@ -8,7 +8,16 @@ const config = {
 		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 		adapter: adapter({
 			fallback: 'index.html' // may differ from host to host
-		})
+		}),
+		alias: {
+			$components: 'src/components',
+			$utils: 'src/utils',
+			$hooks: 'src/lib/hooks',
+			$constants: 'src/constants',
+			$tools: 'src/tools',
+			$stores: 'src/stores',
+			"@": "./src/@",
+		}
 	}
 };
 

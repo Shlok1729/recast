@@ -1,11 +1,33 @@
 <script lang="ts">
-	import "../app.css";
 	import "@fontsource-variable/google-sans";
+
+	import "../app.css";
+
 	let { children } = $props();
+
+	import { Toaster } from "$components/ui/sonner";
+	import { getTauriTheme, isTauriApp } from "$lib/runtime/isTauri";
+	import { ModeWatcher, setMode } from "mode-watcher";
+	import { onMount, tick } from "svelte";
+
+	// Remove the boot splash screen after the app is mounted
+	onMount(async () => {
+		await tick();
+		document.getElementById("boot")?.remove();
+
+		if (await isTauriApp()) {
+			const theme = await getTauriTheme();
+			const stored = localStorage.getItem("mode-watcher-mode");
+			if (theme && (!stored || stored === "system")) {
+				setMode(theme);
+			}
+		}
+	});
 </script>
 
-<svelte:head>
-	<link rel="icon" type="image/png" href="/favicon.ico" />
-</svelte:head>
+<ModeWatcher />
+<Toaster position="top-right" richColors />
 
-{@render children()}
+<div class="relative flex min-h-screen w-full flex-col">
+	{@render children()}
+</div>

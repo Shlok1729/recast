@@ -1,4 +1,13 @@
 <script lang="ts">
+    import {
+        AppWindow,
+        CheckCircle2,
+        Monitor as Display,
+        LayoutTemplate,
+        Minus,
+        RefreshCw,
+        X,
+    } from "@lucide/svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { emit } from "@tauri-apps/api/event";
     import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -102,113 +111,108 @@
 </script>
 
 <div
-    class="w-full h-screen flex flex-col bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 font-sans overflow-hidden"
+    class="flex h-screen w-full flex-col overflow-hidden bg-background font-sans text-foreground selection:bg-primary/10 selection:text-primary rounded-xl border border-border/50 shadow-2xl"
 >
     <!-- Title bar -->
     <div
-        class="flex items-center justify-between px-5 pt-4 pb-0 shrink-0"
+        class="flex shrink-0 items-center justify-between px-5 pt-4 pb-2"
         data-tauri-drag-region
     >
-        <div class="flex items-center gap-1.5 shrink-0">
+        <div class="flex shrink-0 items-center gap-2">
             <button
                 onclick={closeApp}
-                class="w-3 h-3 rounded-full bg-red-500 opacity-75 hover:opacity-100 transition-opacity"
+                class="group flex h-3 w-3 items-center justify-center rounded-full bg-destructive/80 transition-colors hover:bg-destructive"
                 title="Close"
-            ></button>
+            >
+                <X
+                    size={8}
+                    class="text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                    strokeWidth={3}
+                />
+            </button>
             <button
                 onclick={minimizeWindow}
-                class="w-3 h-3 rounded-full bg-yellow-500 opacity-75 hover:opacity-100 transition-opacity"
+                class="group flex h-3 w-3 items-center justify-center rounded-full bg-yellow-400/80 transition-colors hover:bg-yellow-500"
                 title="Minimize"
-            ></button>
+            >
+                <Minus
+                    size={8}
+                    class="text-orange-900 opacity-0 group-hover:opacity-100 transition-opacity"
+                    strokeWidth={3}
+                />
+            </button>
         </div>
         <span
-            class="text-sm font-semibold pointer-events-none select-none"
+            class="pointer-events-none select-none text-sm font-semibold tracking-tight"
             data-tauri-drag-region>Choose Source</span
         >
         <button
             onclick={closeApp}
-            class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+            class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
             title="Close"
             aria-label="Close"
         >
-            <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                ><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg
-            >
+            <X size={16} strokeWidth={2.5} />
         </button>
     </div>
 
     <!-- Segmented tabs -->
     <div
-        class="flex items-center gap-1 mx-5 mt-4 mb-3 p-1 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 shrink-0 select-none"
+        class="mx-5 mb-4 mt-2 flex shrink-0 select-none items-center gap-1 rounded-xl bg-muted p-1 border border-border"
     >
         <button
             onclick={() => (selectorTab = "monitor")}
-            class="flex-1 py-1.5 text-xs font-medium rounded-[10px] transition-all {selectorTab ===
+            class="flex-1 rounded-lg py-1.5 text-xs font-medium transition-all {selectorTab ===
             'monitor'
-                ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-sm'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}"
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'}"
         >
-            Screens <span class="ml-1 text-[10px] text-neutral-400"
-                >{monitorSources.length > 0 ? monitorSources.length : ""}</span
+            Screens <span class="ml-1 text-[10px] text-muted-foreground/70"
+                >{monitorSources.length || ""}</span
             >
         </button>
         <button
             onclick={() => (selectorTab = "window")}
-            class="flex-1 py-1.5 text-xs font-medium rounded-[10px] transition-all {selectorTab ===
+            class="flex-1 rounded-lg py-1.5 text-xs font-medium transition-all {selectorTab ===
             'window'
-                ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-sm'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'}"
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'}"
         >
-            Windows <span class="ml-1 text-[10px] text-neutral-400"
-                >{windowSources.length > 0 ? windowSources.length : ""}</span
+            Windows <span class="ml-1 text-[10px] text-muted-foreground/70"
+                >{windowSources.length || ""}</span
             >
         </button>
     </div>
 
     <!-- Grid -->
-    <div class="flex-1 overflow-y-auto px-5 pb-4 select-none">
+    <div class="flex-1 select-none overflow-y-auto px-5 pb-4 custom-scrollbar">
         {#if isFetching}
             <div
-                class="w-full h-full flex flex-col items-center justify-center gap-3"
+                class="flex h-full w-full flex-col items-center justify-center gap-3 animate-in fade-in duration-500"
             >
                 <div
-                    class="w-5 h-5 border-2 border-violet-500 rounded-full border-t-transparent animate-spin"
+                    class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"
                 ></div>
-                <span class="text-xs text-neutral-500">Scanning sources...</span
+                <span class="text-xs font-medium text-muted-foreground"
+                    >Scanning sources...</span
                 >
             </div>
         {:else if filteredSources.length === 0}
             <div
-                class="w-full h-44 flex flex-col items-center justify-center gap-3"
+                class="flex h-44 w-full flex-col items-center justify-center gap-3 animate-in fade-in zoom-in-95"
             >
                 <div
-                    class="w-10 h-10 rounded-xl flex items-center justify-center bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-neutral-400"
+                    class="flex h-12 w-12 items-center justify-center rounded-xl border border-dashed border-border bg-muted/50 text-muted-foreground"
                 >
-                    <svg
-                        class="w-5 h-5"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        ><rect width="20" height="14" x="2" y="3" rx="2" /><path
-                            d="M8 21h8"
-                        /><path d="M12 17v4" /></svg
-                    >
+                    <LayoutTemplate size={24} strokeWidth={1.5} />
                 </div>
-                <p class="text-xs text-neutral-500">
+                <p class="text-xs text-muted-foreground">
                     No {selectorTab === "monitor" ? "displays" : "windows"} found
                 </p>
             </div>
         {:else}
             <div
-                class="grid gap-3 {selectorTab === 'monitor'
+                class="grid gap-4 {selectorTab === 'monitor'
                     ? 'grid-cols-2'
                     : 'grid-cols-3'}"
             >
@@ -217,74 +221,57 @@
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <div
                         onclick={() => (selectedSource = source)}
-                        class="group rounded-xl overflow-hidden cursor-pointer border bg-white dark:bg-neutral-800 transition-all duration-200 {selectedSource?.id ===
+                        class="group cursor-pointer overflow-hidden rounded-xl border bg-card transition-all duration-300 animate-in slide-in-from-bottom-2 fade-in {selectedSource?.id ===
                             source.id && selectedSource?.type === source.type
-                            ? 'border-violet-500/50 bg-violet-500/10'
-                            : 'border-black/5 dark:border-white/5 hover:border-black/15 dark:hover:border-white/15 hover:-translate-y-px hover:shadow-sm'}"
-                        style="animation: fadeInUp 0.3s ease-out both; animation-delay: {i *
-                            0.03}s;"
+                            ? 'border-primary ring-1 ring-primary/20 shadow-md bg-primary/5'
+                            : 'border-border hover:border-border/80 hover:shadow-sm hover:-translate-y-0.5'}"
+                        style="animation-delay: {i * 40}ms;"
                     >
                         <!-- Thumbnail -->
                         <div
-                            class="w-full aspect-video bg-black/5 dark:bg-white/5 relative overflow-hidden"
+                            class="relative aspect-video w-full overflow-hidden bg-muted flex items-center justify-center border-b border-border/50"
                         >
                             {#if source.thumbnail}
                                 <img
                                     src={source.thumbnail}
                                     alt={source.label}
-                                    class="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                                    class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                                     draggable="false"
                                 />
                             {:else}
                                 <div
-                                    class="w-full h-full flex items-center justify-center text-neutral-300 dark:text-neutral-700"
+                                    class="flex h-full w-full items-center justify-center text-muted-foreground/30"
                                 >
-                                    <svg
-                                        class="w-6 h-6"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.5"
-                                        ><rect
-                                            width="20"
-                                            height="14"
-                                            x="2"
-                                            y="3"
-                                            rx="2"
-                                        /><path d="M8 21h8" /><path
-                                            d="M12 17v4"
-                                        /></svg
-                                    >
+                                    {#if source.type === "monitor"}
+                                        <Display size={32} strokeWidth={1.5} />
+                                    {:else}
+                                        <AppWindow
+                                            size={32}
+                                            strokeWidth={1.5}
+                                        />
+                                    {/if}
                                 </div>
                             {/if}
+
                             {#if selectedSource?.id === source.id && selectedSource?.type === source.type}
                                 <div
-                                    class="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-violet-500 flex items-center justify-center shadow-lg animate-in zoom-in duration-200"
+                                    class="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg animate-in zoom-in-50 duration-200"
                                 >
-                                    <svg
-                                        width="11"
-                                        height="11"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="white"
-                                        stroke-width="3"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        ><path d="M20 6 9 17l-5-5" /></svg
-                                    >
+                                    <CheckCircle2 size={14} strokeWidth={3} />
                                 </div>
                             {/if}
                         </div>
                         <!-- Label -->
-                        <div class="px-3 py-2">
+                        <div class="px-3.5 py-2.5">
                             <div
-                                class="text-[11.5px] font-medium truncate leading-tight text-neutral-800 dark:text-neutral-200"
+                                class="truncate text-xs font-medium text-foreground leading-tight"
+                                title={source.label}
                             >
                                 {source.label}
                             </div>
                             {#if source.resolution}
                                 <div
-                                    class="text-[10px] mt-0.5 text-neutral-400 font-mono tracking-tight"
+                                    class="mt-0.5 text-[10px] font-mono tracking-tight text-muted-foreground"
                                 >
                                     {source.resolution}
                                 </div>
@@ -298,65 +285,54 @@
 
     <!-- Footer -->
     <div
-        class="px-5 py-3 flex items-center justify-between border-t border-black/5 dark:border-white/5 shrink-0 bg-neutral-100 dark:bg-neutral-900 select-none"
+        class="flex shrink-0 select-none items-center justify-between border-t border-border bg-background px-5 py-4"
     >
         <button
             onclick={fetchSources}
             disabled={isFetching}
-            class="flex items-center gap-1.5 text-[11px] text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors disabled:opacity-50"
+            class="group flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
             aria-label="Refresh"
         >
-            <svg
-                class="w-3.5 h-3.5 {isFetching ? 'animate-spin' : ''}"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                ><path
-                    d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"
-                /><path d="M21 3v5h-5" /></svg
-            >
+            <RefreshCw
+                size={14}
+                class={isFetching
+                    ? "animate-spin"
+                    : "group-hover:rotate-180 transition-transform duration-500"}
+            />
             Refresh
         </button>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2.5">
             <button
                 onclick={closeApp}
-                class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-neutral-500 hover:bg-black/5 dark:hover:bg-white/10 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
-                >Cancel</button
+                class="rounded-lg px-4 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95"
             >
+                Cancel
+            </button>
             <button
                 onclick={confirmSelection}
                 disabled={!selectedSource}
-                class="px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-violet-500 hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_1px_4px_rgba(139,92,246,0.3)] transition-all active:scale-[0.98]"
-                >Confirm</button
+                class="rounded-lg bg-primary px-5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
             >
+                Confirm
+            </button>
         </div>
     </div>
 </div>
 
 <style>
-    @keyframes fadeInUp {
-        from {
-            opacity: 0;
-            transform: translateY(4px) scale(0.98);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-        }
-    }
-    ::-webkit-scrollbar {
+    .custom-scrollbar::-webkit-scrollbar {
         width: 5px;
     }
-    ::-webkit-scrollbar-track {
+    .custom-scrollbar::-webkit-scrollbar-track {
         background: transparent;
     }
-    ::-webkit-scrollbar-thumb {
-        background: rgba(150, 150, 150, 0.3);
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: var(--muted-foreground);
+        opacity: 0.3;
         border-radius: 100px;
     }
-    ::-webkit-scrollbar-thumb:hover {
-        background: rgba(150, 150, 150, 0.5);
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: var(--muted-foreground);
+        opacity: 0.5;
     }
 </style>

@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../build",
     "devUrl": "http://localhost:4000",
-    "beforeDevCommand": "bun run dev",
-    "beforeBuildCommand": "bun run build"
+    "beforeDevCommand": "bun run ui:dev",
+    "beforeBuildCommand": "bun run ui:build"
   },
   "app": {
     "windows": [

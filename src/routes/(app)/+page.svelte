@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { ExternalLink, Play, RefreshCw, Video } from "@lucide/svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
 
@@ -59,131 +60,105 @@
     }
 </script>
 
-<div class="flex-1 flex flex-col p-8 w-full max-w-5xl mx-auto">
-    <div class="flex items-center justify-between mb-8">
+<div class="mx-auto flex w-full max-w-5xl flex-1 flex-col p-10">
+    <div class="mb-8 flex items-end justify-between">
         <div>
-            <h2 class="text-2xl font-bold tracking-tight">Recordings</h2>
-            <p class="text-sm text-neutral-500 mt-1">
-                Saved to {outputDir || "temporary directory"}
+            <h2 class="text-3xl font-semibold tracking-tight text-foreground">
+                Recordings
+            </h2>
+            <p class="mt-1.5 text-sm text-muted-foreground">
+                Saved to <span
+                    class="font-mono text-xs text-foreground bg-muted px-1.5 py-0.5 rounded-md"
+                    >{outputDir || "temporary directory"}</span
+                >
             </p>
         </div>
 
         <button
             onclick={fetchRecordings}
             disabled={isFetching}
-            class="p-2 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 transition-colors disabled:opacity-50"
+            class="group flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-all disabled:opacity-50 shadow-sm active:scale-95"
             title="Refresh"
         >
-            <svg
-                class="w-5 h-5 {isFetching ? 'animate-spin' : ''}"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                ><path
-                    d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"
-                /><path d="M21 3v5h-5" /></svg
-            >
+            <RefreshCw
+                size={16}
+                class={isFetching
+                    ? "animate-spin"
+                    : "group-hover:scale-110 transition-transform"}
+            />
         </button>
     </div>
 
     {#if isFetching}
         <div
-            class="w-full py-20 flex flex-col items-center justify-center gap-3"
+            class="flex flex-col items-center justify-center gap-4 py-32 opacity-0 animate-in fade-in duration-500"
         >
             <div
-                class="w-6 h-6 border-2 border-violet-500 rounded-full border-t-transparent animate-spin"
+                class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"
             ></div>
-            <span class="text-sm text-neutral-500">Loading videos...</span>
+            <span class="text-sm font-medium text-muted-foreground"
+                >Loading recordings...</span
+            >
         </div>
     {:else if recordings.length === 0}
         <div
-            class="w-full py-24 flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-neutral-300 dark:border-neutral-800 bg-black/[0.02] dark:bg-white/[0.02]"
+            class="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border bg-card/50 py-32 hover:bg-card transition-colors duration-500 animate-in fade-in zoom-in-95"
         >
             <div
-                class="w-12 h-12 flex items-center justify-center text-neutral-400"
+                class="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
             >
-                <svg
-                    class="w-8 h-8"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    ><path
-                        d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"
-                    /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path
-                        d="M10 9H8"
-                    /><path d="M16 13H8" /><path d="M16 17H8" /></svg
-                >
+                <Video size={28} strokeWidth={1.5} />
             </div>
             <div class="text-center">
-                <h3 class="font-medium text-neutral-900 dark:text-neutral-100">
-                    No recordings
+                <h3 class="text-base font-semibold text-foreground">
+                    No recordings yet
                 </h3>
-                <p class="text-sm text-neutral-500 mt-1">
+                <p class="mt-1.5 text-sm text-muted-foreground">
                     Take your first recording from the Trace Panel.
                 </p>
             </div>
         </div>
     {:else}
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {#each recordings as item}
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {#each recordings as item, i}
                 <div
-                    class="group flex flex-col border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 rounded-xl overflow-hidden hover:border-violet-500/50 hover:shadow-lg transition-all duration-200"
+                    class="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm hover:border-primary/50 hover:shadow-md transition-all duration-300 animate-in slide-in-from-bottom-4 fade-in"
+                    style="animation-delay: {i * 50}ms;"
                 >
                     <div
-                        class="w-full aspect-video bg-neutral-100 dark:bg-black/50 flex items-center justify-center relative border-b border-black/5 dark:border-white/5"
+                        class="relative flex aspect-video w-full items-center justify-center bg-muted/50 overflow-hidden border-b border-border"
                     >
-                        <svg
-                            class="w-10 h-10 text-neutral-300 dark:text-neutral-700"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"><path d="M8 5v14l11-7z" /></svg
-                        >
+                        <Play
+                            size={40}
+                            class="text-muted-foreground/30 transition-transform duration-500 group-hover:scale-110 group-hover:text-primary/10"
+                            fill="currentColor"
+                        />
 
-                        <button
-                            onclick={() => openLocation(item.path)}
-                            class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white backdrop-blur-sm transition-all duration-200"
+                        <div
+                            class="absolute inset-0 bg-background/60 opacity-0 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100 flex items-center justify-center"
                         >
-                            <span
-                                class="text-sm font-medium flex items-center gap-2 bg-white/20 px-3 py-1.5 rounded-md"
+                            <button
+                                onclick={() => openLocation(item.path)}
+                                class="flex items-center gap-2 rounded-lg bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm ring-1 ring-border hover:bg-accent transition-all hover:scale-105 active:scale-95"
                             >
-                                <svg
-                                    class="w-4 h-4"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    ><path
-                                        d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
-                                    /><polyline points="15 3 21 3 21 9" /><line
-                                        x1="10"
-                                        x2="21"
-                                        y1="14"
-                                        y2="3"
-                                    /></svg
-                                >
-                                Reveal in Explorer
-                            </span>
-                        </button>
+                                <ExternalLink size={16} />
+                                Reveal File
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="p-4 flex flex-col gap-1.5 text-left">
+                    <div class="flex flex-col gap-1 p-4">
                         <h3
-                            class="font-medium text-[13.5px] truncate text-neutral-900 dark:text-neutral-100"
+                            class="truncate text-sm font-medium text-foreground"
                             title={item.filename}
                         >
                             {item.filename}
                         </h3>
                         <div
-                            class="flex items-center text-xs text-neutral-500 font-mono tracking-tight gap-2"
+                            class="flex items-center gap-2 text-xs text-muted-foreground font-mono"
                         >
                             <span>{formatDate(item.created)}</span>
-                            <span
-                                class="w-1 h-1 rounded-full bg-neutral-300 dark:bg-neutral-700"
-                            ></span>
+                            <span class="h-1 w-1 rounded-full bg-border"></span>
                             <span>{formatSize(item.size_bytes)}</span>
                         </div>
                     </div>
