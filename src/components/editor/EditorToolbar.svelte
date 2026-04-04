@@ -4,6 +4,7 @@
   import * as Tooltip from "$components/ui/tooltip";
 
   import type {
+    BackgroundType,
     EditorStore,
     ExportFormat,
   } from "$lib/stores/editor-store.svelte";
@@ -13,6 +14,7 @@
     Crop,
     Download,
     LayoutGrid,
+    LoaderCircle,
     Redo2,
     Trash2,
     Undo2,
@@ -30,22 +32,61 @@
   let showFormatMenu = $state(false);
   let showPresetsMenu = $state(false);
 
+  $effect(() => {
+    if (showFormatMenu) {
+      showPresetsMenu = false;
+    }
+  });
+
+  $effect(() => {
+    if (showPresetsMenu) {
+      showFormatMenu = false;
+    }
+  });
+
   const formats: { value: ExportFormat; label: string; desc: string }[] = [
     { value: "mp4", label: "MP4", desc: "Best quality, universal" },
     { value: "webm", label: "WebM", desc: "Web-optimized, smaller" },
     { value: "gif", label: "GIF", desc: "Animated, shareable" },
   ];
 
-  const presets = [
-    { label: "Social Media", bg: "gradient", padding: 40, blur: 30 },
-    { label: "Clean", bg: "color", padding: 0, blur: 0 },
-    { label: "Presentation", bg: "wallpaper", padding: 60, blur: 50 },
-    { label: "Tutorial", bg: "color", padding: 20, blur: 0 },
+  const presets: {
+    label: string;
+    bg: BackgroundType;
+    value?: string;
+    padding: number;
+    blur: number;
+  }[] = [
+    {
+      label: "Social Media",
+      bg: "gradient",
+      value: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+      padding: 40,
+      blur: 30,
+    },
+    { label: "Clean", bg: "color", value: "#111827", padding: 0, blur: 0 },
+    {
+      label: "Presentation",
+      bg: "wallpaper",
+      value: "/wallpapers/macos-1.png",
+      padding: 60,
+      blur: 50,
+    },
+    {
+      label: "Tutorial",
+      bg: "color",
+      value: "#0f172a",
+      padding: 20,
+      blur: 0,
+    },
   ];
 
   function applyPreset(preset: (typeof presets)[0]) {
     store.pushUndoState();
-    store.backgroundType = preset.bg as any;
+    store.backgroundType = preset.bg;
+    if (preset.value) {
+      store.backgroundValue = preset.value;
+    }
     store.padding = preset.padding;
     store.backgroundBlur = preset.blur;
     showPresetsMenu = false;
@@ -85,7 +126,7 @@
     <div class="mx-1 h-5 w-px bg-border/50"></div>
 
     <span
-      class="truncate text-sm font-medium text-foreground max-w-[200px]"
+      class="truncate text-sm font-medium text-foreground max-w-50"
       title={filename}
     >
       {filename}
@@ -134,10 +175,7 @@
             : ''}"
         />
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content>
-        <DropdownMenu.Group>
-          <DropdownMenu.Label>My Account</DropdownMenu.Label>
-          <DropdownMenu.Separator />
+      <DropdownMenu.Content id="presets">
           {#each presets as preset}
             <DropdownMenu.Item
               onclick={() => applyPreset(preset)}
@@ -146,7 +184,6 @@
               {preset.label}
             </DropdownMenu.Item>
           {/each}
-        </DropdownMenu.Group>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   
@@ -184,12 +221,8 @@
   <!-- Right: Format + Export -->
   <div class="flex items-center gap-2">
     <!-- Format selector -->
-    <div class="relative">
-      <button
-        onclick={() => {
-          showFormatMenu = !showFormatMenu;
-          showPresetsMenu = false;
-        }}
+    <DropdownMenu.Root bind:open={showFormatMenu}>
+      <DropdownMenu.Trigger
         class="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all duration-200 hover:bg-muted hover:text-foreground"
       >
         {store.exportFormat.toUpperCase()}
@@ -199,43 +232,32 @@
             ? 'rotate-180'
             : ''}"
         />
-      </button>
-
-      {#if showFormatMenu}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="absolute top-full right-0 mt-1 z-50 w-52 rounded-xl border border-border bg-popover p-1 shadow-xl animate-in fade-in zoom-in-95 duration-150"
-          onclick={(e) => e.stopPropagation()}
-        >
-          {#each formats as fmt}
-            <button
-              onclick={() => {
-                store.exportFormat = fmt.value;
-                showFormatMenu = false;
-              }}
-              class="flex w-full flex-col items-start rounded-lg px-3 py-2 transition-colors hover:bg-muted
-								{store.exportFormat === fmt.value ? 'bg-muted/50' : ''}"
-            >
-              <span class="text-xs font-semibold text-foreground"
-                >{fmt.label}</span
-              >
-              <span class="text-[10px] text-muted-foreground">{fmt.desc}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content align="end" class="w-52">
+        {#each formats as fmt}
+          <DropdownMenu.Item
+            onclick={() => {
+              store.exportFormat = fmt.value;
+              showFormatMenu = false;
+            }}
+            class="flex w-full flex-col items-start gap-0 rounded-lg px-3 py-2 transition-colors hover:bg-muted
+							{store.exportFormat === fmt.value ? 'bg-muted/50' : ''}"
+          >
+            <span class="text-xs font-semibold text-foreground">{fmt.label}</span>
+            <span class="text-[10px] text-muted-foreground">{fmt.desc}</span>
+          </DropdownMenu.Item>
+        {/each}
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
 
     <!-- Export Button -->
     <Button
       onclick={() => onexport?.()}
       disabled={store.isExporting}
-      class="relative overflow-hidden bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md hover:from-blue-500 hover:to-blue-400 active:scale-95 transition-all duration-200 h-8 px-4 text-xs font-semibold rounded-lg"
+      class="relative overflow-hidden bg-linear-to-r from-blue-600 to-blue-500 text-white shadow-md hover:from-blue-500 hover:to-blue-400 active:scale-95 transition-all duration-200 h-8 px-4 text-xs font-semibold rounded-lg"
     >
       {#if store.isExporting}
-        <div
-          class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
-        ></div>
+        <LoaderCircle size={16} class="animate-spin" />
         Exporting...
       {:else}
         <Download size={14} />
@@ -245,10 +267,3 @@
   </div>
 </div>
 
-<!-- Click outside to close menus -->
-<svelte:window
-  onclick={() => {
-    showFormatMenu = false;
-    showPresetsMenu = false;
-  }}
-/>

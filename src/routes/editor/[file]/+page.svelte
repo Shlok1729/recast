@@ -6,8 +6,8 @@
 	import Timeline from "$components/editor/Timeline.svelte";
 	import VideoPreview from "$components/editor/VideoPreview.svelte";
 	import { createEditorStore } from "$lib/stores/editor-store.svelte";
-	import { invoke } from "@tauri-apps/api/core";
-	import { onMount } from "svelte";
+	import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+	import { tick } from "svelte";
 
 	interface Props {
 		data: {
@@ -24,6 +24,7 @@
 	let videoSrc = $state("");
 	let isLoading = $state(true);
 	let error = $state("");
+	let loadedPath = $state("");
 
 	// Sync video time → store
 	function handleTimeUpdate() {
@@ -37,25 +38,70 @@
 		store.isPlaying = false;
 	}
 
-	function handleVideoLoaded() {
-		if (!videoEl) return;
+	function mergeVideoMetadata(next: {
+		duration?: number;
+		width?: number;
+		height?: number;
+		fps?: number;
+		codec?: string;
+		sizeBytes?: number;
+	}) {
 		store.metadata = {
+			duration: next.duration ?? store.metadata?.duration ?? 0,
+			width: next.width ?? store.metadata?.width ?? 0,
+			height: next.height ?? store.metadata?.height ?? 0,
+			fps: next.fps ?? store.metadata?.fps ?? 30,
+			codec: next.codec ?? store.metadata?.codec ?? "unknown",
+			sizeBytes: next.sizeBytes ?? store.metadata?.sizeBytes ?? 0,
+		};
+		if (store.trimEnd <= 0 && store.metadata.duration > 0) {
+			store.trimEnd = store.metadata.duration;
+		}
+	}
+
+	function handleVideoLoadedMetadata() {
+		if (!videoEl) return;
+		mergeVideoMetadata({
 			duration: videoEl.duration,
 			width: videoEl.videoWidth,
 			height: videoEl.videoHeight,
 			fps: 30, // default, will be overridden by Rust metadata
 			codec: "h264",
 			sizeBytes: 0,
-		};
-		store.trimEnd = videoEl.duration;
+		});
+	}
+
+	function handleVideoReady() {
+		handleVideoLoadedMetadata();
+		isLoading = false;
+	}
+
+	function handleVideoError() {
+		const code = videoEl?.error?.code;
+		console.error("Video failed to load", {
+			path: data.filePath,
+			src: videoSrc,
+			code,
+		});
+		error = code
+			? `Failed to load video (media error ${code}).`
+			: "Failed to load video.";
 		isLoading = false;
 	}
 
 	async function loadVideo() {
+		error = "";
+		isLoading = true;
+		videoSrc = "";
+		videoEl?.pause();
+		store.metadata = null;
+		store.reset();
+
 		try {
 			// Convert local file path to asset protocol URL for Tauri
-			const { convertFileSrc } = await import("@tauri-apps/api/core");
 			videoSrc = convertFileSrc(data.filePath);
+			await tick();
+			videoEl?.load();
 
 			// Also try to get metadata from Rust
 			try {
@@ -68,15 +114,14 @@
 					size_bytes: number;
 				}>("get_video_metadata", { path: data.filePath });
 
-				store.metadata = {
+				mergeVideoMetadata({
 					duration: meta.duration,
 					width: meta.width,
 					height: meta.height,
 					fps: meta.fps,
 					codec: meta.codec,
 					sizeBytes: meta.size_bytes,
-				};
-				store.trimEnd = meta.duration;
+				});
 			} catch {
 				// Fallback to HTML5 video metadata
 				console.warn(
@@ -175,16 +220,18 @@
 		}
 	}
 
-	onMount(() => {
+	$effect(() => {
+		if (!data.filePath || data.filePath === loadedPath) return;
+		loadedPath = data.filePath;
 		store.videoPath = data.filePath;
-		loadVideo();
+		void loadVideo();
 	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-	class="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground"
+	class="flex min-h-screen w-full flex-col overflow-hidden bg-background text-foreground"
 >
 	<!-- Toolbar -->
 	<EditorToolbar
@@ -256,13 +303,12 @@
 			src={videoSrc}
 			ontimeupdate={handleTimeUpdate}
 			onended={handleVideoEnded}
-			onloadedmetadata={handleVideoLoaded}
-			onerror={(e) => {
-				console.error("Video failed to load: ", e);
-				error = "Failed to load video.";
-				isLoading = false;
-			}}
-			class="hidden"
+			onloadedmetadata={handleVideoLoadedMetadata}
+			onloadeddata={handleVideoReady}
+			oncanplay={handleVideoReady}
+			onerror={handleVideoError}
+			class="absolute opacity-0 pointer-events-none -z-10"
+			playsinline
 			preload="auto"
 		></video>
 	{/if}
@@ -294,7 +340,7 @@
 						class="h-1.5 w-48 overflow-hidden rounded-full bg-muted"
 					>
 						<div
-							class="h-full rounded-full bg-gradient-to-r from-primary to-blue-400 transition-[width] duration-300"
+							class="h-full rounded-full bg-linear-to-r from-primary to-blue-400 transition-[width] duration-300"
 							style="width: {store.exportProgress}%"
 						></div>
 					</div>

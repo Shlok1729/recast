@@ -96,21 +96,20 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="flex flex-col border-t border-border bg-card/20 backdrop-blur-sm select-none"
+	class="flex flex-col border-t border-border bg-card/20 backdrop-blur-sm select-none px-3"
 >
 	<!-- Timeline content -->
 	<div
 		bind:this={timelineEl}
-		class="relative overflow-x-auto overflow-y-hidden custom-scrollbar"
-		style="height: 180px;"
+		class="relative overflow-x-auto overflow-y-hidden custom-scrollbar h-48"
 		onpointerdown={handleTimelinePointerDown}
 		onpointermove={handleTimelinePointerMove}
 		onpointerup={handleTimelinePointerUp}
 		onpointercancel={handleTimelinePointerUp}
 	>
 		<div
-			class="relative"
-			style="width: {totalWidth}px; min-width: 100%; height: 100%;"
+			class="relative min-w-full h-full"
+			style="width: {totalWidth}px;"
 		>
 			<!-- Ruler -->
 			<div class="relative h-7 border-b border-border/50">
@@ -174,7 +173,7 @@
 				>
 					<!-- Background gradient -->
 					<div
-						class="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-400 opacity-80"
+						class="absolute inset-0 bg-linear-to-r from-blue-500 to-blue-400 opacity-80"
 					></div>
 
 					<!-- Label -->

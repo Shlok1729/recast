@@ -71,10 +71,8 @@
 	</Dialog.Root>
 {:else}
 	<Drawer.Root bind:open>
-		<Drawer.Trigger>
-			{#snippet child({ props })}
-				<Button {...props} {...btnProps} />
-			{/snippet}
+		<Drawer.Trigger asChild>
+			<Button {...btnProps} />
 		</Drawer.Trigger>
 		<Drawer.Content>
 			<Drawer.Header class={cn(hideHeader ? 'hidden' : 'text-left')}>
