@@ -159,7 +159,7 @@
         aria-label="Open Command Menu"
         title="Open Command Menu (⌘K)"
         variant="outline"
-        size={iconOnly ? "icon" : "default"}
+        size={iconOnly ? "icon_sm" : "sm"}
         class={cn(
           "group relative group-data-[state=collapsed]:size-8",
           !iconOnly && "w-full max-w-xs",

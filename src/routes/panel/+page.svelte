@@ -1,6 +1,6 @@
 <script lang="ts">
     import { invoke } from "@tauri-apps/api/core";
-    import { listen } from "@tauri-apps/api/event";
+    import { emit, listen } from "@tauri-apps/api/event";
     import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
     import { getCurrentWindow } from "@tauri-apps/api/window";
     import { onMount } from "svelte";
@@ -74,8 +74,12 @@
                 const filePath = await invoke<string>("stop_recording");
                 isRecording = false;
                 recordingStartTime = null;
+                // toast.success("Recording saved successfully!", {
+                //     description: filePath,
+                // });
                 console.log("Saved:", filePath);
                 // Also trigger main window to refresh recordings if it's open
+                await emit("refresh-recordings");
             } catch (e) {
                 alert(`Stop failed: ${e}\n\nMake sure ffmpeg is installed.`);
             }
@@ -110,7 +114,7 @@
 </script>
 
 <div
-    class="w-full h-screen rounded-[12px] flex items-center gap-2 px-3 bg-neutral-100 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-neutral-900 dark:text-neutral-100 font-sans shadow-lg overflow-hidden"
+    class="w-full h-screen rounded-[12px] flex items-center gap-2 px-3 bg-card border text-foreground font-sans shadow-lg overflow-hidden"
     data-tauri-drag-region
 >
     <!-- Window controls (just close the panel) -->
@@ -124,7 +128,7 @@
     </div>
 
     <!-- Divider -->
-    <div class="w-px h-5 bg-black/10 dark:bg-white/10 shrink-0 mx-0.5"></div>
+    <div class="w-px h-5 bg-border/80 shrink-0 mx-0.5"></div>
 
     <!-- Status + Source -->
     <div class="flex items-center gap-2 flex-1 min-w-0" data-tauri-drag-region>

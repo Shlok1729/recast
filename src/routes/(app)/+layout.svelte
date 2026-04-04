@@ -1,26 +1,25 @@
 <script lang="ts">
-    import AppSidebar from "$components/layout/AppSidebar.svelte";
-    import MobileHeader from "$components/layout/MobileHeader.svelte";
-    import * as Sidebar from "$components/ui/sidebar";
-    let { children } = $props();
+  import AppSidebar from "$components/layout/app-sidebar.svelte";
+  import { Separator } from "$components/ui/separator";
+  import * as Sidebar from "$components/ui/sidebar";
+  import { config } from "$constants/app";
+  let { children } = $props();
+
+  
 </script>
 
-<Sidebar.Provider
-    class="flex h-screen w-full flex-col md:flex-row overflow-hidden"
->
-    <AppSidebar />
-    <main class="flex-1 overflow-y-auto overflow-x-hidden relative pt-0">
-        <MobileHeader />
-        <div class="mx-auto max-w-app h-full flex flex-col p-4 md:p-6 lg:p-8">
-            {@render children()}
+<Sidebar.Provider>
+  <AppSidebar />
+  <Sidebar.Inset class="@container/layout">
+    <header class="flex h-16 shrink-0 items-center gap-2">
+      <div class="flex items-center gap-2 px-4">
+        <Sidebar.Trigger class="-ms-1" />
+        <Separator orientation="vertical" class="me-2 data-[orientation=vertical]:h-4" />
+        <div class="flex items-center gap-2 font-sans font-semibold">
+            {config.appName}
         </div>
-    </main>
+      </div>
+    </header>
+    {@render children()}
+  </Sidebar.Inset>
 </Sidebar.Provider>
-
-<style>
-    @keyframes shimmer {
-        100% {
-            transform: translateX(100%);
-        }
-    }
-</style>

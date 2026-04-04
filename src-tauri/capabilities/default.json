@@ -6,7 +6,8 @@
     "main",
     "source-selector",
     "recordings",
-    "recording-panel"
+    "recording-panel",
+    "editor"
   ],
   "permissions": [
     "core:default",

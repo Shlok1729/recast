@@ -2,7 +2,7 @@
     import { Button } from "$components/ui/button";
     import { Input } from "$components/ui/input";
     import { Label } from "$components/ui/label";
-    import { Monitor, Moon, Sun } from "@lucide/svelte";
+    import { ExternalLink, Monitor, Moon, Navigation, Sun } from "@lucide/svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { setMode } from "mode-watcher";
     import { onMount } from "svelte";
@@ -11,12 +11,17 @@
     let isEditingDir = $state(false);
     let newDirInput = $state("");
     let currentTheme = $state("system");
+    let editorWindow = $state<'navigate' | 'new-window'>('navigate');
 
     onMount(() => {
         fetchSettings();
         const storedTheme = localStorage.getItem("mode-watcher-mode");
         if (storedTheme) {
             currentTheme = storedTheme;
+        }
+        const storedEditorBehavior = localStorage.getItem("trace-editor-window");
+        if (storedEditorBehavior === 'new-window') {
+            editorWindow = 'new-window';
         }
     });
 
@@ -157,6 +162,44 @@
                         >
                             <Monitor size={16} />
                             System
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mt-4">
+            <h3
+                class="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4"
+            >
+                Editor
+            </h3>
+
+            <div class="p-5 rounded-xl border bg-card shadow-sm">
+                <div class="flex flex-col gap-4">
+                    <div>
+                        <Label>Window Behavior</Label>
+                        <p class="text-[13px] text-muted-foreground mb-3">
+                            How the video editor opens when you click Edit.
+                        </p>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <Button
+                            variant={editorWindow === 'navigate' ? 'default_soft' : 'secondary'}
+                            class="flex-1 flex gap-2"
+                            onclick={() => { editorWindow = 'navigate'; localStorage.setItem('trace-editor-window', 'navigate'); }}
+                        >
+                            <Navigation size={16} />
+                            Navigate
+                        </Button>
+                        <Button
+                            variant={editorWindow === 'new-window' ? 'default_soft' : 'secondary'}
+                            class="flex-1 flex gap-2"
+                            onclick={() => { editorWindow = 'new-window'; localStorage.setItem('trace-editor-window', 'new-window'); }}
+                        >
+                            <ExternalLink size={16} />
+                            New Window
                         </Button>
                     </div>
                 </div>

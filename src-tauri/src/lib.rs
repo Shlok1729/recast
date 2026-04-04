@@ -314,6 +314,222 @@ fn open_file_location(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize, Clone)]
+pub struct VideoMetadata {
+    duration: f64,
+    width: u32,
+    height: u32,
+    fps: f64,
+    codec: String,
+    size_bytes: u64,
+}
+
+#[tauri::command]
+fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
+    let file_path = Path::new(&path);
+    if !file_path.exists() {
+        return Err("File not found".into());
+    }
+
+    let size_bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+
+    // Try ffprobe for accurate metadata
+    let output = Command::new("ffprobe")
+        .args([
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            "-show_streams",
+            &path,
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let json_str = String::from_utf8_lossy(&out.stdout);
+            let parsed: serde_json::Value = serde_json::from_str(&json_str)
+                .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
+
+            let duration = parsed["format"]["duration"]
+                .as_str()
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+
+            // Find video stream
+            let streams = parsed["streams"].as_array();
+            let video_stream = streams
+                .and_then(|s| s.iter().find(|st| st["codec_type"].as_str() == Some("video")));
+
+            let (width, height, fps, codec) = if let Some(vs) = video_stream {
+                let w = vs["width"].as_u64().unwrap_or(0) as u32;
+                let h = vs["height"].as_u64().unwrap_or(0) as u32;
+                let codec_name = vs["codec_name"].as_str().unwrap_or("unknown").to_string();
+
+                // Parse FPS from r_frame_rate (e.g., "30/1")
+                let fps_str = vs["r_frame_rate"].as_str().unwrap_or("30/1");
+                let fps_val = if let Some((num, den)) = fps_str.split_once('/') {
+                    let n: f64 = num.parse().unwrap_or(30.0);
+                    let d: f64 = den.parse().unwrap_or(1.0);
+                    if d > 0.0 { n / d } else { 30.0 }
+                } else {
+                    fps_str.parse::<f64>().unwrap_or(30.0)
+                };
+
+                (w, h, fps_val, codec_name)
+            } else {
+                (0, 0, 30.0, "unknown".to_string())
+            };
+
+            Ok(VideoMetadata { duration, width, height, fps, codec, size_bytes })
+        }
+        _ => {
+            // Fallback: return minimal metadata
+            Ok(VideoMetadata {
+                duration: 0.0,
+                width: 0,
+                height: 0,
+                fps: 30.0,
+                codec: "unknown".to_string(),
+                size_bytes,
+            })
+        }
+    }
+}
+
+#[tauri::command]
+fn generate_thumbnails(path: String, count: u32) -> Result<Vec<String>, String> {
+    let file_path = Path::new(&path);
+    if !file_path.exists() {
+        return Err("File not found".into());
+    }
+
+    // Get duration first
+    let meta = get_video_metadata(path.clone())?;
+    if meta.duration <= 0.0 {
+        return Ok(Vec::new());
+    }
+
+    let interval = meta.duration / count as f64;
+    let mut thumbnails = Vec::new();
+    let temp_dir = env::temp_dir().join("trace_thumbnails");
+    let _ = fs::create_dir_all(&temp_dir);
+
+    for i in 0..count {
+        let timestamp = i as f64 * interval;
+        let thumb_path = temp_dir.join(format!("thumb_{}.jpg", i));
+
+        let result = Command::new("ffmpeg")
+            .args([
+                "-y", "-ss", &format!("{:.2}", timestamp),
+                "-i", &path,
+                "-vframes", "1",
+                "-vf", "scale=160:-1",
+                "-q:v", "8",
+                thumb_path.to_string_lossy().as_ref(),
+            ])
+            .output();
+
+        if let Ok(out) = result {
+            if out.status.success() {
+                if let Ok(data) = fs::read(&thumb_path) {
+                    let b64 = general_purpose::STANDARD.encode(&data);
+                    thumbnails.push(format!("data:image/jpeg;base64,{}", b64));
+                }
+            }
+        }
+        let _ = fs::remove_file(&thumb_path);
+    }
+
+    Ok(thumbnails)
+}
+
+#[tauri::command]
+fn export_video(
+    input_path: String,
+    format: String,
+    trim_start: f64,
+    trim_end: f64,
+    _background_type: String,
+    _background_value: String,
+    _background_blur: f64,
+    _padding: f64,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let in_path = Path::new(&input_path);
+    if !in_path.exists() {
+        return Err("Input file not found".into());
+    }
+
+    let out_dir = get_active_output_dir(&state);
+    let extension = match format.as_str() {
+        "gif" => "gif",
+        "webm" => "webm",
+        _ => "mp4",
+    };
+
+    let out_path = out_dir.join(format!(
+        "trace_export_{}.{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        extension
+    ));
+    let out_str = out_path.to_string_lossy().to_string();
+
+    let duration = trim_end - trim_start;
+
+    let mut args: Vec<String> = vec![
+        "-y".into(),
+        "-ss".into(), format!("{:.3}", trim_start),
+        "-i".into(), input_path.clone(),
+        "-t".into(), format!("{:.3}", duration),
+    ];
+
+    match format.as_str() {
+        "gif" => {
+            args.extend([
+                "-vf".into(),
+                "fps=15,scale=640:-1:flags=lanczos".into(),
+                "-loop".into(), "0".into(),
+                out_str.clone(),
+            ]);
+        }
+        "webm" => {
+            args.extend([
+                "-c:v".into(), "libvpx-vp9".into(),
+                "-crf".into(), "30".into(),
+                "-b:v".into(), "0".into(),
+                "-c:a".into(), "libopus".into(),
+                out_str.clone(),
+            ]);
+        }
+        _ => {
+            // MP4
+            args.extend([
+                "-c:v".into(), "libx264".into(),
+                "-preset".into(), "medium".into(),
+                "-crf".into(), "23".into(),
+                "-pix_fmt".into(), "yuv420p".into(),
+                "-c:a".into(), "aac".into(),
+                out_str.clone(),
+            ]);
+        }
+    }
+
+    let result = Command::new("ffmpeg")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to start ffmpeg: {}", e))?;
+
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!("FFmpeg export failed: {}", stderr));
+    }
+
+    Ok(out_str)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -344,7 +560,10 @@ pub fn run() {
             list_recordings,
             open_file_location,
             get_output_dir,
-            set_output_dir
+            set_output_dir,
+            get_video_metadata,
+            generate_thumbnails,
+            export_video
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

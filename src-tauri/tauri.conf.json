@@ -15,10 +15,11 @@
         "label": "main",
         "title": "Trace",
         "url": "/",
-        "width": 1000,
-        "height": 700,
+        "width": 1280,
+        "height": 800,
         "resizable": true,
         "fullscreen": false,
+        "maximizable": true,
         "decorations": true,
         "transparent": false,
         "center": true

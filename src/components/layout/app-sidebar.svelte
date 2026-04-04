@@ -43,21 +43,24 @@
       url: "/panel",
       title: "Trace Panel",
       width: 380,
-      height: 64,
-      center: true,
+      height: 50,
       decorations: false,
       transparent: true,
       alwaysOnTop: true,
       resizable: false,
+      focusable: true,
+      x: window.screen.availWidth / 2 - 380 / 2, // Center horizontally
+      y: window.screen.availHeight * 0.05, // Near top - adjust '0.95' for exact center-top
     });
 
     panelWin.once("tauri://error", (e) => console.error(e));
   }
+
+    let { ref = $bindable(null), ...restProps }: ComponentProps<typeof Sidebar.Root> = $props();
 </script>
 
-<Sidebar.Root
-  class="hidden w-70 flex-col border-r border-border bg-sidebar backdrop-blur-xl md:flex"
->
+<Sidebar.Root bind:ref variant="inset" {...restProps}>
+
   <Sidebar.Rail class="data-[state=collapsed]:hidden" />
   <Sidebar.Header>
     <Sidebar.MenuItem>

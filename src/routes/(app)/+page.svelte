@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { ExternalLink, Play, RefreshCw, Video } from "@lucide/svelte";
+    import { goto } from "$app/navigation";
+    import { ExternalLink, Pencil, Play, RefreshCw, Video } from "@lucide/svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
 
@@ -42,6 +43,11 @@
         await invoke("open_file_location", { path });
     }
 
+    function navigateToEditor(path: string) {
+        const encoded = btoa(encodeURIComponent(path));
+        goto(`/editor/${encoded}`);
+    }
+
     function formatSize(bytes: number) {
         if (bytes === 0) return "0 B";
         const k = 1024,
@@ -60,7 +66,7 @@
     }
 </script>
 
-<div class="mx-auto flex w-full max-w-5xl flex-1 flex-col p-10">
+<div class="mx-auto flex w-full flex-1 flex-col p-10">
     <div class="mb-8 flex items-end justify-between">
         <div>
             <h2 class="text-3xl font-semibold tracking-tight text-foreground">
@@ -135,14 +141,20 @@
                         />
 
                         <div
-                            class="absolute inset-0 bg-background/60 opacity-0 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100 flex items-center justify-center"
+                            class="absolute inset-0 bg-background/60 opacity-0 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100 flex items-center justify-center gap-2"
                         >
                             <button
-                                onclick={() => openLocation(item.path)}
-                                class="flex items-center gap-2 rounded-lg bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm ring-1 ring-border hover:bg-accent transition-all hover:scale-105 active:scale-95"
+                                onclick={() => navigateToEditor(item.path)}
+                                class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-all hover:scale-105 active:scale-95"
                             >
-                                <ExternalLink size={16} />
-                                Reveal File
+                                <Pencil size={16} />
+                                Edit
+                            </button>
+                            <button
+                                onclick={() => openLocation(item.path)}
+                                class="flex items-center gap-2 rounded-lg bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm ring-1 ring-border hover:bg-accent transition-all hover:scale-105 active:scale-95"
+                            >
+                                <ExternalLink size={14} />
                             </button>
                         </div>
                     </div>

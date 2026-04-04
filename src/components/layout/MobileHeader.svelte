@@ -4,9 +4,7 @@
   import { Hexagon } from "@lucide/svelte";
 </script>
 
-<header
-  class="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-border/40 bg-card/80 px-4 backdrop-blur-md md:hidden"
->
+<header class="flex h-16 items-center justify-between px-4">
   <a
     href="/"
     class="group flex items-center gap-3 transition-opacity hover:opacity-80"
