@@ -243,7 +243,7 @@
 		</div>
 
 		<!-- Right: Properties Panel -->
-		<div class="w-[280px] shrink-0">
+		<div class="w-96 shrink-0">
 			<PropertiesPanel {store} />
 		</div>
 	</div>
@@ -257,6 +257,11 @@
 			ontimeupdate={handleTimeUpdate}
 			onended={handleVideoEnded}
 			onloadedmetadata={handleVideoLoaded}
+			onerror={(e) => {
+				console.error("Video failed to load: ", e);
+				error = "Failed to load video.";
+				isLoading = false;
+			}}
 			class="hidden"
 			preload="auto"
 		></video>

@@ -59,7 +59,7 @@
   --dark: hsl(0deg 1.79% 21.96%);
   --dark-foreground: hsl(0deg 0% 92.16%);
   --ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
+  --radius: 0.45rem;
   --max-app-width: clamp(1280px, 80vw, 1920px);
 
   --sidebar: oklch(0.985 0 0);
@@ -332,8 +332,7 @@
     }
   }
 
-  --font-heading: 'Geist Variable',
-  sans-serif;
+  --font-heading: 'Geist Variable', sans-serif;
 
   --radius-2xl: calc(var(--radius) * 1.8);
 
@@ -401,6 +400,7 @@
   }
 
   /* Firefox scrollbar support */
+  /* Firefox scrollbar support */
   html {
     scroll-behavior: smooth;
     scrollbar-width: thin;
@@ -408,7 +408,7 @@
     font-family: var(--font-sans, 'Geist Variable', sans-serif);
   }
 
-  li:not([class]) {
+  li:has([class]) {
     list-style: none !important;
   }
 
@@ -464,9 +464,7 @@
     /* Firefox */
   }
 
-
   body {
-
 
     @apply bg-background text-foreground;
   }
