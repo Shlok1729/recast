@@ -12,36 +12,199 @@
 	let canvasEl: HTMLCanvasElement | undefined = $state();
 	let containerEl: HTMLDivElement | undefined = $state();
 	let bgImageEl: HTMLImageElement | undefined = $state();
+	let watermarkImageEl: HTMLImageElement | undefined = $state();
 	let animFrameId: number;
 
 	// Load background image when needed
-	let bgImageSrc = $state("");
 	let bgImageLoaded = $state(false);
+	let watermarkLoaded = $state(false);
+
+	type ParsedGradient = {
+		angle: number;
+		stops: Array<{ color: string; offset: number }>;
+	};
 
 	$effect(() => {
-		if (store.backgroundType === "wallpaper" && store.backgroundValue) {
-			bgImageSrc = store.backgroundValue;
+		if (
+			(store.backgroundType === "wallpaper" ||
+				store.backgroundType === "image") &&
+			store.backgroundValue
+		) {
 			bgImageLoaded = false;
 			const img = new Image();
 			img.onload = () => {
-				bgImageEl = img as any;
+				bgImageEl = img;
 				bgImageLoaded = true;
+			};
+			img.onerror = () => {
+				bgImageLoaded = false;
+				bgImageEl = undefined;
 			};
 			img.src = store.backgroundValue;
 		}
 	});
 
-	function getBackgroundStyle(): string {
-		switch (store.backgroundType) {
-			case "color":
-				return store.backgroundValue;
-			case "gradient":
-				return ""; // gradient is CSS, handled separately
-			case "wallpaper":
-			case "image":
-				return "#1a1a1a";
+	$effect(() => {
+		if (
+			store.watermarkSettings.enabled &&
+			store.watermarkSettings.imageSrc
+		) {
+			watermarkLoaded = false;
+			const img = new Image();
+			img.onload = () => {
+				watermarkImageEl = img;
+				watermarkLoaded = true;
+			};
+			img.onerror = () => {
+				watermarkLoaded = false;
+				watermarkImageEl = undefined;
+			};
+			img.src = store.watermarkSettings.imageSrc;
+			return;
+		}
+
+		watermarkLoaded = false;
+		watermarkImageEl = undefined;
+	});
+
+	function splitGradientArgs(input: string) {
+		const parts: string[] = [];
+		let current = "";
+		let depth = 0;
+
+		for (const char of input) {
+			if (char === "(") depth += 1;
+			if (char === ")") depth = Math.max(0, depth - 1);
+
+			if (char === "," && depth === 0) {
+				parts.push(current.trim());
+				current = "";
+				continue;
+			}
+
+			current += char;
+		}
+
+		if (current.trim()) {
+			parts.push(current.trim());
+		}
+
+		return parts;
+	}
+
+	function parseCssAngle(token: string) {
+		const trimmed = token.trim().toLowerCase();
+		if (trimmed.endsWith("deg")) {
+			return Number.parseFloat(trimmed.slice(0, -3));
+		}
+
+		switch (trimmed) {
+			case "to top":
+				return 0;
+			case "to right":
+				return 90;
+			case "to bottom":
+				return 180;
+			case "to left":
+				return 270;
 			default:
-				return "#000000";
+				return 135;
+		}
+	}
+
+	function parseLinearGradient(value: string): ParsedGradient | null {
+		const match = value.match(/linear-gradient\((.+)\)$/i);
+		if (!match) return null;
+
+		const parts = splitGradientArgs(match[1]);
+		if (parts.length < 2) return null;
+
+		const hasExplicitAngle =
+			parts[0].includes("deg") || parts[0].trim().toLowerCase().startsWith("to ");
+		const angle = hasExplicitAngle ? parseCssAngle(parts[0]) : 135;
+		const colorStops = (hasExplicitAngle ? parts.slice(1) : parts).map((part) => {
+			const stopMatch = part.match(/(.+?)\s+([0-9.]+)%$/);
+			return {
+				color: (stopMatch?.[1] ?? part).trim(),
+				offset: stopMatch ? Number.parseFloat(stopMatch[2]) / 100 : Number.NaN,
+			};
+		});
+
+		const resolvedStops = colorStops.map((stop, index, collection) => ({
+			color: stop.color,
+			offset:
+				Number.isFinite(stop.offset) && stop.offset >= 0
+					? stop.offset
+					: collection.length === 1
+						? 0
+						: index / (collection.length - 1),
+		}));
+
+		return {
+			angle,
+			stops: resolvedStops,
+		};
+	}
+
+	function createCanvasGradient(
+		ctx: CanvasRenderingContext2D,
+		width: number,
+		height: number,
+		gradientValue: string,
+	) {
+		const parsed = parseLinearGradient(gradientValue);
+		if (!parsed) return null;
+
+		const angleInRadians = ((parsed.angle - 90) * Math.PI) / 180;
+		const x = Math.cos(angleInRadians);
+		const y = Math.sin(angleInRadians);
+		const radius = Math.sqrt(width * width + height * height) / 2;
+		const centerX = width / 2;
+		const centerY = height / 2;
+
+		const gradient = ctx.createLinearGradient(
+			centerX - x * radius,
+			centerY - y * radius,
+			centerX + x * radius,
+			centerY + y * radius,
+		);
+
+		for (const stop of parsed.stops) {
+			gradient.addColorStop(Math.min(1, Math.max(0, stop.offset)), stop.color);
+		}
+
+		return gradient;
+	}
+
+	function getWatermarkPosition(
+		frameX: number,
+		frameY: number,
+		frameWidth: number,
+		frameHeight: number,
+		watermarkWidth: number,
+		watermarkHeight: number,
+	) {
+		const inset = store.watermarkSettings.inset;
+
+		switch (store.watermarkSettings.position) {
+			case "top-left":
+				return { x: frameX + inset, y: frameY + inset };
+			case "top-right":
+				return {
+					x: frameX + frameWidth - watermarkWidth - inset,
+					y: frameY + inset,
+				};
+			case "bottom-left":
+				return {
+					x: frameX + inset,
+					y: frameY + frameHeight - watermarkHeight - inset,
+				};
+			case "bottom-right":
+			default:
+				return {
+					x: frameX + frameWidth - watermarkWidth - inset,
+					y: frameY + frameHeight - watermarkHeight - inset,
+				};
 		}
 	}
 
@@ -65,7 +228,8 @@
 
 		// Draw background
 		if (
-			store.backgroundType === "wallpaper" &&
+			(store.backgroundType === "wallpaper" ||
+				store.backgroundType === "image") &&
 			bgImageEl &&
 			bgImageLoaded
 		) {
@@ -75,13 +239,13 @@
 				ctx.filter = `blur(${store.backgroundBlur / 5}px)`;
 			}
 			const scale = Math.max(
-				cw / (bgImageEl as HTMLImageElement).width,
-				ch / (bgImageEl as HTMLImageElement).height,
+				cw / bgImageEl.width,
+				ch / bgImageEl.height,
 			);
-			const iw = (bgImageEl as HTMLImageElement).width * scale;
-			const ih = (bgImageEl as HTMLImageElement).height * scale;
+			const iw = bgImageEl.width * scale;
+			const ih = bgImageEl.height * scale;
 			ctx.drawImage(
-				bgImageEl as HTMLImageElement,
+				bgImageEl,
 				(cw - iw) / 2,
 				(ch - ih) / 2,
 				iw,
@@ -92,14 +256,16 @@
 			ctx.fillStyle = store.backgroundValue;
 			ctx.fillRect(0, 0, cw, ch);
 		} else if (store.backgroundType === "gradient") {
-			// Parse CSS gradient to canvas gradient
-			ctx.fillStyle = "#1a1a2e";
-			ctx.fillRect(0, 0, cw, ch);
-			// Simple gradient fallback
-			const grad = ctx.createLinearGradient(0, 0, cw, ch);
-			grad.addColorStop(0, "#4facfe");
-			grad.addColorStop(1, "#00f2fe");
-			ctx.fillStyle = grad;
+			const gradient =
+				createCanvasGradient(ctx, cw, ch, store.backgroundValue) ??
+				createCanvasGradient(
+					ctx,
+					cw,
+					ch,
+					"linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+				);
+
+			ctx.fillStyle = gradient ?? "#1a1a2e";
 			ctx.fillRect(0, 0, cw, ch);
 		} else {
 			ctx.fillStyle = "#1a1a1a";
@@ -156,6 +322,41 @@
 				ctx.drawImage(videoEl, zx, zy, zw, zh, dx, dy, drawW, drawH);
 			} else {
 				ctx.drawImage(videoEl, dx, dy, drawW, drawH);
+			}
+
+			if (
+				store.watermarkSettings.enabled &&
+				watermarkLoaded &&
+				watermarkImageEl
+			) {
+				const watermarkWidth = Math.max(
+					24,
+					drawW * (store.watermarkSettings.scale / 100),
+				);
+				const watermarkHeight =
+					watermarkWidth * (watermarkImageEl.height / watermarkImageEl.width);
+				const { x, y } = getWatermarkPosition(
+					dx,
+					dy,
+					drawW,
+					drawH,
+					watermarkWidth,
+					watermarkHeight,
+				);
+
+				ctx.save();
+				ctx.globalAlpha = Math.min(
+					1,
+					Math.max(0.1, store.watermarkSettings.opacity / 100),
+				);
+				ctx.drawImage(
+					watermarkImageEl,
+					x,
+					y,
+					watermarkWidth,
+					watermarkHeight,
+				);
+				ctx.restore();
 			}
 
 			ctx.restore();

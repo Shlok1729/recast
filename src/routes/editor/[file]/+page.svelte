@@ -150,6 +150,8 @@
 				backgroundValue: store.backgroundValue,
 				backgroundBlur: store.backgroundBlur,
 				padding: store.padding,
+				audioSettings: store.audioSettings,
+				watermarkSettings: store.watermarkSettings,
 			});
 			console.log("Export complete:", result);
 			// Could show a toast here
@@ -168,6 +170,7 @@
 
 	// Keyboard shortcuts
 	function handleKeydown(e: KeyboardEvent) {
+		if (e.defaultPrevented) return;
 		if (
 			e.target instanceof HTMLInputElement ||
 			e.target instanceof HTMLTextAreaElement
@@ -225,6 +228,15 @@
 		loadedPath = data.filePath;
 		store.videoPath = data.filePath;
 		void loadVideo();
+	});
+
+	$effect(() => {
+		if (!videoEl) return;
+		videoEl.muted = store.audioSettings.muted;
+		videoEl.volume = Math.min(
+			1,
+			Math.max(0, store.audioSettings.volume / 100),
+		);
 	});
 </script>
 

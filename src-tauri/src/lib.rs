@@ -324,6 +324,99 @@ pub struct VideoMetadata {
     size_bytes: u64,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioSettingsPayload {
+    volume: f64,
+    muted: bool,
+    fade_in: f64,
+    fade_out: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WatermarkSettingsPayload {
+    enabled: bool,
+    image_path: String,
+    #[serde(rename = "imageSrc")]
+    _image_src: String,
+    opacity: f64,
+    scale: f64,
+    position: String,
+    inset: f64,
+}
+
+fn input_has_audio(path: &str) -> bool {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
+            path,
+        ])
+        .output();
+
+    match output {
+        Ok(result) if result.status.success() => {
+            !String::from_utf8_lossy(&result.stdout).trim().is_empty()
+        }
+        _ => false,
+    }
+}
+
+fn build_audio_filter(settings: &AudioSettingsPayload, duration: f64) -> Option<String> {
+    let mut filters: Vec<String> = Vec::new();
+
+    if settings.muted {
+        filters.push("volume=0".into());
+    } else if (settings.volume - 100.0).abs() > f64::EPSILON {
+        filters.push(format!("volume={:.3}", (settings.volume / 100.0).max(0.0)));
+    }
+
+    if settings.fade_in > 0.0 {
+        filters.push(format!("afade=t=in:st=0:d={:.3}", settings.fade_in));
+    }
+
+    if settings.fade_out > 0.0 {
+        let fade_start = (duration - settings.fade_out).max(0.0);
+        filters.push(format!(
+            "afade=t=out:st={:.3}:d={:.3}",
+            fade_start,
+            settings.fade_out
+        ));
+    }
+
+    if filters.is_empty() {
+        None
+    } else {
+        Some(filters.join(","))
+    }
+}
+
+fn get_watermark_overlay_position(position: &str, inset: f64) -> (String, String) {
+    let safe_inset = inset.max(0.0).round() as i64;
+    match position {
+        "top-left" => (safe_inset.to_string(), safe_inset.to_string()),
+        "top-right" => (
+            format!("main_w-overlay_w-{}", safe_inset),
+            safe_inset.to_string(),
+        ),
+        "bottom-left" => (
+            safe_inset.to_string(),
+            format!("main_h-overlay_h-{}", safe_inset),
+        ),
+        _ => (
+            format!("main_w-overlay_w-{}", safe_inset),
+            format!("main_h-overlay_h-{}", safe_inset),
+        ),
+    }
+}
+
 #[tauri::command]
 fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
     let file_path = Path::new(&path);
@@ -453,6 +546,8 @@ fn export_video(
     _background_value: String,
     _background_blur: f64,
     _padding: f64,
+    audio_settings: AudioSettingsPayload,
+    watermark_settings: WatermarkSettingsPayload,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let in_path = Path::new(&input_path);
@@ -478,6 +573,10 @@ fn export_video(
     let out_str = out_path.to_string_lossy().to_string();
 
     let duration = trim_end - trim_start;
+    let has_audio = format != "gif" && input_has_audio(&input_path);
+    let has_watermark = watermark_settings.enabled
+        && !watermark_settings.image_path.is_empty()
+        && Path::new(&watermark_settings.image_path).exists();
 
     let mut args: Vec<String> = vec![
         "-y".into(),
@@ -485,6 +584,54 @@ fn export_video(
         "-i".into(), input_path.clone(),
         "-t".into(), format!("{:.3}", duration),
     ];
+
+    if has_watermark {
+        args.extend([
+            "-i".into(),
+            watermark_settings.image_path.clone(),
+        ]);
+    }
+
+    if has_watermark {
+        let watermark_scale = (watermark_settings.scale / 100.0).clamp(0.05, 0.5);
+        let watermark_opacity = (watermark_settings.opacity / 100.0).clamp(0.1, 1.0);
+        let (overlay_x, overlay_y) = get_watermark_overlay_position(
+            &watermark_settings.position,
+            watermark_settings.inset,
+        );
+        let filter_complex = format!(
+            "[1:v][0:v]scale2ref=w=main_w*{:.4}:h=ow/mdar[wm][base];[wm]format=rgba,colorchannelmixer=aa={:.3}[wm_alpha];[base][wm_alpha]overlay=x={}:y={}[vout]",
+            watermark_scale,
+            watermark_opacity,
+            overlay_x,
+            overlay_y
+        );
+
+        args.extend([
+            "-filter_complex".into(),
+            filter_complex,
+            "-map".into(),
+            "[vout]".into(),
+        ]);
+    } else {
+        args.extend([
+            "-map".into(),
+            "0:v:0".into(),
+        ]);
+    }
+
+    if has_audio {
+        args.extend([
+            "-map".into(),
+            "0:a?".into(),
+        ]);
+        if let Some(audio_filter) = build_audio_filter(&audio_settings, duration) {
+            args.extend([
+                "-af".into(),
+                audio_filter,
+            ]);
+        }
+    }
 
     match format.as_str() {
         "gif" => {

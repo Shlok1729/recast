@@ -29,6 +29,34 @@ export interface CursorSettings {
 	idleTimeout: number; // seconds
 }
 
+export interface BackgroundSelection {
+	type: BackgroundType;
+	value: string;
+}
+
+export interface AudioSettings {
+	volume: number; // 0-100
+	muted: boolean;
+	fadeIn: number; // seconds
+	fadeOut: number; // seconds
+}
+
+export type WatermarkPosition =
+	| 'top-left'
+	| 'top-right'
+	| 'bottom-left'
+	| 'bottom-right';
+
+export interface WatermarkSettings {
+	enabled: boolean;
+	imagePath: string;
+	imageSrc: string;
+	opacity: number; // 0-100
+	scale: number; // 8-35 percent of frame width
+	position: WatermarkPosition;
+	inset: number; // pixels
+}
+
 export interface VideoMetadata {
 	duration: number;
 	width: number;
@@ -110,6 +138,25 @@ export function createEditorStore() {
 		idleTimeout: 3,
 	});
 
+	// Audio settings
+	let audioSettings = $state<AudioSettings>({
+		volume: 100,
+		muted: false,
+		fadeIn: 0,
+		fadeOut: 0,
+	});
+
+	// Watermark settings
+	let watermarkSettings = $state<WatermarkSettings>({
+		enabled: false,
+		imagePath: '',
+		imageSrc: '',
+		opacity: 70,
+		scale: 18,
+		position: 'bottom-right',
+		inset: 24,
+	});
+
 	// Export
 	let exportFormat = $state<ExportFormat>('mp4');
 	let exportProgress = $state<number | null>(null);
@@ -132,6 +179,8 @@ export function createEditorStore() {
 			trimEnd,
 			zoomRegions,
 			cursorSettings,
+			audioSettings,
+			watermarkSettings,
 			layoutMode,
 		});
 	}
@@ -167,12 +216,35 @@ export function createEditorStore() {
 		trimEnd = s.trimEnd;
 		zoomRegions = s.zoomRegions;
 		cursorSettings = s.cursorSettings;
+		audioSettings = s.audioSettings ?? audioSettings;
+		watermarkSettings = s.watermarkSettings ?? watermarkSettings;
 		layoutMode = s.layoutMode;
 	}
 
 	function addZoomRegion(start: number, end: number, scale = 1.5) {
 		pushUndoState();
 		zoomRegions = [...zoomRegions, { id: generateId(), start, end, scale }];
+	}
+
+	function setBackground(selection: BackgroundSelection) {
+		const hasChanged =
+			backgroundType !== selection.type || backgroundValue !== selection.value;
+		if (!hasChanged) return;
+		pushUndoState();
+		backgroundType = selection.type;
+		backgroundValue = selection.value;
+	}
+
+	function updateCursorSettings(updates: Partial<CursorSettings>) {
+		cursorSettings = { ...cursorSettings, ...updates };
+	}
+
+	function updateAudioSettings(updates: Partial<AudioSettings>) {
+		audioSettings = { ...audioSettings, ...updates };
+	}
+
+	function updateWatermarkSettings(updates: Partial<WatermarkSettings>) {
+		watermarkSettings = { ...watermarkSettings, ...updates };
 	}
 
 	function removeZoomRegion(id: string) {
@@ -204,6 +276,21 @@ export function createEditorStore() {
 			highlightOpacity: 40,
 			hideWhenIdle: false,
 			idleTimeout: 3,
+		};
+		audioSettings = {
+			volume: 100,
+			muted: false,
+			fadeIn: 0,
+			fadeOut: 0,
+		};
+		watermarkSettings = {
+			enabled: false,
+			imagePath: '',
+			imageSrc: '',
+			opacity: 70,
+			scale: 18,
+			position: 'bottom-right',
+			inset: 24,
 		};
 		undoStack = [];
 		redoStack = [];
@@ -252,6 +339,12 @@ export function createEditorStore() {
 		get cursorSettings() { return cursorSettings; },
 		set cursorSettings(v: CursorSettings) { cursorSettings = v; },
 
+		get audioSettings() { return audioSettings; },
+		set audioSettings(v: AudioSettings) { audioSettings = v; },
+
+		get watermarkSettings() { return watermarkSettings; },
+		set watermarkSettings(v: WatermarkSettings) { watermarkSettings = v; },
+
 		get exportFormat() { return exportFormat; },
 		set exportFormat(v: ExportFormat) { exportFormat = v; },
 
@@ -271,6 +364,10 @@ export function createEditorStore() {
 		undo,
 		redo,
 		pushUndoState,
+		setBackground,
+		updateCursorSettings,
+		updateAudioSettings,
+		updateWatermarkSettings,
 		addZoomRegion,
 		removeZoomRegion,
 		updateZoomRegion,
