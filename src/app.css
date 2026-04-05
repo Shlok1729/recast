@@ -59,7 +59,7 @@
   --dark: hsl(0deg 1.79% 21.96%);
   --dark-foreground: hsl(0deg 0% 92.16%);
   --ring: oklch(0.708 0 0);
-  --radius: 0.45rem;
+  --radius: 0.625rem;
   --max-app-width: clamp(1280px, 80vw, 1920px);
 
   --sidebar: oklch(0.985 0 0);
@@ -400,7 +400,6 @@
   }
 
   /* Firefox scrollbar support */
-  /* Firefox scrollbar support */
   html {
     scroll-behavior: smooth;
     scrollbar-width: thin;
@@ -411,7 +410,6 @@
   li:has([class]) {
     list-style: none !important;
   }
-
   button:not(:disabled),
   [role="button"]:not(:disabled),
   a {

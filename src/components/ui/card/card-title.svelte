@@ -7,17 +7,13 @@
 		class: className,
 		children,
 		...restProps
-	}: WithElementRef<HTMLAttributes<HTMLElement>> = $props();
+	}: WithElementRef<HTMLAttributes<HTMLDivElement>> = $props();
 </script>
 
 <div
 	bind:this={ref}
-	data-slot="sidebar-content"
-	data-sidebar="content"
-	class={cn(
-		"no-scrollbar gap-0 flex min-h-0 flex-1 flex-col overflow-auto group-data-[collapsible=icon]:overflow-hidden",
-		className
-	)}
+	data-slot="card-title"
+	class={cn("font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm", className)}
 	{...restProps}
 >
 	{@render children?.()}
