@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { ButtonGroup } from "$components/ui/button-group";
-  import Button from "$components/ui/button/button.svelte";
+  import * as Tabs from "$components/ui/tabs";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import { ImageIcon, MousePointer } from "@lucide/svelte";
   import BackgroundPicker from "./BackgroundPicker.svelte";
@@ -36,8 +35,6 @@
 
   let { store }: Props = $props();
 
-  let activeTab = $state<PanelTab>("background");
-
   function formatDuration(seconds: number | undefined) {
     if (!seconds || seconds <= 0) return "--:--";
     const totalSeconds = Math.round(seconds);
@@ -58,11 +55,9 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 flex-col border-l border-border/80 bg-linear-to-b from-card via-card/95 to-background/95 backdrop-blur-sm"
+  class="flex h-full min-h-0 flex-col bg-linear-to-b from-card via-card/95 to-background/95 backdrop-blur-sm"
 >
-  <div
-    class="shrink-0 border-b border-border/70 px-4 py-3"
-  >
+  <div class="shrink-0 border-b border-border/70 px-4 py-3">
     <div class="flex items-start justify-between gap-3">
       <h3 class="pt-1 text-sm font-semibold text-foreground">Properties</h3>
       <div class="flex flex-wrap items-center justify-end gap-1.5">
@@ -84,29 +79,31 @@
       </div>
     </div>
   </div>
-  <ButtonGroup class="mx-4 mt-2">
-    {#each tabs as tab}
-      {@const Icon = tab.icon}
-      <Button
-        type="button"
-        onclick={() => (activeTab = tab.id)}
-        aria-pressed={activeTab === tab.id}
-        title={tab.hint}
-        variant={activeTab === tab.id ? "default_soft" : "outline"}
+  <Tabs.Root value={tabs[0].id} class="p-2 pt-4">
+    <Tabs.List class="w-full">
+      {#each tabs as tab}
+        {@const Icon = tab.icon}
+        <Tabs.Trigger value={tab.id}>
+          <Icon size={14} />
+          {tab.label}
+        </Tabs.Trigger>
+      {/each}
+    </Tabs.List>
+    <Tabs.Content value="background">
+      <div
+        class="custom-scrollbar min-h-0 h-full flex-1 overflow-y-auto px-4 py-3"
       >
-        <Icon size={14} />
-        {tab.label}
-      </Button>
-    {/each}
-  </ButtonGroup>
-
-  <div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-3">
-    {#if activeTab === "background"}
-      <BackgroundPicker {store} />
-    {:else}
-      <CursorPanel {store} />
-    {/if}
-  </div>
+        <BackgroundPicker {store} />
+      </div>
+    </Tabs.Content>
+    <Tabs.Content value="cursor">
+      <div
+        class="custom-scrollbar min-h-0 h-full flex-1 overflow-y-auto px-4 py-3"
+      >
+        <CursorPanel {store} />
+      </div>
+    </Tabs.Content>
+  </Tabs.Root>
 </div>
 
 <style>
