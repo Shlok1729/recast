@@ -105,20 +105,20 @@
 </div>
 
 <style>
-  .custom-scrollbar::-webkit-scrollbar {
+  :global(.custom-scrollbar)::-webkit-scrollbar {
     width: 6px;
   }
 
-  .custom-scrollbar::-webkit-scrollbar-track {
+  :global(.custom-scrollbar)::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  .custom-scrollbar::-webkit-scrollbar-thumb {
+  :global(.custom-scrollbar)::-webkit-scrollbar-thumb {
     background: rgba(120, 120, 128, 0.35);
     border-radius: 999px;
   }
 
-  .custom-scrollbar {
+  :global(.custom-scrollbar) {
     scrollbar-width: thin;
     scrollbar-color: rgba(120, 120, 128, 0.35) transparent;
   }

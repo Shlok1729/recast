@@ -6,6 +6,7 @@
       "dependencies": {
         "@fontsource-variable/google-sans": "^5.2.1",
         "@lucide/svelte": "^0.577.0",
+        "@tauri-apps/plugin-os": "^2.3.2",
         "@tauri-controls-v2/svelte": "^0.4.4",
         "bits-ui": "^2.16.3",
         "mode-watcher": "^1.1.0",
@@ -240,6 +241,8 @@
     "@tauri-apps/cli-win32-ia32-msvc": ["@tauri-apps/cli-win32-ia32-msvc@2.10.1", "", { "os": "win32", "cpu": "ia32" }, "sha512-gXyxgEzsFegmnWywYU5pEBURkcFN/Oo45EAwvZrHMh+zUSEAvO5E8TXsgPADYm31d1u7OQU3O3HsYfVBf2moHw=="],
 
     "@tauri-apps/cli-win32-x64-msvc": ["@tauri-apps/cli-win32-x64-msvc@2.10.1", "", { "os": "win32", "cpu": "x64" }, "sha512-6Cn7YpPFwzChy0ERz6djKEmUehWrYlM+xTaNzGPgZocw3BD7OfwfWHKVWxXzdjEW2KfKkHddfdxK1XXTYqBRLg=="],
+
+    "@tauri-apps/plugin-os": ["@tauri-apps/plugin-os@2.3.2", "", { "dependencies": { "@tauri-apps/api": "^2.8.0" } }, "sha512-n+nXWeuSeF9wcEsSPmRnBEGrRgOy6jjkSU+UVCOV8YUGKb2erhDOxis7IqRXiRVHhY8XMKks00BJ0OAdkpf6+A=="],
 
     "@tauri-controls-v2/svelte": ["@tauri-controls-v2/svelte@0.4.4", "", { "peerDependencies": { "clsx": "^2.1.1", "svelte": "^5.0.0", "tailwind-merge": "^3.0.1" } }, "sha512-ggDIzqWyTWHl3oHAGRk2bgmIS8XDlrwe2kxRnMno5ZdcKwo+6T8Hb0zsu2oVngnI/m9HlzFWFLqssbNSVUEKJA=="],
 

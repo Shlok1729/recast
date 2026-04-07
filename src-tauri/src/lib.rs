@@ -33,6 +33,7 @@ pub fn run() {
                 )?;
             }
             app.handle().plugin(tauri_plugin_dialog::init())?;
+            app.handle().plugin(tauri_plugin_os::init())?;
 
             // Startup: clean up stale temp files and orphaned session artifacts.
             let state = app.state::<AppState>();

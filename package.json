@@ -39,6 +39,7 @@
 	"dependencies": {
 		"@fontsource-variable/google-sans": "^5.2.1",
 		"@lucide/svelte": "^0.577.0",
+		"@tauri-apps/plugin-os": "^2.3.2",
 		"@tauri-controls-v2/svelte": "^0.4.4",
 		"bits-ui": "^2.16.3",
 		"mode-watcher": "^1.1.0",
