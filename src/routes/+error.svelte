@@ -1,14 +1,16 @@
 <script lang="ts">
     import { page } from "$app/stores";
+    import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
+    import { config } from "$constants/app";
     import "@fontsource-variable/google-sans";
 
     import {
-        AlertTriangle,
-        ArrowLeft,
-        Construction,
-        FileQuestion,
-        Home,
-        RefreshCcw,
+      AlertTriangle,
+      ArrowLeft,
+      Construction,
+      FileQuestion,
+      Home,
+      RefreshCcw,
     } from "@lucide/svelte";
 
     // Derived state for error details
@@ -34,6 +36,11 @@
     }
 </script>
 
+    <CustomTitlebar>
+      <div class="flex items-center gap-2 px-3 h-full" data-tauri-drag-region>
+        <span class="text-sm font-semibold text-foreground">{config.appName}</span>
+      </div>
+    </CustomTitlebar>
 <div
     class="relative min-h-screen w-full flex items-center justify-center overflow-hidden"
 >

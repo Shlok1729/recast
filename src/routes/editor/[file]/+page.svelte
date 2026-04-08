@@ -19,6 +19,7 @@
   import type { VideoMetadata } from "$lib/stores/editor-store.svelte";
   import { createEditorStore } from "$lib/stores/editor-store.svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { onDestroy, tick } from "svelte";
 
   interface Props {
@@ -234,18 +235,22 @@
     store.isExporting = true;
     store.exportProgress = 0;
 
+    const unlisten = await listen<number>("export-progress", (event) => {
+      store.exportProgress = event.payload;
+    });
+
     try {
-      const result = await exportVideo(
+      await exportVideo(
         documentPath || data.filePath,
         store.exportFormat,
         store.exportQuality,
         store.toRenderState(),
       );
-      console.log("Export complete:", result);
     } catch (err) {
       console.error("Export failed:", err);
       alert(`Export failed: ${err}`);
     } finally {
+      unlisten();
       store.isExporting = false;
       store.exportProgress = null;
     }

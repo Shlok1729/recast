@@ -122,8 +122,12 @@ export function stopRecording(): Promise<string> {
 	return invoke<string>("stop_recording");
 }
 
-export function listRecordings(): Promise<RecordingEntry[]> {
-	return invoke<RecordingEntry[]>("list_recordings");
+export function listRecasts(): Promise<RecordingEntry[]> {
+	return invoke<RecordingEntry[]>("list_recasts");
+}
+
+export function listExports(): Promise<RecordingEntry[]> {
+	return invoke<RecordingEntry[]>("list_exports");
 }
 
 //  Editor commands 

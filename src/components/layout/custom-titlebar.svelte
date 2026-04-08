@@ -1,14 +1,17 @@
 <script lang="ts">
   import { isTauriApp } from "$lib/runtime/tauri";
+  import { cn } from "$lib/utils";
   import { Minus, Square, X } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import { onMount } from "svelte";
 
   interface Props {
     children?: Snippet;
+    class?: string;
+    wrapperClass?: string;
   }
 
-  let { children }: Props = $props();
+  let { children, class: className, wrapperClass }: Props = $props();
   let isTauri = $state(false);
   let isMaximized = $state(false);
 
@@ -54,10 +57,10 @@
 </script>
 
 <div
-  class="h-10 flex items-center border-b border-border bg-background shrink-0 select-none"
+  class={cn("h-10 flex items-center border-b border-border bg-background shrink-0 select-none", wrapperClass)}
 >
   <!-- Drag region: only the content area, not the window controls -->
-  <div class="flex-1 flex items-center min-w-0 h-full" data-tauri-drag-region>
+  <div class={cn("flex-1 flex items-center min-w-0 h-full", className)} data-tauri-drag-region>
     {#if children}
       {@render children()}
     {/if}

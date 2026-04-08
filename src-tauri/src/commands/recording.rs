@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 
 use tauri::State;
 
@@ -9,6 +10,18 @@ use crate::project::writer::{ProjectWriteRequest, write_project};
 use crate::project::{ProjectMetadata, ProjectVideoMetadata};
 use crate::recording::{CaptureTarget, RecordingOptions};
 use crate::render::graph::RenderState;
+
+fn recasts_dir(state: &State<'_, AppState>) -> PathBuf {
+    let dir = get_active_output_dir(state).join("recasts");
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+fn exports_dir(state: &State<'_, AppState>) -> PathBuf {
+    let dir = get_active_output_dir(state).join("exports");
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
 
 #[tauri::command]
 pub fn start_recording(
@@ -28,8 +41,9 @@ pub fn start_recording(
 #[tauri::command]
 pub fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
     let artifacts = state.recording_manager.stop().map_err(|e| e.to_string())?;
-    let final_path = get_active_output_dir(&state).join(format!(
-        "recast_recording_{}.recast",
+    let dest = recasts_dir(&state);
+    let final_path = dest.join(format!(
+        "recast_{}.recast",
         artifacts.started_at_unix_ms
     ));
     let recording_meta = probe_video_metadata(&artifacts.recording_path)?;
@@ -39,16 +53,8 @@ pub fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
         capture_target: artifacts.capture_target.clone(),
         stats: artifacts.stats.clone(),
         video: ProjectVideoMetadata {
-            width: if recording_meta.width > 0 {
-                recording_meta.width
-            } else {
-                artifacts.capture_target.crop.width
-            },
-            height: if recording_meta.height > 0 {
-                recording_meta.height
-            } else {
-                artifacts.capture_target.crop.height
-            },
+            width: if recording_meta.width > 0 { recording_meta.width } else { artifacts.capture_target.crop.width },
+            height: if recording_meta.height > 0 { recording_meta.height } else { artifacts.capture_target.crop.height },
             fps: recording_meta.fps.round().max(1.0) as u32,
             duration_ms: artifacts.stats.duration_ms,
         },
@@ -77,24 +83,34 @@ pub fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn list_recordings(state: State<'_, AppState>) -> Result<Vec<RecordingEntry>, String> {
-    let dir_path = get_active_output_dir(&state);
-    let mut entries = Vec::new();
+pub fn list_recasts(state: State<'_, AppState>) -> Result<Vec<RecordingEntry>, String> {
+    list_files_by_ext(&recasts_dir(&state), "recast")
+}
 
-    for entry in fs::read_dir(&dir_path)
-        .map_err(|e| e.to_string())?
-        .flatten()
-    {
+#[tauri::command]
+pub fn list_exports(state: State<'_, AppState>) -> Result<Vec<RecordingEntry>, String> {
+    let dir = exports_dir(&state);
+    let mut entries = Vec::new();
+    for ext in &["mp4", "webm", "gif"] {
+        entries.extend(list_files_by_ext(&dir, ext).unwrap_or_default());
+    }
+    entries.sort_by(|a, b| b.created.cmp(&a.created));
+    Ok(entries)
+}
+
+fn list_files_by_ext(dir: &PathBuf, ext: &str) -> Result<Vec<RecordingEntry>, String> {
+    let mut entries = Vec::new();
+    let read = match fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return Ok(entries),
+    };
+
+    for entry in read.flatten() {
         let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        let extension = path
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default();
-        if !matches!(extension, "recast" | "mp4") {
+        let file_ext = path.extension().and_then(|v| v.to_str()).unwrap_or_default();
+        if file_ext != ext {
             continue;
         }
-
         if let Ok(meta) = entry.metadata() {
             let created = meta
                 .modified()
@@ -103,14 +119,13 @@ pub fn list_recordings(state: State<'_, AppState>) -> Result<Vec<RecordingEntry>
                 .unwrap_or_default()
                 .as_secs();
             entries.push(RecordingEntry {
-                filename: name,
+                filename: entry.file_name().to_string_lossy().to_string(),
                 path: path.to_string_lossy().to_string(),
                 size_bytes: meta.len(),
                 created,
             });
         }
     }
-
     entries.sort_by(|a, b| b.created.cmp(&a.created));
     Ok(entries)
 }

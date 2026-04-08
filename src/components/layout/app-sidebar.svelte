@@ -6,26 +6,16 @@
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
   import { Button } from "$components/ui/button";
-  import { Hexagon, LayoutDashboard, Radio, Settings, SlidersHorizontal } from "@lucide/svelte";
+  import { Download, Film, Hexagon, LayoutDashboard, Radio, Settings, SlidersHorizontal } from "@lucide/svelte";
   import type { ComponentProps } from "svelte";
 
   let currentPath = $derived(page.url.pathname);
   const navLinks = [
-    {
-      title: "Dashboard",
-      href: "/",
-      icon: LayoutDashboard,
-    },
-    {
-      title: "Profiles",
-      href: "/profiles",
-      icon: SlidersHorizontal,
-    },
-    {
-      title: "Settings",
-      href: "/settings",
-      icon: Settings,
-    },
+    { title: "Home", href: "/", icon: LayoutDashboard },
+    { title: "Recasts", href: "/recasts", icon: Film },
+    { title: "Exports", href: "/exports", icon: Download },
+    { title: "Profiles", href: "/profiles", icon: SlidersHorizontal },
+    { title: "Settings", href: "/settings", icon: Settings },
   ];
   // Helper for active state checking
   function isActive(path: string) {

@@ -1,10 +1,11 @@
 use std::env;
 use std::fs;
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use base64::{Engine as _, engine::general_purpose};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use super::ffmpeg::{
     append_output_filters_to_complex, build_output_scale_filter, has_audio, probe_video_metadata,
@@ -186,7 +187,11 @@ pub fn generate_thumbnails(path: String, count: u32) -> Result<Vec<String>, Stri
 }
 
 #[tauri::command]
-pub fn export_video(request: ExportRequest, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn export_video(
+    app: AppHandle,
+    request: ExportRequest,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
     let input_path = PathBuf::from(&request.input_path);
     let project = open_project_if_needed(&input_path)?;
     let source_video = project
@@ -202,7 +207,8 @@ pub fn export_video(request: ExportRequest, state: State<'_, AppState>) -> Resul
     let duration = (trim_end - trim_start).max(0.0);
     let profile = resolve_export_profile(&request.quality);
     let output_scale_filter = build_output_scale_filter(profile);
-    let output_dir = get_active_output_dir(&state);
+    let output_dir = get_active_output_dir(&state).join("exports");
+    let _ = std::fs::create_dir_all(&output_dir);
     let extension = match request.format.as_str() {
         "gif" => "gif",
         "webm" => "webm",
@@ -358,18 +364,53 @@ pub fn export_video(request: ExportRequest, state: State<'_, AppState>) -> Resul
         }
     }
 
-    let output = Command::new(crate::ffmpeg::ffmpeg_path())
-        .args(&args)
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Add progress reporting: FFmpeg writes progress to stderr with -progress pipe:1
+    args.extend(["-progress".to_string(), "pipe:1".to_string()]);
 
-    if !output.status.success() {
-        return Err(format!(
-            "export failed:\n{}",
-            summarize_ffmpeg_error(&output.stderr)
-        ));
-    }
-    Ok(output_path.to_string_lossy().to_string())
+    let output_path_str = output_path.to_string_lossy().to_string();
+    let output_path_clone = output_path_str.clone();
+
+    // Spawn FFmpeg in a background thread so the UI stays responsive
+    let result = tokio::task::spawn_blocking(move || {
+        let mut child = Command::new(crate::ffmpeg::ffmpeg_path())
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("failed to start ffmpeg: {e}"))?;
+
+        // Read stdout for progress updates (FFmpeg -progress pipe:1)
+        if let Some(stdout) = child.stdout.take() {
+            let reader = std::io::BufReader::new(stdout);
+            for line in reader.lines().map_while(Result::ok) {
+                if let Some(time_str) = line.strip_prefix("out_time_us=") {
+                    if let Ok(time_us) = time_str.trim().parse::<f64>() {
+                        let progress_secs = time_us / 1_000_000.0;
+                        let pct = if duration > 0.0 {
+                            (progress_secs / duration * 100.0).clamp(0.0, 100.0)
+                        } else {
+                            0.0
+                        };
+                        let _ = app.emit("export-progress", pct);
+                    }
+                }
+            }
+        }
+
+        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+
+        if !output.status.success() {
+            return Err(format!("export failed:\n{}", summarize_ffmpeg_error(&output.stderr)));
+        }
+
+        let _ = app.emit("export-progress", 100.0_f64);
+        Ok(output_path_clone)
+    })
+    .await
+    .map_err(|e| format!("export task failed: {e}"))?;
+
+    result
 }
 
 #[tauri::command]
