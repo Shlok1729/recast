@@ -33,7 +33,7 @@ pub fn decode_frame_at(video_path: &Path, timestamp: f64, max_width: Option<u32>
         "-".to_string(),
     ]);
 
-    let output = Command::new("ffmpeg")
+    let output = Command::new(crate::ffmpeg::ffmpeg_path())
         .args(&args)
         .output()
         .map_err(|e| format!("failed to run ffmpeg: {e}"))?;
@@ -69,7 +69,7 @@ pub fn decode_frame_at(video_path: &Path, timestamp: f64, max_width: Option<u32>
 
 /// Probe video dimensions, accounting for optional max_width scaling.
 fn probe_frame_dimensions(video_path: &Path, max_width: Option<u32>) -> Result<(u32, u32), String> {
-    let output = Command::new("ffprobe")
+    let output = Command::new(crate::ffmpeg::ffprobe_path())
         .args([
             "-v", "error",
             "-select_streams", "v:0",

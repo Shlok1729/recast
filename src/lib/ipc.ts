@@ -8,8 +8,8 @@
  * - Better IDE autocomplete
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
+import { invoke } from "@tauri-apps/api/core";
 
 // ── Types matching Rust structs ─────────────────────────────────────────
 
@@ -59,7 +59,7 @@ export interface AutosaveState {
 	editsJson: string;
 }
 
-// ── System commands ─────────────────────────────────────────────────────
+//  System commands
 
 export function getOutputDir(): Promise<string> {
 	return invoke<string>("get_output_dir");
@@ -81,7 +81,7 @@ export function openFileLocation(path: string): Promise<void> {
 	return invoke("open_file_location", { path });
 }
 
-// ── Recording commands ──────────────────────────────────────────────────
+//  Recording commands 
 
 export function startRecording(targetType: string, targetId: number): Promise<void> {
 	return invoke("start_recording", { targetType, targetId });
@@ -95,7 +95,7 @@ export function listRecordings(): Promise<RecordingEntry[]> {
 	return invoke<RecordingEntry[]>("list_recordings");
 }
 
-// ── Editor commands ─────────────────────────────────────────────────────
+//  Editor commands 
 
 export function loadEditorDocument(path: string): Promise<EditorDocument> {
 	return invoke<EditorDocument>("load_editor_document", { path });
@@ -130,7 +130,7 @@ export function exportVideo(
 	});
 }
 
-// ── Autosave / Recovery commands ────────────────────────────────────────
+//  Autosave / Recovery commands 
 
 export function autosaveProject(projectPath: string, editsJson: string): Promise<void> {
 	return invoke("autosave_project", { projectPath, editsJson });

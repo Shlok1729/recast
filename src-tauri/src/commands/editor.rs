@@ -152,7 +152,7 @@ pub fn generate_thumbnails(path: String, count: u32) -> Result<Vec<String>, Stri
     for index in 0..count {
         let timestamp = index as f64 * interval;
         let thumb_path = temp_dir.join(format!("thumb-{index}.jpg"));
-        let result = Command::new("ffmpeg")
+        let result = Command::new(crate::ffmpeg::ffmpeg_path())
             .args([
                 "-y",
                 "-ss",
@@ -358,7 +358,7 @@ pub fn export_video(request: ExportRequest, state: State<'_, AppState>) -> Resul
         }
     }
 
-    let output = Command::new("ffmpeg")
+    let output = Command::new(crate::ffmpeg::ffmpeg_path())
         .args(&args)
         .output()
         .map_err(|e| e.to_string())?;

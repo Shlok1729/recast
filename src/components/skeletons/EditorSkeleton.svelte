@@ -16,7 +16,7 @@
 
     <!-- Preview area -->
     <div class="flex-1 flex items-center justify-center p-6">
-      <Skeleton class="w-full max-w-[900px] aspect-video rounded-[24px]" />
+      <Skeleton class="w-full max-w-225 aspect-video rounded-[24px]" />
     </div>
 
     <!-- Playback controls -->

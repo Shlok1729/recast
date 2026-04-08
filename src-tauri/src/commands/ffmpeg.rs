@@ -7,6 +7,7 @@ use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
 
 use super::types::{ExportProfile, VideoMetadata, THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH};
+use crate::ffmpeg::ffprobe_path;
 
 pub fn resolve_export_profile(quality: &str) -> ExportProfile {
     match quality {
@@ -106,7 +107,7 @@ pub fn probe_video_metadata(path: &Path) -> Result<VideoMetadata, String> {
 
     let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or_default();
     let path_string = path.to_string_lossy().to_string();
-    let output = Command::new("ffprobe")
+    let output = Command::new(ffprobe_path())
         .args([
             "-v",
             "quiet",
@@ -182,7 +183,7 @@ pub fn probe_video_metadata(path: &Path) -> Result<VideoMetadata, String> {
 }
 
 pub fn has_audio(path: &Path) -> bool {
-    let output = Command::new("ffprobe")
+    let output = Command::new(ffprobe_path())
         .args([
             "-v",
             "error",

@@ -3,6 +3,7 @@
     import { emit, listen } from "@tauri-apps/api/event";
     import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
     import { getCurrentWindow } from "@tauri-apps/api/window";
+    import { Monitor, AppWindow as AppWindowIcon, X, ChevronDown } from "@lucide/svelte";
     import { onMount } from "svelte";
 
     type TargetSource = {
@@ -15,10 +16,9 @@
     let isRecording = $state(false);
     let recordingStartTime: number | null = $state(null);
     let now = $state(Date.now());
-    let timerInterval: number;
 
     onMount(() => {
-        timerInterval = window.setInterval(() => {
+        const timer = window.setInterval(() => {
             if (isRecording) now = Date.now();
         }, 1000);
 
@@ -26,6 +26,7 @@
             selectedSource = event.payload;
         });
 
+        // Non-blocking display fetch
         getDisplays()
             .then((displays) => {
                 if (displays.length > 0 && !selectedSource) {
@@ -33,53 +34,49 @@
                     selectedSource = {
                         type: "monitor",
                         id: d.id,
-                        label: d.isPrimary ? "Primary Display" : `Display 1`,
+                        label: d.isPrimary ? "Primary Display" : `Display ${d.id}`,
                     };
                 }
             })
             .catch(() => {});
 
         return () => {
-            window.clearInterval(timerInterval);
+            window.clearInterval(timer);
             unlisten.then((fn) => fn());
         };
     });
 
-    async function openSourceSelector() {
+    function openSourceSelector() {
         if (isRecording) return;
-        const existing = await WebviewWindow.getByLabel("source-selector");
-        if (existing) {
-            await existing.setFocus();
-            return;
-        }
-        const selectorWin = new WebviewWindow("source-selector", {
-            url: "/select",
-            title: "Select Source — Recast",
-            width: 660,
-            height: 500,
-            center: true,
-            decorations: false,
-            resizable: false,
+        WebviewWindow.getByLabel("source-selector").then(async (existing) => {
+            if (existing) {
+                await existing.setFocus();
+                return;
+            }
+            const win = new WebviewWindow("source-selector", {
+                url: "/select",
+                title: "Select Source",
+                width: 560,
+                height: 440,
+                center: true,
+                decorations: false,
+                resizable: false,
+            });
+            win.once("tauri://error", (e) => console.error(e));
         });
-        selectorWin.once("tauri://error", (e) => console.error(e));
     }
 
-    async function closeApp() {
-        await getCurrentWindow().close();
+    function closePanel() {
+        getCurrentWindow().close();
     }
 
     async function toggleRecording() {
         if (isRecording) {
             try {
-                const filePath = await stopRecording();
+                await stopRecording();
                 isRecording = false;
                 recordingStartTime = null;
-                // toast.success("Recording saved successfully!", {
-                //     description: filePath,
-                // });
-                console.log("Saved:", filePath);
-                // Also trigger main window to refresh recordings if it's open
-                await emit("refresh-recordings");
+                emit("refresh-recordings");
             } catch (e) {
                 alert(`Stop failed: ${e}\n\nMake sure ffmpeg is installed.`);
             }
@@ -91,86 +88,80 @@
                 now = Date.now();
                 recordingStartTime = now;
             } catch (e) {
-                alert(
-                    `Start failed: ${e}\n\nMake sure ffmpeg is installed and available in PATH.`,
-                );
+                alert(`Recording failed: ${e}`);
             }
         }
     }
 
-    let elapsed = $derived(
+    const elapsed = $derived(
         isRecording && recordingStartTime
             ? Math.floor((now - recordingStartTime) / 1000)
             : 0,
     );
-    let timer = $derived(
-        `${Math.floor(elapsed / 60)
-            .toString()
-            .padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`,
+    const timer = $derived(
+        `${Math.floor(elapsed / 60).toString().padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`,
     );
 </script>
 
 <div
-    class="w-full h-screen rounded-[12px] flex items-center gap-2 px-3 bg-card border text-foreground font-sans shadow-lg overflow-hidden"
+    class="h-full w-full flex items-center gap-1.5 px-3 rounded-full bg-neutral-900/95 backdrop-blur-2xl text-white shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.06)] overflow-hidden select-none"
     data-tauri-drag-region
 >
-    <!-- Window controls (just close the panel) -->
-    <div class="flex items-center gap-1.5 shrink-0">
-        <button
-            onclick={closeApp}
-            class="w-3.5 h-3.5 rounded-full bg-red-500 opacity-75 hover:opacity-100 transition-opacity"
-            title="Close Panel"
-            aria-label="Close"
-        ></button>
-    </div>
+    <!-- Record button -->
+    <button
+        onclick={toggleRecording}
+        onmousedown={(e) => e.stopPropagation()}
+        class="size-6 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 active:scale-90
+            {isRecording
+            ? 'bg-red-500 hover:bg-red-400'
+            : 'bg-linear-to-br from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400'}"
+        title={isRecording ? "Stop Recording" : "Start Recording"}
+    >
+        {#if isRecording}
+            <div class="size-2 rounded-sm bg-white"></div>
+        {:else}
+            <div class="size-2 rounded-full bg-white"></div>
+        {/if}
+    </button>
 
     <!-- Divider -->
-    <div class="w-px h-5 bg-border/80 shrink-0 mx-0.5"></div>
+    <div class="w-px h-3.5 bg-white/10 shrink-0"></div>
 
-    <!-- Status + Source -->
-    <div class="flex items-center gap-2 flex-1 min-w-0" data-tauri-drag-region>
-        <div
-            class="w-2 h-2 rounded-full shrink-0 {isRecording
-                ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse'
-                : 'bg-emerald-500 shadow-[0_0_6px_rgba(52,211,153,0.4)]'}"
-        ></div>
-        <button
-            disabled={isRecording}
-            onclick={openSourceSelector}
-            class="truncate text-left text-[13px] font-medium transition-opacity hover:opacity-70 disabled:opacity-40 min-w-0"
-        >
-            {selectedSource?.label ?? "Select Source"}
-        </button>
-    </div>
+    <!-- Source selector -->
+    <button
+        disabled={isRecording}
+        onclick={openSourceSelector}
+        onmousedown={(e) => e.stopPropagation()}
+        class="flex items-center gap-1.5 min-w-0 px-1.5 py-1 rounded-md transition-colors hover:bg-white/8 disabled:opacity-40 disabled:pointer-events-none"
+    >
+        {#if selectedSource?.type === "window"}
+            <AppWindowIcon size={12} strokeWidth={2} class="shrink-0 text-white/50" />
+        {:else}
+            <Monitor size={12} strokeWidth={2} class="shrink-0 text-white/50" />
+        {/if}
+        <span class="text-[11px] font-medium text-white/80 truncate max-w-28">
+            {selectedSource?.label ?? "Select source"}
+        </span>
+        {#if !isRecording}
+            <ChevronDown size={10} class="shrink-0 text-white/30" />
+        {/if}
+    </button>
 
     <!-- Timer -->
     <span
-        class="font-mono text-[12px] tabular-nums tracking-widest text-neutral-500 dark:text-neutral-400 shrink-0 w-11 text-right"
+        class="font-mono text-[11px] tabular-nums text-white/40 shrink-0 ml-auto"
         data-tauri-drag-region
     >
         {timer}
     </span>
 
-    <!-- Divider -->
-    <div class="w-px h-5 bg-black/10 dark:bg-white/10 shrink-0 mx-1"></div>
-
-    <!-- Record -->
+    <!-- Close -->
     <button
-        onclick={toggleRecording}
-        class="w-8 h-8 rounded-full flex items-center justify-center border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors shrink-0 {isRecording
-            ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20'
-            : ''}"
-        title={isRecording ? "Stop" : "Record"}
-        aria-label={isRecording ? "Stop" : "Record"}
+        onclick={closePanel}
+        onmousedown={(e) => e.stopPropagation()}
+        class="size-5 rounded-full flex items-center justify-center text-white/25 hover:text-white/60 hover:bg-white/8 transition-colors shrink-0"
+        title="Close"
     >
-        {#if isRecording}
-            <div
-                class="w-2.5 h-2.5 rounded-[2px] bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]"
-            ></div>
-        {:else}
-            <div
-                class="w-3.5 h-3.5 rounded-full bg-linear-to-br from-violet-500 to-fuchsia-500 shadow-[0_0_8px_rgba(139,92,246,0.3)]"
-            ></div>
-        {/if}
+        <X size={11} strokeWidth={2.5} />
     </button>
 </div>

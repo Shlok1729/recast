@@ -3,6 +3,7 @@ mod capture;
 mod commands;
 mod cursor;
 mod encoder;
+pub mod ffmpeg;
 mod project;
 mod recording;
 mod render;
@@ -34,6 +35,11 @@ pub fn run() {
             }
             app.handle().plugin(tauri_plugin_dialog::init())?;
             app.handle().plugin(tauri_plugin_os::init())?;
+
+            // Check FFmpeg availability at startup.
+            if let Err(e) = ffmpeg::check_availability() {
+                log::warn!("FFmpeg not available: {e}");
+            }
 
             // Startup: clean up stale temp files and orphaned session artifacts.
             let state = app.state::<AppState>();

@@ -17,24 +17,37 @@
     if (isTauri) {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       isMaximized = await getCurrentWindow().isMaximized();
-      // Listen for maximize/unmaximize changes.
       getCurrentWindow().onResized(async () => {
         isMaximized = await getCurrentWindow().isMaximized();
       });
     }
   });
 
-  async function minimize() {
+  async function handleMinimize(e: MouseEvent) {
+    e.stopPropagation();
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow().minimize();
   }
 
-  async function toggleMaximize() {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().toggleMaximize();
+  async function handleToggleMaximize(e: MouseEvent) {
+    e.stopPropagation();
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const win = getCurrentWindow();
+      const maximized = await win.isMaximized();
+      if (maximized) {
+        await win.unmaximize();
+      } else {
+        await win.maximize();
+      }
+      isMaximized = !maximized;
+    } catch (err) {
+      console.error("Toggle maximize failed:", err);
+    }
   }
 
-  async function close() {
+  async function handleClose(e: MouseEvent) {
+    e.stopPropagation();
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow().close();
   }
@@ -42,30 +55,34 @@
 
 <div
   class="h-10 flex items-center border-b border-border bg-background shrink-0 select-none"
-  data-tauri-drag-region
 >
+  <!-- Drag region: only the content area, not the window controls -->
   <div class="flex-1 flex items-center min-w-0 h-full" data-tauri-drag-region>
     {#if children}
       {@render children()}
     {/if}
   </div>
 
+  <!-- Window controls: outside the drag region so clicks aren't intercepted -->
   {#if isTauri}
     <div class="shrink-0 flex items-center h-full">
       <button
-        onclick={minimize}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={handleMinimize}
         class="h-full w-11 flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
         aria-label="Minimize"
+        title="Minimize"
       >
         <Minus size={14} strokeWidth={1.5} />
       </button>
       <button
-        onclick={toggleMaximize}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={handleToggleMaximize}
         class="h-full w-11 flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
         aria-label={isMaximized ? "Restore" : "Maximize"}
+        title={isMaximized ? "Restore" : "Maximize"}
       >
         {#if isMaximized}
-          <!-- Restore icon: two overlapping squares -->
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2">
             <rect x="3" y="0.5" width="9" height="9" rx="1.5" />
             <rect x="0.5" y="3" width="9" height="9" rx="1.5" />
@@ -75,9 +92,11 @@
         {/if}
       </button>
       <button
-        onclick={close}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={handleClose}
         class="h-full w-11 flex items-center justify-center text-muted-foreground hover:bg-red-500 hover:text-white transition-colors"
         aria-label="Close"
+        title="Close"
       >
         <X size={15} strokeWidth={1.5} />
       </button>

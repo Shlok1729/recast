@@ -23,7 +23,7 @@ pub struct EncoderConfig {
 /// Detect the best available H.264 encoder on the system.
 /// Prefers hardware encoders (nvenc) and falls back to libx264.
 fn preferred_encoder() -> &'static str {
-    let output = Command::new("ffmpeg")
+    let output = Command::new(crate::ffmpeg::ffmpeg_path())
         .args(["-hide_banner", "-encoders"])
         .output();
 
@@ -109,7 +109,7 @@ pub fn spawn_encoder_loop(
 
             args.push(config.output_path.to_string_lossy().to_string());
 
-            let mut child = Command::new("ffmpeg")
+            let mut child = Command::new(crate::ffmpeg::ffmpeg_path())
                 .args(&args)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())

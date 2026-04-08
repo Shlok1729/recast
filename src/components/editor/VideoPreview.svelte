@@ -7,26 +7,28 @@
 		previewSrc: string;
 		fallbackSrc: string;
 		isRendering: boolean;
+		hasEffects: boolean;
 	}
 
-	let { store, previewSrc, fallbackSrc, isRendering }: Props = $props();
+	let { store, previewSrc, fallbackSrc, isRendering, hasEffects }: Props = $props();
 
-	const activeSrc = $derived(previewSrc || fallbackSrc);
+	const showRenderedPreview = $derived(hasEffects && !!previewSrc);
+	const activeSrc = $derived(showRenderedPreview ? previewSrc : fallbackSrc);
 </script>
 
 <div class="relative flex h-full w-full max-w-[1120px] items-center justify-center overflow-hidden rounded-[24px] border border-border/60 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_42%),linear-gradient(180deg,rgba(10,14,23,0.96),rgba(5,7,12,0.98))] shadow-[0_18px_60px_rgba(0,0,0,0.35),0_0_40px_rgba(59,130,246,0.12)]">
 	{#if activeSrc}
 		<img
-			in:fade={{ duration: 180 }}
+			in:fade={{ duration: 150 }}
 			src={activeSrc}
-			alt="Rendered preview"
+			alt="Preview"
 			class="max-h-full max-w-full object-contain"
 			draggable="false"
 		/>
 	{:else}
 		<div class="flex h-full w-full items-center justify-center">
 			<div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70 backdrop-blur-sm">
-				Preview is being prepared
+				Loading preview...
 			</div>
 		</div>
 	{/if}

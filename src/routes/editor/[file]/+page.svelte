@@ -46,6 +46,16 @@
   let thumbnailToken = 0;
   let lastPreviewKey = "";
 
+  // Detect if effects are active that require backend rendering.
+  // Plain playback uses the video element directly (instant).
+  const hasEffects = $derived(
+    store.padding > 0 ||
+    store.backgroundType !== "color" ||
+    store.backgroundValue !== "#111111" ||
+    (store.cursorSettings?.enabled ?? false) ||
+    (store.zoomRegions?.length ?? 0) > 0,
+  );
+
   // Autosave: save edit state every 30 seconds while editing.
   const AUTOSAVE_INTERVAL_MS = 30_000;
   let autosaveTimer: ReturnType<typeof setInterval> | null = null;
@@ -104,13 +114,24 @@
 
   async function renderPreview(force = false) {
     if (!documentPath) return;
+
     const previewTime = store.isPlaying
       ? Math.round(store.currentTime * 8) / 8
       : store.currentTime;
+
+    // When no effects are active, just seek the video element — instant.
+    if (!hasEffects) {
+      previewSrc = "";
+      if (videoEl && !store.isPlaying) {
+        videoEl.currentTime = previewTime;
+      }
+      return;
+    }
+
+    // Effects active: render through native pipeline (debounced).
     const renderState = store.toRenderState();
     const previewKey = `${documentPath}|${previewTime.toFixed(3)}|${JSON.stringify(renderState)}`;
     if (!force && previewKey === lastPreviewKey) return;
-
     if (isRenderingPreview && !force) return;
 
     lastPreviewKey = previewKey;
@@ -358,6 +379,7 @@
             {previewSrc}
             fallbackSrc={previewFallbackSrc}
             isRendering={isRenderingPreview}
+            hasEffects={hasEffects}
           />
         </div>
 
@@ -372,6 +394,7 @@
     </div>
   {/if}
 
+  <!-- Hidden video element: always present so it can load during skeleton phase -->
   {#if videoSrc}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
@@ -383,9 +406,10 @@
       onloadeddata={handleVideoReady}
       oncanplay={handleVideoReady}
       onerror={handleVideoError}
-      class="pointer-events-none absolute -z-10 opacity-0"
+      class="pointer-events-none absolute -z-10 h-0 w-0 opacity-0"
       playsinline
       preload="auto"
+      muted
     ></video>
   {/if}
 

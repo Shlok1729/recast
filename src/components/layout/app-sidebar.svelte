@@ -2,16 +2,14 @@
   import { page } from "$app/state";
   import SearchCommandMenu from "$components/layout/SearchCommandMenu.svelte";
   import * as Sidebar from "$components/ui/sidebar";
-  import { isTauriApp } from "$lib/runtime/tauri";
   import { cn } from "$lib/utils";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
   import { Button } from "$components/ui/button";
   import { Hexagon, LayoutDashboard, Radio, Settings } from "@lucide/svelte";
-  import { onMount, type ComponentProps } from "svelte";
-  // Derived state for reactivity
+  import type { ComponentProps } from "svelte";
+
   let currentPath = $derived(page.url.pathname);
-  let isTauri = $state(false);
   const navLinks = [
     {
       title: "Dashboard",
@@ -28,10 +26,6 @@
   function isActive(path: string) {
     return currentPath.endsWith(path);
   }
-  onMount(async () => {
-    isTauri = await isTauriApp();
-  });
-
   async function launchRecordingPanel() {
     const existing = await WebviewWindow.getByLabel("recording-panel");
     if (existing) {
@@ -39,18 +33,20 @@
       return;
     }
 
+    const panelWidth = 360;
+    const panelHeight = 44;
     const panelWin = new WebviewWindow("recording-panel", {
       url: "/panel",
       title: "Recast Panel",
-      width: 380,
-      height: 50,
+      width: panelWidth,
+      height: panelHeight,
       decorations: false,
       transparent: true,
       alwaysOnTop: true,
       resizable: false,
-      focusable: true,
-      x: window.screen.availWidth / 2 - 380 / 2, // Center horizontally
-      y: window.screen.availHeight * 0.05, // Near top - adjust '0.95' for exact center-top
+      skipTaskbar: true,
+      x: Math.round(window.screen.availWidth / 2 - panelWidth / 2),
+      y: window.screen.availHeight - panelHeight - 40,
     });
 
     panelWin.once("tauri://error", (e) => console.error(e));
@@ -59,7 +55,7 @@
     let { ref = $bindable(null), ...restProps }: ComponentProps<typeof Sidebar.Root> = $props();
 </script>
 
-<Sidebar.Root bind:ref variant="inset" {...restProps}>
+<Sidebar.Root bind:ref variant="sidebar" {...restProps}>
 
   <Sidebar.Rail class="data-[state=collapsed]:hidden" />
   <Sidebar.Header>
