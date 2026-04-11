@@ -93,6 +93,7 @@ pub struct ExportProfile {
     pub max_height: Option<u32>,
     pub mp4_crf: u32,
     pub mp4_preset: &'static str,
+    pub mp4_nvenc_cq: u32,
     pub webm_crf: u32,
     pub gif_fps: u32,
 }

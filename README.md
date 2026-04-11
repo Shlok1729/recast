@@ -10,10 +10,9 @@ Recast is a high-performance open-source screen recording tool with integrated e
 
 ## Screenshots
 
-*(Add screenshots of your application here)*
 
-![Screenshot 1 Placeholder](./static/screenshots/1.png)
-![Screenshot 2 Placeholder](./static/screenshots/2.png)
+![Screenshot 1 Placeholder](./assets/screenshots/preview_homescreen.png)
+![Screenshot 2 Placeholder](./assets/screenshots/preview_profiles.png)
 
 ## Developing
 

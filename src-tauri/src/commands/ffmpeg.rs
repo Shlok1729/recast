@@ -16,6 +16,7 @@ pub fn resolve_export_profile(quality: &str) -> ExportProfile {
             max_height: Some(720),
             mp4_crf: 28,
             mp4_preset: "veryfast",
+            mp4_nvenc_cq: 32,
             webm_crf: 34,
             gif_fps: 12,
         },
@@ -24,6 +25,7 @@ pub fn resolve_export_profile(quality: &str) -> ExportProfile {
             max_height: Some(2160),
             mp4_crf: 18,
             mp4_preset: "slow",
+            mp4_nvenc_cq: 22,
             webm_crf: 24,
             gif_fps: 18,
         },
@@ -32,6 +34,7 @@ pub fn resolve_export_profile(quality: &str) -> ExportProfile {
             max_height: None,
             mp4_crf: 20,
             mp4_preset: "slow",
+            mp4_nvenc_cq: 24,
             webm_crf: 28,
             gif_fps: 18,
         },
@@ -40,6 +43,7 @@ pub fn resolve_export_profile(quality: &str) -> ExportProfile {
             max_height: Some(1080),
             mp4_crf: 22,
             mp4_preset: "medium",
+            mp4_nvenc_cq: 26,
             webm_crf: 30,
             gif_fps: 15,
         },
@@ -74,6 +78,32 @@ pub fn append_output_filters_to_complex(
         ),
         final_label.to_string(),
     )
+}
+
+/// Append a cursor overlay stage to an existing filter_complex string.
+/// Takes the current `video_map` label (e.g. "[vout]" or "0:v:0") and the
+/// FFmpeg input index of the cursor overlay video, and returns the new
+/// filter_complex string + the new video_map label.
+pub fn append_cursor_overlay_to_complex(
+    filter_complex: Option<&str>,
+    current_video_map: &str,
+    cursor_input_index: usize,
+) -> (String, String) {
+    let out_label = "[vcursor]";
+    let normalized_current = if current_video_map.starts_with('[') {
+        current_video_map.to_string()
+    } else {
+        format!("[{current_video_map}]")
+    };
+    let new_complex = match filter_complex {
+        Some(existing) if !existing.is_empty() => format!(
+            "{existing};{normalized_current}[{cursor_input_index}:v]overlay=0:0:format=auto{out_label}"
+        ),
+        _ => format!(
+            "{normalized_current}[{cursor_input_index}:v]overlay=0:0:format=auto{out_label}"
+        ),
+    };
+    (new_complex, out_label.to_string())
 }
 
 pub fn summarize_ffmpeg_error(stderr: &[u8]) -> String {

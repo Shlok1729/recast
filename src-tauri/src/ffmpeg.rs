@@ -72,6 +72,34 @@ pub fn ffprobe_path() -> &'static PathBuf {
     &resolve().ffprobe
 }
 
+/// Detect the best available H.264 encoder on the system.
+/// Prefers hardware NVENC when available, falling back to libx264.
+/// Cached for the process lifetime — `ffmpeg -encoders` costs ~200–300ms cold.
+pub fn preferred_h264_encoder() -> &'static str {
+    static CACHED: OnceLock<&'static str> = OnceLock::new();
+    CACHED.get_or_init(|| {
+        let output = Command::new(ffmpeg_path())
+            .args(["-hide_banner", "-encoders"])
+            .output();
+        match output {
+            Ok(result) if result.status.success() => {
+                let encoders = String::from_utf8_lossy(&result.stdout);
+                if encoders.contains("h264_nvenc") {
+                    log::info!("preferred H.264 encoder: h264_nvenc");
+                    "h264_nvenc"
+                } else {
+                    log::info!("preferred H.264 encoder: libx264 (no hardware encoder detected)");
+                    "libx264"
+                }
+            }
+            _ => {
+                log::warn!("failed to probe ffmpeg encoders, defaulting to libx264");
+                "libx264"
+            }
+        }
+    })
+}
+
 /// Check if ffmpeg is available. Returns an error message if not.
 pub fn check_availability() -> Result<(), String> {
     let output = Command::new(ffmpeg_path())

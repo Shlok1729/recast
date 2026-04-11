@@ -402,6 +402,7 @@ void main() {
 	}
 
 	// ── Render ───────────────────────────────────────────────────────────
+	let loggedTexError = false;
 	function uploadVideoFrame() {
 		if (!gl || !videoTex || !videoEl) return false;
 		if (videoEl.readyState < 2 /* HAVE_CURRENT_DATA */) return false;
@@ -410,7 +411,18 @@ void main() {
 		gl.bindTexture(gl.TEXTURE_2D, videoTex);
 		// texImage2D from a video element is hardware-accelerated by the browser
 		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, videoEl);
+		try {
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, videoEl);
+		} catch (err) {
+			if (!loggedTexError) {
+				loggedTexError = true;
+				console.error(
+					`WebGL texImage2D failed for video (src=${videoEl.currentSrc || videoEl.src}):`,
+					err,
+				);
+			}
+			return false;
+		}
 		return true;
 	}
 
@@ -640,6 +652,7 @@ void main() {
 		<video
 			bind:this={videoEl}
 			src={videoSrc}
+			crossorigin="anonymous"
 			ontimeupdate={onTimeUpdate}
 			onended={onEnded}
 			onloadedmetadata={onLoadedMetadata}

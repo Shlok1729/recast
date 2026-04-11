@@ -20,26 +20,6 @@ pub struct EncoderConfig {
     pub output_path: PathBuf,
 }
 
-/// Detect the best available H.264 encoder on the system.
-/// Prefers hardware encoders (nvenc) and falls back to libx264.
-fn preferred_encoder() -> &'static str {
-    let output = Command::new(crate::ffmpeg::ffmpeg_path())
-        .args(["-hide_banner", "-encoders"])
-        .output();
-
-    match output {
-        Ok(result) if result.status.success() => {
-            let encoders = String::from_utf8_lossy(&result.stdout);
-            if encoders.contains("h264_nvenc") {
-                "h264_nvenc"
-            } else {
-                "libx264"
-            }
-        }
-        _ => "libx264",
-    }
-}
-
 fn build_video_filter(crop: Option<CaptureArea>) -> Option<String> {
     crop.map(|area| {
         format!(
@@ -62,7 +42,7 @@ pub fn spawn_encoder_loop(
     thread::Builder::new()
         .name("recast-encoder".into())
         .spawn(move || {
-            let encoder = preferred_encoder();
+            let encoder = crate::ffmpeg::preferred_h264_encoder();
             let mut args = vec![
                 "-y".to_string(),
                 "-f".to_string(),
