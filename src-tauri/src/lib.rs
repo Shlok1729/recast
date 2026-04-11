@@ -9,6 +9,9 @@ mod project;
 mod recording;
 mod render;
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use commands::types::AppState;
 use commands::system::load_config;
 use parking_lot::Mutex;
@@ -25,6 +28,7 @@ pub fn run() {
                 recording_manager: RecordingManager::default(),
                 last_file_path: Mutex::new(None),
                 config: Mutex::new(config),
+                export_cancel: Arc::new(AtomicBool::new(false)),
             });
 
             if cfg!(debug_assertions) {
@@ -67,6 +71,7 @@ pub fn run() {
             commands::load_editor_document,
             commands::generate_thumbnails,
             commands::export_video,
+            commands::cancel_export,
             commands::get_audio_devices,
             commands::get_camera_devices,
             commands::autosave_project,

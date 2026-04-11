@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use serde::{Deserialize, Serialize};
 
 use crate::render::graph::RenderState;
@@ -102,4 +105,7 @@ pub struct AppState {
     pub recording_manager: crate::recording::RecordingManager,
     pub last_file_path: parking_lot::Mutex<Option<String>>,
     pub config: parking_lot::Mutex<AppConfig>,
+    /// Set by `cancel_export` to signal a running export to abort its ffmpeg child process.
+    /// Reset to `false` at the start of every export run.
+    pub export_cancel: Arc<AtomicBool>,
 }

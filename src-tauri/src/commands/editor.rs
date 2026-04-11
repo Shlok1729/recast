@@ -171,6 +171,11 @@ pub async fn export_video(
     request: ExportRequest,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    // Reset the cancellation flag at the start of every run. A stale `true` from a
+    // prior cancel would otherwise kill this run immediately.
+    state.export_cancel.store(false, Ordering::Release);
+    let cancel_flag = state.export_cancel.clone();
+
     let input_path = PathBuf::from(&request.input_path);
     let project = open_project_if_needed(&input_path)?;
     let source_video = project
@@ -491,10 +496,14 @@ pub async fn export_video(
         // Watchdog state: last time we saw a progress line.
         let last_progress = Arc::new(Mutex::new(Instant::now()));
         let killed_by_timeout = Arc::new(AtomicBool::new(false));
+        let killed_by_user = Arc::new(AtomicBool::new(false));
 
-        // Spawn the watchdog thread. It kills the child if 60s pass with no progress.
+        // Spawn the watchdog thread. It kills the child if 60s pass with no progress
+        // OR if the user-facing cancel flag in AppState flips to true.
         let watchdog_last_progress = last_progress.clone();
         let watchdog_killed = killed_by_timeout.clone();
+        let watchdog_cancel_flag = cancel_flag.clone();
+        let watchdog_user_kill = killed_by_user.clone();
         let watchdog_stop = Arc::new(AtomicBool::new(false));
         let watchdog_stop_flag = watchdog_stop.clone();
         // Share the child with the watchdog via a mutex so it can call kill().
@@ -504,9 +513,21 @@ pub async fn export_video(
             .name("recast-export-watchdog".into())
             .spawn(move || {
                 const TIMEOUT: Duration = Duration::from_secs(60);
+                // Poll more frequently so cancellation feels responsive (≤250 ms).
+                const POLL_INTERVAL: Duration = Duration::from_millis(250);
                 while !watchdog_stop_flag.load(Ordering::Acquire) {
-                    std::thread::sleep(Duration::from_secs(2));
+                    std::thread::sleep(POLL_INTERVAL);
                     if watchdog_stop_flag.load(Ordering::Acquire) {
+                        return;
+                    }
+                    // User-requested cancellation takes priority over the stall watchdog.
+                    if watchdog_cancel_flag.load(Ordering::Acquire) {
+                        let mut guard = watchdog_child.lock();
+                        if let Some(ref mut child) = *guard {
+                            log::info!("export cancel: killing ffmpeg process on user request");
+                            let _ = child.kill();
+                            watchdog_user_kill.store(true, Ordering::Release);
+                        }
                         return;
                     }
                     let elapsed = {
@@ -560,7 +581,15 @@ pub async fn export_video(
         .ok_or_else(|| "ffmpeg child handle missing".to_string())?;
         let status = child.wait().map_err(|e| e.to_string())?;
 
+        if killed_by_user.load(Ordering::Acquire) {
+            // Clean up the half-written output file so the exports list doesn't
+            // show a broken artifact from the aborted run.
+            let _ = std::fs::remove_file(&output_path_str);
+            return Err("export cancelled".to_string());
+        }
+
         if killed_by_timeout.load(Ordering::Acquire) {
+            let _ = std::fs::remove_file(&output_path_str);
             return Err(
                 "export timed out: ffmpeg produced no progress for 60s".to_string(),
             );
@@ -568,6 +597,7 @@ pub async fn export_video(
 
         if !status.success() {
             let stderr_bytes = stderr_buf.lock().clone();
+            let _ = std::fs::remove_file(&output_path_str);
             return Err(format!(
                 "export failed:\n{}",
                 summarize_ffmpeg_error(&stderr_bytes)
@@ -585,6 +615,16 @@ pub async fn export_video(
     drop(cursor_overlay);
 
     result
+}
+
+/// Signal any running export to abort. The watchdog thread polls this flag every
+/// ~250ms and kills the ffmpeg child process, which causes `export_video` to
+/// return `Err("export cancelled")`. Safe to call when no export is running
+/// (the flag just gets reset at the start of the next run).
+#[tauri::command]
+pub fn cancel_export(state: State<'_, AppState>) -> Result<(), String> {
+    state.export_cancel.store(true, Ordering::Release);
+    Ok(())
 }
 
 #[tauri::command]
