@@ -77,7 +77,7 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (actionPanelOpen) return;
-		// ⌘K / Ctrl+K opens action panel for selected item
+		// ⌘ + K / Ctrl+K opens action panel for selected item
 		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
 			if (selectedItem && activeActions.length > 0) {
 				e.preventDefault();
@@ -103,7 +103,7 @@
 		);
 		input?.focus();
 
-		// First-visit hint: show a one-time banner teaching ⌘K. Dismissed forever on close.
+		// First-visit hint: show a one-time banner teaching ⌘ + K. Dismissed forever on close.
 		try {
 			if (localStorage.getItem(KBD_HINT_KEY) !== "true") {
 				showKbdHint = true;
@@ -167,7 +167,7 @@
 				<span class="text-muted-foreground">select a row and press</span>
 				<kbd
 					class="mx-0.5 rounded border border-primary/30 bg-background px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary"
-					>⌘K</kbd
+					>⌘ + K</kbd
 				>
 				<span class="text-muted-foreground">to see all actions</span>
 			</p>
@@ -209,14 +209,7 @@
 							onSelect={() => runPrimary(item)}
 							class="group/recast-item h-9 gap-3 rounded-md px-2"
 						>
-							{#if item.iconImage}
-								<img
-									src={item.iconImage}
-									alt=""
-									class="size-5 shrink-0 rounded object-cover"
-									draggable="false"
-								/>
-							{:else if Icon}
+							{#if Icon}
 								<span
 									class={cn(
 										"flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground",
@@ -225,6 +218,14 @@
 								>
 									<Icon size={14} />
 								</span>
+							
+							{:else if item.iconImage}
+									<img
+									src={item.iconImage}
+									alt=""
+									class="size-5 shrink-0 rounded object-cover"
+									draggable="false"
+								/>
 							{/if}
 
 							<div class="flex min-w-0 flex-1 items-baseline gap-2">
@@ -237,7 +238,19 @@
 									</span>
 								{/if}
 							</div>
-
+							<!--
+								Per-row ⌘ + K chip: only visible on the currently selected row
+								when actions are available. Teaches the shortcut in place.
+							-->
+							{#if item.actions && item.actions.length > 0 && selectedValue === item.id}
+								<span
+									class="inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary"
+									aria-hidden="true"
+								>
+									<CommandIcon size={10} strokeWidth={2.5} />
+									K
+								</span>
+							{/if}
 							{#if item.accessories && item.accessories.length > 0}
 								<div class="flex shrink-0 items-center gap-1.5">
 									{#each item.accessories as accessory}
@@ -260,19 +273,7 @@
 								</div>
 							{/if}
 
-							<!--
-								Per-row ⌘K chip: only visible on the currently selected row
-								when actions are available. Teaches the shortcut in place.
-							-->
-							{#if item.actions && item.actions.length > 0 && selectedValue === item.id}
-								<span
-									class="inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary"
-									aria-hidden="true"
-								>
-									<CommandIcon size={10} strokeWidth={2.5} />
-									K
-								</span>
-							{/if}
+
 						</Command.Item>
 					{/each}
 				</Command.Group>

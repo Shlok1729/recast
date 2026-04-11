@@ -76,6 +76,7 @@ export interface EditorRenderState {
 	backgroundValue: string;
 	backgroundBlur: number;
 	padding: number;
+	borderRadius: number;
 	cursorEnabled: boolean;
 	cursorSize: number;
 	cursorSmoothing: number;
@@ -146,6 +147,7 @@ export function createEditorStore() {
 	let backgroundValue = $state(WALLPAPERS[0].src);
 	let backgroundBlur = $state(40);
 	let padding = $state(32);
+	let borderRadius = $state(0); // 0..50 (% of shorter video edge)
 
 	// Layout
 	let layoutMode = $state<LayoutMode>('auto');
@@ -203,6 +205,7 @@ export function createEditorStore() {
 			backgroundValue,
 			backgroundBlur,
 			padding,
+			borderRadius,
 			trimStart,
 			trimEnd,
 			zoomRegions,
@@ -242,6 +245,7 @@ export function createEditorStore() {
 		backgroundValue = s.backgroundValue;
 		backgroundBlur = s.backgroundBlur;
 		padding = s.padding;
+		borderRadius = s.borderRadius ?? 0;
 		trimStart = s.trimStart;
 		trimEnd = s.trimEnd;
 		zoomRegions = s.zoomRegions;
@@ -295,6 +299,7 @@ export function createEditorStore() {
 		backgroundValue = WALLPAPERS[0].src;
 		backgroundBlur = 40;
 		padding = 32;
+		borderRadius = 0;
 		layoutMode = 'auto';
 		zoomRegions = [];
 		cursorSettings = {
@@ -335,6 +340,7 @@ export function createEditorStore() {
 			backgroundValue,
 			backgroundBlur,
 			padding,
+			borderRadius,
 			cursorEnabled: cursorSettings.enabled,
 			cursorSize: cursorSettings.size,
 			cursorSmoothing: cursorSettings.smoothing,
@@ -358,6 +364,7 @@ export function createEditorStore() {
 		backgroundValue = state.backgroundValue ?? '#111111';
 		backgroundBlur = state.backgroundBlur ?? 0;
 		padding = state.padding ?? 0;
+		borderRadius = state.borderRadius ?? 0;
 		cursorSettings = {
 			...cursorSettings,
 			enabled: state.cursorEnabled ?? cursorSettings.enabled,
@@ -416,6 +423,9 @@ export function createEditorStore() {
 
 		get padding() { return padding; },
 		set padding(v: number) { padding = v; },
+
+		get borderRadius() { return borderRadius; },
+		set borderRadius(v: number) { borderRadius = v; },
 
 		get layoutMode() { return layoutMode; },
 		set layoutMode(v: LayoutMode) { pushUndoState(); layoutMode = v; },

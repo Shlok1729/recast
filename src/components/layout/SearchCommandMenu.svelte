@@ -19,7 +19,7 @@
 
   function handleGlobalKeydown(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-      // Don't fire if a RecastList already handles ⌘K
+      // Don't fire if a RecastList already handles ⌘ + K
       const target = e.target as HTMLElement | null;
       if (target?.closest("[data-recast-list]")) return;
       e.preventDefault();
@@ -45,7 +45,7 @@
 <Button
   onclick={() => commandPalette.show()}
   aria-label="Open Command Menu"
-  title="Open Command Menu (⌘K)"
+  title="Open Command Menu (⌘ + K)"
   variant="secondary"
   size={iconOnly ? "icon-sm" : "sm"}
   class={cn(

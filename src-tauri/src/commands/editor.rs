@@ -433,8 +433,15 @@ pub async fn export_video(
         }
     }
 
-    // Add progress reporting: FFmpeg writes progress to stdout with -progress pipe:1
-    args.extend(["-progress".to_string(), "pipe:1".to_string()]);
+    // Add progress reporting: FFmpeg writes progress to stdout with -progress pipe:1.
+    // `-stats_period 0.1` forces updates every 100ms so the UI can transition from
+    // "Preparing…" to the determinate bar almost immediately after encoding starts.
+    args.extend([
+        "-progress".to_string(),
+        "pipe:1".to_string(),
+        "-stats_period".to_string(),
+        "0.1".to_string(),
+    ]);
 
     let output_path_str = output_path.to_string_lossy().to_string();
 

@@ -12,23 +12,6 @@
 	aria-hidden={!active}
 >
 	{#if active}
-		<div class="recast-top-progress h-full w-1/3 bg-primary"></div>
+		<div class="animate-recast-indeterminate h-full w-1/3 rounded-full bg-primary"></div>
 	{/if}
 </div>
-
-<style>
-	.recast-top-progress {
-		animation: recast-top-progress 1.1s ease-in-out infinite;
-	}
-	@keyframes recast-top-progress {
-		0% {
-			transform: translateX(-100%);
-		}
-		60% {
-			transform: translateX(220%);
-		}
-		100% {
-			transform: translateX(220%);
-		}
-	}
-</style>

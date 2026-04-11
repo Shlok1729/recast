@@ -14,6 +14,10 @@ pub struct RenderState {
     pub background_value: String,
     pub background_blur: f64,
     pub padding: f64,
+    /// Corner rounding as a percentage (0..50) of the shorter video edge.
+    /// Currently used in the preview shader only; export applies square corners.
+    #[serde(default)]
+    pub border_radius: f64,
     pub cursor_enabled: bool,
     pub cursor_size: f64,
     pub cursor_smoothing: f64,
@@ -34,6 +38,7 @@ impl Default for RenderState {
             background_value: "#111111".into(),
             background_blur: 0.0,
             padding: 0.0,
+            border_radius: 0.0,
             cursor_enabled: true,
             cursor_size: 3.0,
             cursor_smoothing: 50.0,
@@ -137,7 +142,10 @@ impl RenderGraph {
                     if let Some(zoom_filter) = zoom_filter {
                         segments.push(format!("[0:v]{zoom_filter}[video0]"));
                     }
-                    let video_label = if segments.is_empty() { "0:v".to_string() } else { "[video0]".to_string() };
+                    // Label must be wrapped in brackets when chained into an
+                    // overlay filter — otherwise FFmpeg parses `[bg]0:voverlay=…`
+                    // as a single filter name.
+                    let video_label = if segments.is_empty() { "[0:v]".to_string() } else { "[video0]".to_string() };
                     let blur_sigma = (background.blur / 8.0).max(0.0);
                     segments.push(format!(
                         "[{background_input_index}:v]scale={canvas_width}:{canvas_height}:force_original_aspect_ratio=increase,crop={canvas_width}:{canvas_height},boxblur={blur_sigma}[bg]"
@@ -185,7 +193,8 @@ fn build_color_background_filter(
     if let Some(zoom_filter) = zoom_filter {
         segments.push(format!("[0:v]{zoom_filter}[video0]"));
     }
-    let video_label = if segments.is_empty() { "0:v".to_string() } else { "[video0]".to_string() };
+    // Label must be wrapped in brackets when chained into an overlay filter.
+    let video_label = if segments.is_empty() { "[0:v]".to_string() } else { "[video0]".to_string() };
     segments.push(format!("color=c={color}:s={canvas_width}x{canvas_height}[bg]"));
     segments.push(format!("[bg]{video_label}overlay={padding}:{padding}[vout]"));
     Some(segments.join(";"))
@@ -235,8 +244,32 @@ fn resolve_background_path(value: &str, static_root: &Path) -> Option<PathBuf> {
         return None;
     }
 
+    // Frontend wallpapers are served from `/backgrounds/wallpapers/...` — map
+    // those back to `static/backgrounds/wallpapers/...` on disk. Also handle the
+    // legacy `/wallpapers/...` prefix for any stored projects.
+    if let Some(rest) = value.strip_prefix("/backgrounds/wallpapers/") {
+        let resolved = static_root.join("backgrounds").join("wallpapers").join(rest);
+        if resolved.exists() {
+            return Some(resolved);
+        }
+    }
     if let Some(rest) = value.strip_prefix("/wallpapers/") {
-        return Some(static_root.join("wallpapers").join(rest));
+        let resolved = static_root.join("wallpapers").join(rest);
+        if resolved.exists() {
+            return Some(resolved);
+        }
+        // Also try backgrounds/wallpapers/ as a fallback.
+        let alt = static_root.join("backgrounds").join("wallpapers").join(rest);
+        if alt.exists() {
+            return Some(alt);
+        }
+    }
+    // Any other `/`-rooted path is treated as relative to static_root.
+    if let Some(rest) = value.strip_prefix('/') {
+        let resolved = static_root.join(rest);
+        if resolved.exists() {
+            return Some(resolved);
+        }
     }
 
     if let Some(decoded_path) = decode_background_uri(value) {

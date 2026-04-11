@@ -10,6 +10,7 @@
   import { Button } from "$components/ui/button";
   import {
     autosaveProject,
+    cancelExport,
     clearAutosave,
     exportVideo,
     generateThumbnails,
@@ -17,10 +18,11 @@
   } from "$lib/ipc";
   import type { VideoMetadata } from "$lib/stores/editor-store.svelte";
   import { createEditorStore } from "$lib/stores/editor-store.svelte";
-  import { ArrowLeft } from "@lucide/svelte";
+  import { ArrowLeft, CheckCircle2, FolderOpen, X } from "@lucide/svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onDestroy, tick } from "svelte";
+  import { toast } from "svelte-sonner";
 
   interface Props {
     data: {
@@ -225,30 +227,82 @@
     }
   }
 
+  // Export lifecycle UI state — lives in the route, not the store, because the
+  // overlay handles success/cancel/error reveals that don't belong in global state.
+  let exportStartedAt = $state<number>(0);
+  let exportCancelling = $state(false);
+  let exportResult = $state<
+    | { kind: "success"; path: string }
+    | { kind: "cancelled" }
+    | { kind: "error"; message: string }
+    | null
+  >(null);
+
   async function handleExport() {
     if (store.isExporting) return;
     store.isExporting = true;
     store.exportProgress = 0;
+    exportCancelling = false;
+    exportResult = null;
+    exportStartedAt = Date.now();
 
     const unlisten = await listen<number>("export-progress", (event) => {
       store.exportProgress = event.payload;
     });
 
     try {
-      await exportVideo(
+      const path = await exportVideo(
         documentPath || data.filePath,
         store.exportFormat,
         store.exportQuality,
         store.toRenderState(),
       );
+      exportResult = { kind: "success", path };
     } catch (err) {
-      console.error("Export failed:", err);
-      alert(`Export failed: ${err}`);
+      const message = typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
+      if (message.toLowerCase().includes("cancel")) {
+        exportResult = { kind: "cancelled" };
+      } else {
+        console.error("Export failed:", err);
+        exportResult = { kind: "error", message };
+      }
     } finally {
       unlisten();
       store.isExporting = false;
       store.exportProgress = null;
+      exportCancelling = false;
     }
+  }
+
+  async function handleCancelExport() {
+    if (!store.isExporting || exportCancelling) return;
+    exportCancelling = true;
+    try {
+      await cancelExport();
+    } catch (err) {
+      toast.error(`Could not cancel: ${err}`);
+      exportCancelling = false;
+    }
+  }
+
+  function dismissExportResult() {
+    exportResult = null;
+  }
+
+  async function revealExportInFolder() {
+    if (exportResult?.kind !== "success") return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_file_location", { path: exportResult.path });
+    } catch (err) {
+      toast.error(`Could not open folder: ${err}`);
+    }
+  }
+
+  function formatElapsed(ms: number) {
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
   }
 
   function handleBack() {
@@ -257,6 +311,22 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.defaultPrevented) return;
+
+    // Export overlay intercepts Esc before anything else: cancels a running
+    // export or dismisses a completed/cancelled/errored result.
+    if (e.key === "Escape") {
+      if (store.isExporting) {
+        e.preventDefault();
+        void handleCancelExport();
+        return;
+      }
+      if (exportResult) {
+        e.preventDefault();
+        dismissExportResult();
+        return;
+      }
+    }
+
     if (
       e.target instanceof HTMLInputElement ||
       e.target instanceof HTMLTextAreaElement
@@ -400,30 +470,172 @@
     ></audio>
   {/if}
 
-  {#if store.isExporting}
+  {#if store.isExporting || exportResult}
     <div
-      class="animate-in fade-in fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm duration-200"
+      class="animate-in fade-in fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm duration-150"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="export-dialog-title"
     >
       <div
-        class="animate-in zoom-in-95 flex min-w-70 flex-col gap-3 rounded-xl border border-border bg-popover p-5 shadow-2xl ring-1 ring-border duration-200"
+        class="animate-in zoom-in-95 flex w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-border duration-150"
       >
-        <div class="flex items-center justify-center gap-3">
-          <div class="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-          <div class="flex-1">
-            <p class="text-sm font-semibold text-foreground">Exporting video</p>
-            <p class="text-xs text-muted-foreground">
-              {store.exportFormat.toUpperCase()} ·
-              {store.exportProgress !== null ? `${Math.round(store.exportProgress)}%` : "Preparing…"}
+        {#if store.isExporting}
+          <!--
+            Indeterminate only when we haven't received ANY progress event yet.
+            `store.exportProgress` is initialised to `0` when handleExport starts,
+            so we treat `null` OR `0` (with no previous event) as "waiting".
+            Once the first event lands (even if it reports 0.5%), the bar becomes
+            determinate and starts counting from whatever ffmpeg actually said.
+          -->
+          {@const pct = store.exportProgress ?? 0}
+          {@const isWaiting = store.exportProgress === null || store.exportProgress === 0}
+
+          <!-- Header: title + live metadata -->
+          <header class="flex items-center gap-3 border-b border-border px-4 py-3">
+            <div
+              class="flex size-8 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10"
+            >
+              <div class="size-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+            </div>
+            <div class="min-w-0 flex-1">
+              <h3 id="export-dialog-title" class="text-[13px] font-semibold tracking-tight text-foreground">
+                {#if exportCancelling}
+                  Cancelling export…
+                {:else if isWaiting}
+                  Preparing export…
+                {:else}
+                  Exporting video
+                {/if}
+              </h3>
+              <p class="truncate text-[11px] text-muted-foreground">
+                {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
+                {#if exportStartedAt}
+                  · {formatElapsed(Date.now() - exportStartedAt)}
+                {/if}
+              </p>
+            </div>
+            <span class="shrink-0 font-mono text-[11px] tabular-nums text-foreground">
+              {isWaiting ? "…" : `${Math.round(pct)}%`}
+            </span>
+          </header>
+
+          <!-- Progress track -->
+          <div class="px-4 pt-3">
+            <div class="relative h-1 overflow-hidden rounded-full bg-muted">
+              {#if isWaiting}
+                <div
+                  class="animate-recast-indeterminate absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary"
+                ></div>
+              {:else}
+                <div
+                  class="h-full rounded-full bg-primary transition-[width] duration-300"
+                  style="width: {Math.min(100, Math.max(0, pct))}%"
+                ></div>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Footer: kbd hints + cancel -->
+          <footer
+            class="mt-3 flex h-10 items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 text-[11px] text-muted-foreground"
+          >
+            <span class="flex items-center gap-1">
+              <kbd class="rounded border border-border bg-background px-1.5 py-0.5 font-mono">esc</kbd>
+              <span>Cancel</span>
+            </span>
+            <Button
+              variant="destructive_soft"
+              size="xs"
+              class="gap-1.5"
+              onclick={handleCancelExport}
+              disabled={exportCancelling}
+            >
+              <X size={11} />
+              {exportCancelling ? "Cancelling…" : "Cancel export"}
+            </Button>
+          </footer>
+        {:else if exportResult?.kind === "success"}
+          <header class="flex items-center gap-3 border-b border-border px-4 py-3">
+            <div
+              class="flex size-8 shrink-0 items-center justify-center rounded-md border border-success/20 bg-success/10 text-success"
+            >
+              <CheckCircle2 size={16} />
+            </div>
+            <div class="min-w-0 flex-1">
+              <h3 id="export-dialog-title" class="text-[13px] font-semibold tracking-tight text-foreground">
+                Export complete
+              </h3>
+              <p class="truncate text-[11px] text-muted-foreground">
+                {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
+              </p>
+            </div>
+          </header>
+          <div class="px-4 py-3">
+            <p class="truncate font-mono text-[10px] text-muted-foreground" title={exportResult.path}>
+              {exportResult.path}
             </p>
           </div>
-        </div>
-        {#if store.exportProgress !== null}
-          <div class="h-1 overflow-hidden rounded-full bg-muted">
+          <footer
+            class="flex h-10 items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 text-[11px] text-muted-foreground"
+          >
+            <span class="flex items-center gap-1">
+              <kbd class="rounded border border-border bg-background px-1.5 py-0.5 font-mono">esc</kbd>
+              <span>Dismiss</span>
+            </span>
+            <div class="flex items-center gap-1.5">
+              <Button variant="ghost" size="xs" onclick={dismissExportResult}>Dismiss</Button>
+              <Button variant="default" size="xs" class="gap-1.5" onclick={revealExportInFolder}>
+                <FolderOpen size={11} />
+                Show in Folder
+              </Button>
+            </div>
+          </footer>
+        {:else if exportResult?.kind === "cancelled"}
+          <header class="flex items-center gap-3 border-b border-border px-4 py-3">
             <div
-              class="h-full rounded-full bg-primary transition-[width] duration-300"
-              style="width: {store.exportProgress}%"
-            ></div>
+              class="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground"
+            >
+              <X size={16} />
+            </div>
+            <div class="min-w-0 flex-1">
+              <h3 id="export-dialog-title" class="text-[13px] font-semibold tracking-tight text-foreground">
+                Export cancelled
+              </h3>
+              <p class="truncate text-[11px] text-muted-foreground">
+                No file was written.
+              </p>
+            </div>
+          </header>
+          <footer
+            class="flex h-10 items-center justify-end gap-2 border-t border-border bg-muted/30 px-3 text-[11px] text-muted-foreground"
+          >
+            <Button variant="ghost" size="xs" onclick={dismissExportResult}>Dismiss</Button>
+            <Button variant="default" size="xs" onclick={handleExport}>Export again</Button>
+          </footer>
+        {:else if exportResult?.kind === "error"}
+          <header class="flex items-center gap-3 border-b border-border px-4 py-3">
+            <div
+              class="flex size-8 shrink-0 items-center justify-center rounded-md border border-destructive/20 bg-destructive/10 text-destructive"
+            >
+              <X size={16} />
+            </div>
+            <div class="min-w-0 flex-1">
+              <h3 id="export-dialog-title" class="text-[13px] font-semibold tracking-tight text-foreground">
+                Export failed
+              </h3>
+              <p class="truncate text-[11px] text-muted-foreground">Something went wrong.</p>
+            </div>
+          </header>
+          <div class="max-h-40 overflow-y-auto border-b border-border px-4 py-3">
+            <pre class="whitespace-pre-wrap wrap-break-word font-mono text-[10px] text-destructive">{exportResult.message}</pre>
           </div>
+          <footer
+            class="flex h-10 items-center justify-end gap-2 border-t border-border bg-muted/30 px-3 text-[11px] text-muted-foreground"
+          >
+            <Button variant="ghost" size="xs" onclick={dismissExportResult}>Dismiss</Button>
+            <Button variant="default" size="xs" onclick={handleExport}>Try again</Button>
+          </footer>
         {/if}
       </div>
     </div>

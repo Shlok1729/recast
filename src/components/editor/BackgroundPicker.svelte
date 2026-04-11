@@ -15,6 +15,7 @@
     ImageIcon,
     LayoutTemplate,
     Palette,
+    SquareRoundCorner,
     Sparkles,
   } from "@lucide/svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -51,6 +52,7 @@
 
   let blurValue = $state(0);
   let paddingValue = $state(0);
+  let borderRadiusValue = $state(0);
 
   function isValidValueForType(type: BackgroundType, value: string) {
     switch (type) {
@@ -74,6 +76,13 @@
   }
 
   function applyBackground(type: BackgroundType, value = getSelectionValue(type)) {
+    // When the user clicks the "Image" tab and there is no valid image yet,
+    // jump straight into the file picker instead of setting an empty value
+    // (which would leave the preview showing the fallback dark background).
+    if (type === "image" && !value) {
+      void pickBackgroundImage();
+      return;
+    }
     store.setBackground({ type, value });
   }
 
@@ -86,7 +95,7 @@
       filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] }],
     });
     if (!selected || typeof selected !== "string") return;
-    applyBackground("image", selected);
+    store.setBackground({ type: "image", value: selected });
   }
 
   function getImagePreviewSrc(value: string) {
@@ -106,6 +115,7 @@
   $effect(() => {
     blurValue = store.backgroundBlur;
     paddingValue = store.padding;
+    borderRadiusValue = store.borderRadius;
   });
 </script>
 
@@ -341,6 +351,23 @@
       >
         {#snippet icon()}
           <LayoutTemplate size={11} />
+        {/snippet}
+      </SliderControl>
+
+      <SliderControl
+        label="Corner radius"
+        bind:value={borderRadiusValue}
+        min={0}
+        max={50}
+        step={1}
+        unit="%"
+        onstart={() => store.pushUndoState()}
+        onchange={(next) => {
+          store.borderRadius = next;
+        }}
+      >
+        {#snippet icon()}
+          <SquareRoundCorner size={11} />
         {/snippet}
       </SliderControl>
     </div>

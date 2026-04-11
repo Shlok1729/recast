@@ -172,6 +172,14 @@ export function exportVideo(
 	});
 }
 
+/**
+ * Signal any running export to abort. Causes `exportVideo` to reject with
+ * `"export cancelled"`. Safe to call when no export is running.
+ */
+export function cancelExport(): Promise<void> {
+	return invoke("cancel_export");
+}
+
 //  Autosave / Recovery commands 
 
 export function autosaveProject(projectPath: string, editsJson: string): Promise<void> {

@@ -86,8 +86,10 @@ uniform int u_bgType;             // 0=color, 1=gradient, 2=image
 uniform vec4 u_bgColor;           // [0..1]
 uniform vec4 u_gradStart;
 uniform vec4 u_gradEnd;
+uniform float u_bgBlurPx;         // image-mode blur radius in canvas pixels (0 = off)
 uniform vec2 u_zoomCenter;        // [0..1] in video UV
 uniform float u_zoomScale;        // 1.0 = no zoom
+uniform float u_borderRadiusPx;   // rounded corner radius of the video rect, canvas pixels
 
 uniform vec2 u_cursorPos;         // [0..1] in video UV
 uniform float u_cursorVisible;    // 0 or 1
@@ -106,7 +108,32 @@ vec4 sampleBackground(vec2 uv) {
 		float t = clamp((uv.x + uv.y) * 0.5, 0.0, 1.0);
 		return mix(u_gradStart, u_gradEnd, t);
 	}
-	return texture(u_background, uv);
+	// Image / wallpaper — optionally blurred with a cheap separable-ish 9-tap kernel.
+	if (u_bgBlurPx <= 0.5) {
+		return texture(u_background, uv);
+	}
+	// Multi-tap gaussian approximation — 9 samples in a diamond/cross pattern
+	// with radius in UV space. Good enough for background blur at small
+	// radii; heavier blur is faked by larger step and stronger weights.
+	vec2 step = vec2(u_bgBlurPx, u_bgBlurPx) / u_canvasSize;
+	vec4 c = vec4(0.0);
+	c += texture(u_background, uv) * 0.227027;
+	c += texture(u_background, uv + vec2( step.x,  0.0)) * 0.1945946;
+	c += texture(u_background, uv + vec2(-step.x,  0.0)) * 0.1945946;
+	c += texture(u_background, uv + vec2( 0.0,  step.y)) * 0.1216216;
+	c += texture(u_background, uv + vec2( 0.0, -step.y)) * 0.1216216;
+	c += texture(u_background, uv + vec2( step.x * 2.0,  0.0)) * 0.054054;
+	c += texture(u_background, uv + vec2(-step.x * 2.0,  0.0)) * 0.054054;
+	c += texture(u_background, uv + vec2( 0.0,  step.y * 2.0)) * 0.054054;
+	c += texture(u_background, uv + vec2( 0.0, -step.y * 2.0)) * 0.054054;
+	return c;
+}
+
+// Signed distance from 'p' to a centered rounded rect of half-size 'hs' and radius 'r'.
+// Negative inside, positive outside.
+float sdRoundRect(vec2 p, vec2 hs, float r) {
+	vec2 q = abs(p) - hs + vec2(r);
+	return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
 void main() {
@@ -116,12 +143,19 @@ void main() {
 	vec2 videoMax = u_canvasSize - vec2(u_paddingPx);
 	vec2 videoSize = max(videoMax - videoMin, vec2(1.0));
 
-	bool inVideo = all(greaterThanEqual(canvasPx, videoMin)) && all(lessThan(canvasPx, videoMax));
-
 	vec4 color = sampleBackground(v_uv);
 
-	if (inVideo) {
-		// uv inside the displayed video rect, [0..1]
+	// Rounded-rect mask for the video region.
+	vec2 videoCenter = (videoMin + videoMax) * 0.5;
+	vec2 halfSize = videoSize * 0.5;
+	// Clamp radius so it never exceeds half the smaller dimension.
+	float maxR = min(halfSize.x, halfSize.y);
+	float r = clamp(u_borderRadiusPx, 0.0, maxR);
+	float sd = sdRoundRect(canvasPx - videoCenter, halfSize, r);
+	// Coverage = 1 inside, fading to 0 over ~1 px at the edge for AA.
+	float videoCoverage = 1.0 - smoothstep(-1.0, 0.0, sd);
+
+	if (videoCoverage > 0.0) {
 		vec2 videoUV = (canvasPx - videoMin) / videoSize;
 
 		// Apply zoom: shrink uv toward zoom center
@@ -130,33 +164,32 @@ void main() {
 			videoUV = clamp(videoUV, 0.0, 1.0);
 		}
 
-		color = texture(u_video, videoUV);
+		vec4 videoColor = texture(u_video, videoUV);
 
-		// Cursor overlay (drawn on top of video, clipped to video region)
+		// Cursor overlay (drawn on top of video, clipped to rounded video region).
 		if (u_cursorVisible > 0.5) {
-			// Map cursor from video UV → displayed pixel position, with zoom transform
 			vec2 cursorUV = u_cursorPos;
 			if (u_zoomScale > 1.0001) {
 				cursorUV = (cursorUV - u_zoomCenter) * u_zoomScale + u_zoomCenter;
 			}
 
-			// Only render cursor if it's still in the visible region after zoom
 			if (cursorUV.x >= 0.0 && cursorUV.x <= 1.0 && cursorUV.y >= 0.0 && cursorUV.y <= 1.0) {
 				vec2 cursorPx = videoMin + cursorUV * videoSize;
 				float dist = length(canvasPx - cursorPx);
 
-				// Click highlight (drawn first, beneath cursor dot)
 				if (u_highlightAlpha > 0.0) {
 					float hr = u_cursorRadius * 6.0;
 					float ha = (1.0 - smoothstep(hr - 4.0, hr, dist)) * u_highlightAlpha;
-					color = mix(color, u_highlightColor, ha);
+					videoColor = mix(videoColor, u_highlightColor, ha);
 				}
 
-				// Cursor dot with antialiased edge
 				float cd = 1.0 - smoothstep(u_cursorRadius - 1.5, u_cursorRadius, dist);
-				color = mix(color, u_cursorColor, cd * u_cursorColor.a);
+				videoColor = mix(videoColor, u_cursorColor, cd * u_cursorColor.a);
 			}
 		}
+
+		// Mix the composed video (+cursor) over the background using the rounded mask.
+		color = mix(color, videoColor, videoCoverage);
 	}
 
 	frag = vec4(color.rgb, 1.0);
@@ -230,8 +263,10 @@ void main() {
 			"u_bgColor",
 			"u_gradStart",
 			"u_gradEnd",
+			"u_bgBlurPx",
 			"u_zoomCenter",
 			"u_zoomScale",
+			"u_borderRadiusPx",
 			"u_cursorPos",
 			"u_cursorVisible",
 			"u_cursorRadius",
@@ -265,6 +300,23 @@ void main() {
 	}
 
 	// ── Background loading ──────────────────────────────────────────────
+	function resolveBackgroundSrc(value: string): string {
+		if (!value) return "";
+		if (
+			value.startsWith("data:") ||
+			value.startsWith("http://") ||
+			value.startsWith("https://") ||
+			value.startsWith("asset://") ||
+			value.startsWith("/")
+		) {
+			// Already a URL (served or data) or a root-relative path served
+			// from the frontend's static/ dir.
+			return value;
+		}
+		// Raw filesystem path — convert to the Tauri asset protocol.
+		return convertFileSrc(value);
+	}
+
 	async function loadBackgroundIfNeeded() {
 		if (!gl || !bgTex) return;
 		const type = store.backgroundType;
@@ -278,18 +330,23 @@ void main() {
 			return;
 		}
 
+		if (!value) {
+			bgTexReady = false;
+			return;
+		}
+
 		try {
 			const img = new Image();
 			img.crossOrigin = "anonymous";
-			// Wallpapers are at /wallpapers/wallpaperN.png (served from static/)
-			img.src = value;
+			img.src = resolveBackgroundSrc(value);
 			await img.decode();
 			if (lastBgKey !== key) return; // Superseded by another load
 			gl.bindTexture(gl.TEXTURE_2D, bgTex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
 			bgTexReady = true;
+			requestRedraw();
 		} catch (err) {
-			console.warn("Background image load failed:", err);
+			console.warn("Background image load failed:", err, "value:", value);
 			bgTexReady = false;
 		}
 	}
@@ -469,6 +526,7 @@ void main() {
 
 		// Background
 		const bgType = store.backgroundType;
+		let bgBlurPx = 0;
 		if (bgType === "color") {
 			gl.uniform1i(uniforms.u_bgType, 0);
 			gl.uniform4fv(uniforms.u_bgColor, hexToRgba(store.backgroundValue || "#111111"));
@@ -483,12 +541,24 @@ void main() {
 				gl.uniform1i(uniforms.u_bgType, 2);
 				gl.activeTexture(gl.TEXTURE1);
 				gl.bindTexture(gl.TEXTURE_2D, bgTex);
+				// Map the 0..100 blur slider to a pixel radius. 100 ≈ 24px is
+				// strong enough to be obvious without being too expensive.
+				bgBlurPx = Math.max(0, store.backgroundBlur * 0.24);
 			} else {
 				// Fallback to dark color until image is loaded
 				gl.uniform1i(uniforms.u_bgType, 0);
 				gl.uniform4fv(uniforms.u_bgColor, [0.067, 0.067, 0.067, 1]);
 			}
 		}
+		gl.uniform1f(uniforms.u_bgBlurPx, bgBlurPx);
+
+		// Border radius — user-provided as a percentage of the shorter video edge
+		// (0..50). Convert to canvas pixels using the same scale as padding.
+		const shorterEdge = Math.min(meta.width, meta.height);
+		const radiusSource = ((store.borderRadius ?? 0) / 100) * shorterEdge;
+		// Same video-pixel → canvas-pixel scale as the padding calculation.
+		const radiusPx = (radiusSource / compW) * canvasEl.width;
+		gl.uniform1f(uniforms.u_borderRadiusPx, Math.max(0, radiusPx));
 
 		// Zoom
 		const activeZoom = findActiveZoom(playbackTime);
@@ -619,6 +689,8 @@ void main() {
 	$effect(() => {
 		// Track every dependency that affects the rendered frame
 		void store.padding;
+		void store.backgroundBlur;
+		void store.borderRadius;
 		void store.currentTime;
 		void store.metadata;
 		void store.cursorSettings;

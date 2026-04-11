@@ -10,20 +10,19 @@
     openFileLocation,
     type RecordingEntry,
   } from "$lib/ipc";
-  import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import {
     Camera,
     Download,
     Film,
     FolderOpen,
-    Home as HomeIcon,
     Mic,
     Monitor,
     Radio,
     Settings as SettingsIcon,
-    SlidersHorizontal,
+    SlidersHorizontal
   } from "@lucide/svelte";
   import { listen } from "@tauri-apps/api/event";
+  import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { onMount } from "svelte";
   import { toast } from "svelte-sonner";
 
@@ -407,5 +406,5 @@
   subtitle="Type to search across actions, recordings and exports"
   searchPlaceholder="What do you want to do?"
   emptyTitle="No matches"
-  emptyHint="Try a different term — or press ⌘K to see everything."
+  emptyHint="Try a different term — or press ⌘ + K to see everything."
 />
