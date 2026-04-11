@@ -308,8 +308,10 @@ pub async fn export_video(
         args.extend(["-vf".to_string(), output_filters.join(",")]);
     }
 
-    if !export_plan.extra_inputs.is_empty() || cursor_overlay_path.is_some() {
-        args.push("-shortest".to_string());
+    if duration <= 0.0 {
+        if !export_plan.extra_inputs.is_empty() || cursor_overlay_path.is_some() {
+            args.push("-shortest".to_string());
+        }
     }
 
     match request.format.as_str() {
