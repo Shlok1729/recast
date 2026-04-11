@@ -19,7 +19,7 @@
         class="me-2 data-[orientation=vertical]:h-3"
       />
       <div class="flex items-center gap-2 px-2 h-full" data-tauri-drag-region>
-        <span class="text-[11px] font-semibold tracking-tight text-foreground"
+        <span class="text-sm font-semibold tracking-tight text-foreground"
           >{config.appName}</span
         >
       </div>

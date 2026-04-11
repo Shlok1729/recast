@@ -287,3 +287,73 @@ pub fn open_file_location(path: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Move a file to the OS recycle bin / trash.
+/// Validates the path exists and is a file before deleting.
+#[tauri::command]
+pub fn delete_file(path: String) -> Result<(), String> {
+    let target = std::path::Path::new(&path);
+    if !target.exists() {
+        return Err("File not found".to_string());
+    }
+    if !target.is_file() {
+        return Err("Path is not a file".to_string());
+    }
+    trash::delete(target).map_err(|e| format!("Could not move to trash: {e}"))?;
+    Ok(())
+}
+
+/// Rename a file in place (same directory, new filename).
+/// Preserves the original extension by default if `new_name` has none.
+/// Returns the new absolute path on success.
+///
+/// Edge cases handled:
+/// - empty new name
+/// - name containing path separators or illegal chars
+/// - target filename already exists (reject, never overwrite)
+/// - source file missing
+#[tauri::command]
+pub fn rename_file(path: String, new_name: String) -> Result<String, String> {
+    let src = std::path::PathBuf::from(&path);
+    if !src.exists() {
+        return Err("File not found".to_string());
+    }
+    if !src.is_file() {
+        return Err("Path is not a file".to_string());
+    }
+
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err("Name cannot be empty".to_string());
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+        return Err("Name cannot contain path separators".to_string());
+    }
+    // Basic Windows-illegal chars check.
+    if trimmed.chars().any(|c| matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*')) {
+        return Err("Name contains illegal characters".to_string());
+    }
+
+    // If the user didn't include an extension, preserve the original one.
+    let final_name = if std::path::Path::new(trimmed).extension().is_some() {
+        trimmed.to_string()
+    } else if let Some(orig_ext) = src.extension().and_then(|e| e.to_str()) {
+        format!("{trimmed}.{orig_ext}")
+    } else {
+        trimmed.to_string()
+    };
+
+    let parent = src.parent().ok_or_else(|| "Cannot determine parent directory".to_string())?;
+    let dest = parent.join(&final_name);
+
+    if dest == src {
+        // No-op rename.
+        return Ok(src.to_string_lossy().to_string());
+    }
+    if dest.exists() {
+        return Err(format!("A file named \"{final_name}\" already exists"));
+    }
+
+    std::fs::rename(&src, &dest).map_err(|e| format!("Rename failed: {e}"))?;
+    Ok(dest.to_string_lossy().to_string())
+}

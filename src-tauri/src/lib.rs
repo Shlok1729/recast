@@ -61,6 +61,8 @@ pub fn run() {
             commands::list_recasts,
             commands::list_exports,
             commands::open_file_location,
+            commands::delete_file,
+            commands::rename_file,
             commands::get_video_metadata,
             commands::load_editor_document,
             commands::generate_thumbnails,

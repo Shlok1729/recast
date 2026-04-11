@@ -17,7 +17,7 @@ import sharp from "sharp";
 const SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SCRIPTS_DIR, "..");
 const WALLPAPERS_DIR = join(ROOT, "static/backgrounds/wallpapers");
-const THUMBS_DIR = join(ROOT, "static/thumbs");
+const THUMBS_DIR = join(ROOT, "static/backgrounds/thumbs");
 
 const THUMB_WIDTH = 320; // displayed at ~80–110 px in a 3-col grid, so 2–3x DPR
 const THUMB_QUALITY = 78;

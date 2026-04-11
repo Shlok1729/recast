@@ -99,8 +99,8 @@ export type LayoutMode = 'auto' | 'crop';
 export type EditorWindowBehavior = 'navigate' | 'new-window';
 
 export const WALLPAPERS: WallpaperOption[] = Array.from({ length: 23 }, (_, i) => ({
-	src: `/wallpapers/wallpaper${i + 1}.png`,
-	thumb: `/wallpapers/thumbs/wallpaper${i + 1}.webp`,
+	src: `/backgrounds/wallpapers/wallpaper${i + 1}.png`,
+	thumb: `/backgrounds/thumbs/wallpaper${i + 1}.webp`,
 	label: `Wallpaper ${i + 1}`,
 }));
 
