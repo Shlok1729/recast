@@ -1,133 +1,102 @@
 <script lang="ts">
-    import { page } from "$app/stores";
-    import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
-    import { config } from "$constants/app";
-    import "@fontsource-variable/google-sans";
+  import { page } from "$app/stores";
+  import { Button } from "$components/ui/button";
+  import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
+  import { config } from "$constants/app";
+  import {
+    AlertTriangle,
+    ArrowLeft,
+    Construction,
+    FileQuestion,
+    Home,
+    RefreshCcw,
+  } from "@lucide/svelte";
 
-    import {
-      AlertTriangle,
-      ArrowLeft,
-      Construction,
-      FileQuestion,
-      Home,
-      RefreshCcw,
-    } from "@lucide/svelte";
+  $: status = $page.status;
+  $: message = $page.error?.message || "An unexpected error occurred.";
 
-    // Derived state for error details
-    $: status = $page.status;
-    $: message = $page.error?.message || "An unexpected error occurred.";
+  $: isNotFound = status === 404;
+  $: isServerError = status >= 500;
 
-    // Dynamic content based on status code
-    $: isNotFound = status === 404;
-    $: isServerError = status >= 500;
+  $: errorTitle = isNotFound
+    ? "Page not found"
+    : isServerError
+      ? "Server Error"
+      : "Something went wrong";
 
-    $: errorTitle = isNotFound
-        ? "Page not found"
-        : isServerError
-          ? "Server Error"
-          : "Something went wrong";
+  $: errorDesc = isNotFound
+    ? "Sorry, we couldn't find the page you're looking for."
+    : "Our servers ran into a bit of a hiccup. We're working on fixing it.";
 
-    $: errorDesc = isNotFound
-        ? "Sorry, we couldn't find the page you're looking for. It might have been moved or deleted."
-        : "Our servers ran into a bit of a hiccup. We're working on fixing it.";
-
-    function goBack() {
-        history.back();
-    }
+  function goBack() {
+    history.back();
+  }
 </script>
 
-    <CustomTitlebar>
-      <div class="flex items-center gap-2 px-3 h-full" data-tauri-drag-region>
-        <span class="text-sm font-semibold text-foreground">{config.appName}</span>
-      </div>
-    </CustomTitlebar>
-<div
-    class="relative min-h-screen w-full flex items-center justify-center overflow-hidden"
->
+<CustomTitlebar wrapperClass="h-7">
+  <div class="flex items-center gap-2 px-2 h-full" data-tauri-drag-region>
+    <span class="text-[11px] font-semibold text-foreground">{config.appName}</span>
+  </div>
+</CustomTitlebar>
+
+<div class="flex min-h-[calc(100vh-28px)] w-full items-center justify-center px-6">
+  <div class="flex w-full max-w-sm flex-col items-center gap-4 text-center">
     <div
-        class="overflow-hidden relative w-full max-w-lg rounded-3xl border border-border/60 bg-card/40 p-3 py-6 mb-5 backdrop-blur-x"
+      class="flex size-12 items-center justify-center rounded-lg border border-border bg-muted/40"
     >
-        <div class="flex flex-col items-center px-8 py-12 text-center sm:px-12">
-            <div
-                class="mb-8 flex h-24 w-24 items-center justify-center rounded-3xl bg-card shadow-lg"
-            >
-                {#if isNotFound}
-                    <FileQuestion
-                        class="h-10 w-10 text-blue-500"
-                        strokeWidth={1.5}
-                    />
-                {:else if isServerError}
-                    <Construction
-                        class="h-10 w-10 text-orange-500"
-                        strokeWidth={1.5}
-                    />
-                {:else}
-                    <AlertTriangle
-                        class="h-10 w-10 text-red-500"
-                        strokeWidth={1.5}
-                    />
-                {/if}
-            </div>
-
-            <p
-                class="mb-2 text-sm font-bold uppercase tracking-wider text-muted-foreground"
-            >
-                Error {status}
-            </p>
-
-            <h1
-                class="mb-4 text-3xl font-bold tracking-tight text-foreground sm:text-4xl"
-            >
-                {errorTitle}
-            </h1>
-
-            <p class="mb-8 text-base leading-relaxed text-muted-foreground">
-                {errorDesc}
-                <span
-                    class="block mt-2 text-xs opacity-70 font-mono bg-muted/50 py-1 px-2 rounded"
-                >
-                    details: {message}
-                </span>
-            </p>
-
-            <div class="flex w-full flex-col gap-3 sm:flex-row">
-                <button
-                    on:click={goBack}
-                    class="group flex flex-1 items-center justify-center gap-2 rounded-xl border border-border/60 bg-card/50 px-4 py-3 text-sm font-semibold text-card-foreground shadow-sm transition-all hover:bg-card hover:text-foreground hover:shadow-md active:scale-95"
-                >
-                    <ArrowLeft
-                        size={16}
-                        class="transition-transform group-hover:-translate-x-1"
-                    />
-                    Go Back
-                </button>
-
-                <a
-                    href="/"
-                    class="flex flex-1 items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-3 text-sm font-semibold text-card shadow-lg shadow-foreground/20 transition-all hover:bg-foreground hover:shadow-xl active:scale-95"
-                >
-                    <Home size={16} />
-                    Home
-                </a>
-            </div>
-
-            {#if !isNotFound}
-                <button
-                    on:click={() => location.reload()}
-                    class="mt-6 flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                >
-                    <RefreshCcw size={12} />
-                    Try reloading the page
-                </button>
-            {/if}
-
-            <div class="mt-8 text-center text-xs text-muted-foreground">
-                Need help? <a
-                    href="mailto:support@nexonauts.com"
-                    class="font-medium text-foreground hover:underline"
-                    >Contact Support</a
-                >
-            </div>
-        </div>
+      {#if isNotFound}
+        <FileQuestion class="size-5 text-info" strokeWidth={1.75} />
+      {:else if isServerError}
+        <Construction class="size-5 text-warning" strokeWidth={1.75} />
+      {:else}
+        <AlertTriangle class="size-5 text-destructive" strokeWidth={1.75} />
+      {/if}
     </div>
+
+    <p class="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      Error {status}
+    </p>
+
+    <h1 class="text-[15px] font-semibold tracking-tight text-foreground">
+      {errorTitle}
+    </h1>
+
+    <p class="text-[12px] text-muted-foreground">
+      {errorDesc}
+    </p>
+
+    <pre
+      class="w-full max-w-xs overflow-hidden truncate rounded border border-border bg-muted/40 px-2 py-1 text-left font-mono text-[10px] text-muted-foreground"
+      title={message}>{message}</pre>
+
+    <div class="flex w-full items-center gap-1.5">
+      <Button variant="outline" size="sm" onclick={goBack} class="flex-1 gap-1.5">
+        <ArrowLeft size={13} />
+        Go Back
+      </Button>
+      <Button href="/" variant="default" size="sm" class="flex-1 gap-1.5">
+        <Home size={13} />
+        Home
+      </Button>
+    </div>
+
+    {#if !isNotFound}
+      <Button
+        variant="ghost"
+        size="xs"
+        onclick={() => location.reload()}
+        class="gap-1.5 text-muted-foreground"
+      >
+        <RefreshCcw size={11} />
+        Try reloading
+      </Button>
+    {/if}
+
+    <a
+      href="mailto:{config.supportEmail}"
+      class="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+    >
+      Need help? Contact support
+    </a>
+  </div>
 </div>

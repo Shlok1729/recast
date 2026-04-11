@@ -37,13 +37,37 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "msi",
+      "nsis",
+      "appimage",
+      "deb",
+      "dmg"
+    ],
+    "publisher": "Nexonauts",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+     "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    },
+    "linux": {
+      "appimage": {}
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ2Mzg5MEYxRDMxNTQ3RUIKUldUclJ4WFQ4WkE0MXFhYXNVOVhhdCtRM2FSRjRMMU01YTk1NHNvZS9VUUxCVjRCNDZDcm1Jb1AK",
+      "endpoints": [
+        "https://github.com/kanakkholwal/recast/releases/latest/download/latest.json"
+      ],
+      "dialog": true
+    }
   }
 }

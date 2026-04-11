@@ -173,33 +173,20 @@
   }
 </script>
 
-<div
-  class={cn(
-    "rounded-lg border border-border/70 bg-background/70 p-3 shadow-[0_1px_0_var(--border)_inset] transition-colors duration-200",
-    disabled ? "opacity-60" : "hover:border-border",
-  )}
->
-  <div class="mb-3 flex items-start justify-between gap-3">
-    <div class="min-w-0">
-      <div
-        class="flex items-center gap-1.5 text-xs font-semibold tracking-[0.02em] text-foreground"
-      >
-        {#if icon}
-          <span class="text-muted-foreground">
-            {@render icon()}
-          </span>
-        {/if}
-        <span class="truncate">{label}</span>
-      </div>
-      {#if description}
-        <p class="mt-1 text-[11px] leading-4 text-muted-foreground">
-          {description}
-        </p>
-      {/if}
-    </div>
-
+<div class={cn("group/slider flex flex-col gap-1.5", disabled && "opacity-50")}>
+  <!-- Label row: icon · label · (description) · value -->
+  <div class="flex items-center gap-1.5">
+    {#if icon}
+      <span class="shrink-0 text-muted-foreground">
+        {@render icon()}
+      </span>
+    {/if}
+    <span class="truncate text-[11px] font-medium text-foreground">{label}</span>
+    {#if description}
+      <span class="truncate text-[10px] text-muted-foreground/70">· {description}</span>
+    {/if}
     <span
-      class="shrink-0 rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-[11px] font-medium tabular-nums text-foreground/80"
+      class="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground group-hover/slider:text-foreground"
     >
       {formattedValue}
     </span>
@@ -208,9 +195,10 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={trackEl}
-    class="group relative h-2.5 w-full rounded-full bg-muted-foreground/20 border border-border/70 {disabled
-      ? 'cursor-not-allowed'
-      : 'cursor-pointer'}"
+    class={cn(
+      "group/track relative flex h-4 w-full items-center outline-none",
+      disabled ? "cursor-not-allowed" : "cursor-pointer",
+    )}
     onpointerdown={handlePointerDown}
     onpointermove={handlePointerMove}
     onpointerup={finishPointerInteraction}
@@ -226,22 +214,29 @@
     aria-valuetext={formattedValue}
     aria-label={label}
   >
-    <div
-      class="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-linear-to-r from-primary via-primary to-blue-400 transition-[width] duration-100"
-      style="width: {Math.min(100, Math.max(0, percentage))}%"
-    ></div>
+    <!-- Background track (thin, muted) -->
+    <div class="h-0.75 w-full rounded-full bg-muted"></div>
 
+    <!-- Filled portion -->
     <div
-      class="pointer-events-none absolute top-1/2 -translate-y-1/2 transition-[left] duration-100"
-      style="left: calc({Math.min(100, Math.max(0, percentage))}% - 0.5rem)"
+      class="pointer-events-none absolute inset-y-0 left-0 flex items-center transition-[width] duration-75"
+      style="width: {Math.min(100, Math.max(0, percentage))}%"
+    >
+      <div class="h-0.75 w-full rounded-full bg-primary"></div>
+    </div>
+
+    <!-- Thumb -->
+    <div
+      class="pointer-events-none absolute top-1/2 -translate-y-1/2 transition-[left] duration-75"
+      style="left: calc({Math.min(100, Math.max(0, percentage))}% - 6px)"
     >
       <div
-        class="flex size-4 items-center justify-center rounded-full border border-border bg-muted shadow-[0_6px_18px_rgba(37,99,235,0.25)] ring-4 ring-primary/10 transition-transform duration-150 {isDragging
-          ? 'scale-110'
-          : 'group-hover:scale-105 group-focus-visible:scale-105'}"
-      >
-        <div class="size-1.5 rounded-full bg-primary"></div>
-      </div>
+        class={cn(
+          "size-3 rounded-full border border-primary bg-background shadow-sm transition-transform duration-150",
+          "group-hover/track:scale-110 group-focus-visible/track:ring-2 group-focus-visible/track:ring-primary/30",
+          isDragging && "scale-110 ring-2 ring-primary/30",
+        )}
+      ></div>
     </div>
   </div>
 </div>

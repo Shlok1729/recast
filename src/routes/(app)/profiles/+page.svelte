@@ -92,18 +92,21 @@
   }
 
   function deleteProfile(id: string) {
-    if (profiles.length <= 1) {
-      toast.error("Keep at least one profile");
-      return;
-    }
-    const wasDefault = profiles.find((p) => p.id === id)?.isDefault;
+    const victim = profiles.find((p) => p.id === id);
+    if (!victim) return;
+    const wasDefault = victim.isDefault;
     profiles = profiles.filter((p) => p.id !== id);
     // If we removed the default, promote the first remaining profile.
-    if (wasDefault) {
+    if (wasDefault && profiles.length > 0) {
       profiles = ensureExactlyOneDefault(profiles);
     }
     save();
-    toast.success("Profile deleted");
+    toast.success(`Deleted “${victim.name}”`);
+    // If we just deleted the one we were editing, close the editor.
+    if (editingId === id) {
+      editingId = null;
+      draft = null;
+    }
   }
 
   function setDefault(id: string) {
@@ -291,11 +294,45 @@
         {/if}
       </header>
 
+      {#snippet toggleRow(
+        field: "isDefault" | "systemAudio" | "microphone" | "camera",
+        Icon: typeof Star,
+        label: string,
+        hint: string,
+      )}
+        <Button
+          variant="ghost"
+          size="raw"
+          onclick={() => toggleDraft(field)}
+          class="flex h-auto w-full items-center justify-start gap-4 rounded-none border-b border-border px-4 py-3 text-left font-normal hover:bg-muted/40"
+        >
+          <span class="flex w-28 shrink-0 items-center gap-2 text-[12px] font-medium text-foreground">
+            <Icon size={14} class="text-muted-foreground" />
+            {label}
+          </span>
+          <span class="flex-1 truncate text-[11px] text-muted-foreground">{hint}</span>
+          <span
+            class={cn(
+              "flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
+              draft![field] ? "border-primary bg-primary" : "border-border bg-muted",
+            )}
+          >
+            <span
+              class={cn(
+                "size-4 rounded-full bg-background shadow transition-transform",
+                draft![field] ? "translate-x-4" : "translate-x-0.5",
+              )}
+            ></span>
+          </span>
+        </Button>
+      {/snippet}
+
       <div class="flex flex-col">
         <!-- Name -->
         <div class="flex items-center gap-4 border-b border-border px-4 py-3">
-          <label for="profile-name-input" class="w-28 shrink-0 text-[12px] font-medium text-foreground"
-            >Name</label
+          <label
+            for="profile-name-input"
+            class="w-28 shrink-0 text-[12px] font-medium text-foreground">Name</label
           >
           <input
             id="profile-name-input"
@@ -304,135 +341,37 @@
           />
         </div>
 
-        <!-- Default toggle -->
-        <button
-          type="button"
-          onclick={() => toggleDraft("isDefault")}
-          class="flex items-center gap-4 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/40"
-        >
-          <span class="flex w-28 shrink-0 items-center gap-2 text-[12px] font-medium text-foreground">
-            <Star size={14} class="text-muted-foreground" />
-            Default
-          </span>
-          <span class="flex-1 truncate text-[11px] text-muted-foreground">
-            Use this profile automatically on launch
-          </span>
-          <span
-            class={cn(
-              "flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
-              draft.isDefault ? "border-primary bg-primary" : "border-border bg-muted"
-            )}
-          >
-            <span
-              class={cn(
-                "size-4 rounded-full bg-background shadow transition-transform",
-                draft.isDefault ? "translate-x-4" : "translate-x-0.5"
-              )}
-            ></span>
-          </span>
-        </button>
-
-        <!-- System audio toggle -->
-        <button
-          type="button"
-          onclick={() => toggleDraft("systemAudio")}
-          class="flex items-center gap-4 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/40"
-        >
-          <span class="flex w-28 shrink-0 items-center gap-2 text-[12px] font-medium text-foreground">
-            <Volume2 size={14} class="text-muted-foreground" />
-            System Audio
-          </span>
-          <span class="flex-1 truncate text-[11px] text-muted-foreground">
-            Capture sounds playing on your device
-          </span>
-          <span
-            class={cn(
-              "flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
-              draft.systemAudio ? "border-primary bg-primary" : "border-border bg-muted"
-            )}
-          >
-            <span
-              class={cn(
-                "size-4 rounded-full bg-background shadow transition-transform",
-                draft.systemAudio ? "translate-x-4" : "translate-x-0.5"
-              )}
-            ></span>
-          </span>
-        </button>
-
-        <!-- Microphone toggle -->
-        <button
-          type="button"
-          onclick={() => toggleDraft("microphone")}
-          class="flex items-center gap-4 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/40"
-        >
-          <span class="flex w-28 shrink-0 items-center gap-2 text-[12px] font-medium text-foreground">
-            <Mic size={14} class="text-muted-foreground" />
-            Microphone
-          </span>
-          <span class="flex-1 truncate text-[11px] text-muted-foreground">
-            Record your voice from the default input
-          </span>
-          <span
-            class={cn(
-              "flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
-              draft.microphone ? "border-primary bg-primary" : "border-border bg-muted"
-            )}
-          >
-            <span
-              class={cn(
-                "size-4 rounded-full bg-background shadow transition-transform",
-                draft.microphone ? "translate-x-4" : "translate-x-0.5"
-              )}
-            ></span>
-          </span>
-        </button>
-
-        <!-- Camera toggle -->
-        <button
-          type="button"
-          onclick={() => toggleDraft("camera")}
-          class="flex items-center gap-4 border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/40"
-        >
-          <span class="flex w-28 shrink-0 items-center gap-2 text-[12px] font-medium text-foreground">
-            <Camera size={14} class="text-muted-foreground" />
-            Camera
-          </span>
-          <span class="flex-1 truncate text-[11px] text-muted-foreground">
-            Overlay webcam feed onto the recording
-          </span>
-          <span
-            class={cn(
-              "flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
-              draft.camera ? "border-primary bg-primary" : "border-border bg-muted"
-            )}
-          >
-            <span
-              class={cn(
-                "size-4 rounded-full bg-background shadow transition-transform",
-                draft.camera ? "translate-x-4" : "translate-x-0.5"
-              )}
-            ></span>
-          </span>
-        </button>
+        {@render toggleRow("isDefault", Star, "Default", "Use this profile automatically on launch")}
+        {@render toggleRow("systemAudio", Volume2, "System Audio", "Capture sounds playing on your device")}
+        {@render toggleRow("microphone", Mic, "Microphone", "Record your voice from the default input")}
+        {@render toggleRow("camera", Camera, "Camera", "Overlay webcam feed onto the recording")}
       </div>
 
       <footer
-        class="flex h-10 items-center justify-between border-t border-border bg-muted/30 px-3 text-[11px] text-muted-foreground"
+        class="flex h-10 items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 text-[11px] text-muted-foreground"
       >
+        <div class="flex items-center gap-1.5">
+          <Button
+            variant="destructive_soft"
+            size="xs"
+            class="gap-1.5"
+            onclick={() => {
+              if (editingId) deleteProfile(editingId);
+            }}
+          >
+            <Trash2 size={12} />
+            Delete
+          </Button>
+        </div>
         <div class="flex items-center gap-3">
-          <span class="flex items-center gap-1">
+          <span class="hidden items-center gap-1 sm:flex">
             <kbd class="rounded border border-border bg-background px-1.5 py-0.5 font-mono">⌘↵</kbd>
             <span>Save</span>
           </span>
-          <span class="flex items-center gap-1">
-            <kbd class="rounded border border-border bg-background px-1.5 py-0.5 font-mono">esc</kbd>
-            <span>Cancel</span>
-          </span>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <Button variant="ghost" size="sm" class="h-7" onclick={cancelEditing}>Cancel</Button>
-          <Button variant="default" size="sm" class="h-7" onclick={finishEditing}>Save</Button>
+          <div class="flex items-center gap-1.5">
+            <Button variant="ghost" size="xs" onclick={cancelEditing}>Cancel</Button>
+            <Button variant="default" size="xs" onclick={finishEditing}>Save</Button>
+          </div>
         </div>
       </footer>
     </div>

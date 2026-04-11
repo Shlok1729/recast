@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Button } from "$components/ui/button";
   import { isTauriApp } from "$lib/runtime/tauri";
   import { cn } from "$lib/utils";
   import { Minus, Square, X } from "@lucide/svelte";
@@ -69,19 +70,23 @@
   <!-- Window controls: outside the drag region so clicks aren't intercepted -->
   {#if isTauri}
     <div class="shrink-0 flex items-center h-full">
-      <button
+      <Button
+        variant="ghost"
+        size="raw"
         onmousedown={(e) => e.stopPropagation()}
         onclick={handleMinimize}
-        class="h-full w-9 flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
+        class="h-full w-9 rounded-none text-muted-foreground hover:bg-muted"
         aria-label="Minimize"
         title="Minimize"
       >
         <Minus size={12} strokeWidth={1.5} />
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="ghost"
+        size="raw"
         onmousedown={(e) => e.stopPropagation()}
         onclick={handleToggleMaximize}
-        class="h-full w-9 flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
+        class="h-full w-9 rounded-none text-muted-foreground hover:bg-muted"
         aria-label={isMaximized ? "Restore" : "Maximize"}
         title={isMaximized ? "Restore" : "Maximize"}
       >
@@ -93,16 +98,18 @@
         {:else}
           <Square size={11} strokeWidth={1.5} />
         {/if}
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="raw"
+        size="raw"
         onmousedown={(e) => e.stopPropagation()}
         onclick={handleClose}
-        class="h-full w-9 flex items-center justify-center text-muted-foreground hover:bg-red-500 hover:text-white transition-colors"
+        class="h-full w-9 rounded-none text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
         aria-label="Close"
         title="Close"
       >
         <X size={13} strokeWidth={1.5} />
-      </button>
+      </Button>
     </div>
   {/if}
 </div>

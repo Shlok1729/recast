@@ -1,6 +1,7 @@
 <script lang="ts">
-  import Button from "$components/ui/button/button.svelte";
+  import { Button } from "$components/ui/button";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
+  import { cn } from "$lib/utils";
   import {
     Activity,
     Eye,
@@ -15,6 +16,7 @@
     store: EditorStore;
   }
 
+  // Semantic-token accents — no hardcoded hex beyond the actual highlight swatches
   const highlightColors = [
     "#3b82f6",
     "#ef4444",
@@ -32,90 +34,49 @@
     updates: Partial<EditorStore["cursorSettings"]>,
     trackUndo = false,
   ) {
-    if (trackUndo) {
-      store.pushUndoState();
-    }
+    if (trackUndo) store.pushUndoState();
     store.updateCursorSettings(updates);
   }
 </script>
 
-<div class="flex flex-col gap-4 animate-in fade-in duration-300">
-  <section id="cursor-info">
-    <div class="flex items-center justify-between gap-3">
-      <div>
-        <div class="flex items-center gap-2">
-          <h3 class="text-base font-semibold text-foreground">Cursor</h3>
-          <InspectorHint
-            content="These controls tune how the captured pointer feels during playback."
-          />
-        </div>
+<div class="flex flex-col gap-5 animate-in fade-in duration-200">
+  <!-- Header row: label + enabled toggle -->
+  <section>
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center gap-1.5">
+        <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Cursor
+        </h3>
+        <InspectorHint content="These controls tune how the captured pointer feels during playback." />
       </div>
-
       <Button
-        type="button"
         variant={store.cursorSettings.enabled ? "default_soft" : "outline"}
-        size="sm"
-        onclick={() =>
-          updateCursorSettings(
-            { enabled: !store.cursorSettings.enabled },
-            true,
-          )}
+        size="xs"
+        class="gap-1.5"
+        onclick={() => updateCursorSettings({ enabled: !store.cursorSettings.enabled }, true)}
         aria-pressed={store.cursorSettings.enabled}
       >
         {#if store.cursorSettings.enabled}
-          <Eye size={14} />
-          Cursor visible
+          <Eye size={11} />
+          Visible
         {:else}
-          <EyeOff size={14} />
-          Cursor hidden
+          <EyeOff size={11} />
+          Hidden
         {/if}
       </Button>
-    </div>
-
-    <div class="mt-4 grid grid-cols-3 gap-2">
-      <div class="rounded-lg bg-muted px-2 py-2">
-        <p
-          class="text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
-        >
-          Size
-        </p>
-        <p class="mt-1 text-sm font-semibold text-foreground">
-          {store.cursorSettings.size}x
-        </p>
-      </div>
-      <div class="rounded-lg bg-muted px-2 py-2">
-        <p
-          class="text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
-        >
-          Highlight
-        </p>
-        <p class="mt-1 text-sm font-semibold text-foreground">
-          {store.cursorSettings.highlightClicks ? "On" : "Off"}
-        </p>
-      </div>
-      <div class="rounded-lg bg-muted px-2 py-2">
-        <p
-          class="text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
-        >
-          Idle hide
-        </p>
-        <p class="mt-1 text-sm font-semibold text-foreground">
-          {store.cursorSettings.hideWhenIdle ? "Enabled" : "Disabled"}
-        </p>
-      </div>
     </div>
   </section>
 
   {#if store.cursorSettings.enabled}
-    <section id="cursor-controls">
-      <div class="mb-3 flex items-center gap-2">
-        <h4 class="text-sm font-semibold text-foreground">Pointer feel</h4>
-        <InspectorHint
-          content="Size changes legibility. Smoothing makes motion feel less jittery."
-        />
-      </div>
-
-      <div class="space-y-3">
+    <!-- Pointer feel -->
+    <section>
+      <header class="mb-2 flex items-center gap-1.5">
+        <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Pointer
+        </h3>
+        <InspectorHint content="Size changes legibility. Smoothing makes motion feel less jittery." />
+      </header>
+      <div class="space-y-2.5">
         <SliderControl
           label="Cursor size"
           value={store.cursorSettings.size}
@@ -124,12 +85,10 @@
           step={1}
           unit="x"
           onstart={() => store.pushUndoState()}
-          onchange={(nextValue) => {
-            store.updateCursorSettings({ size: nextValue });
-          }}
+          onchange={(next) => store.updateCursorSettings({ size: next })}
         >
           {#snippet icon()}
-            <MousePointer size={12} />
+            <MousePointer size={11} />
           {/snippet}
         </SliderControl>
 
@@ -141,75 +100,66 @@
           step={5}
           unit="%"
           onstart={() => store.pushUndoState()}
-          onchange={(nextValue) => {
-            store.updateCursorSettings({ smoothing: nextValue });
-          }}
+          onchange={(next) => store.updateCursorSettings({ smoothing: next })}
         >
           {#snippet icon()}
-            <Sparkles size={12} />
+            <Sparkles size={11} />
           {/snippet}
         </SliderControl>
       </div>
     </section>
 
-    <section id="click-highlight">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <h4 class="text-sm font-semibold text-foreground">Click highlight</h4>
-          <InspectorHint
-            content="Useful for tutorials and product demos where click targets should be obvious."
-          />
+    <!-- Click highlight -->
+    <section>
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5">
+          <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Click Highlight
+          </h3>
+          <InspectorHint content="Useful for tutorials and product demos where click targets should be obvious." />
         </div>
-
         <Button
-          type="button"
-          size="sm"
+          variant={store.cursorSettings.highlightClicks ? "default_soft" : "outline"}
+          size="xs"
+          class="gap-1.5"
           onclick={() =>
             updateCursorSettings(
-              {
-                highlightClicks: !store.cursorSettings.highlightClicks,
-              },
+              { highlightClicks: !store.cursorSettings.highlightClicks },
               true,
             )}
           aria-pressed={store.cursorSettings.highlightClicks}
-          aria-label={store.cursorSettings.highlightClicks
-            ? "Disable click highlight"
-            : "Enable click highlight"}
-          variant={store.cursorSettings.highlightClicks
-            ? "default_soft"
-            : "outline"}
         >
-          <Activity size={14} />
-          {store.cursorSettings.highlightClicks ? "Enabled" : "Disabled"}
+          <Activity size={11} />
+          {store.cursorSettings.highlightClicks ? "On" : "Off"}
         </Button>
       </div>
 
       {#if store.cursorSettings.highlightClicks}
-        <div class="grid grid-cols-4 gap-2">
+        <div class="grid grid-cols-8 gap-1">
           {#each highlightColors as color}
-            <button
-              type="button"
+            {@const isSelected = store.cursorSettings.highlightColor === color}
+            <Button
+              variant="raw"
+              size="raw"
               onclick={() =>
                 updateCursorSettings(
                   { highlightColor: color },
                   store.cursorSettings.highlightColor !== color,
                 )}
-              aria-label={`Use ${color} click highlight color`}
-              aria-pressed={store.cursorSettings.highlightColor === color}
-              class="rounded-2xl border p-2 transition-all duration-200 {store
-                .cursorSettings.highlightColor === color
-                ? 'border-foreground shadow-md ring-2 ring-foreground/10'
-                : 'border-border/60 hover:border-border hover:shadow-sm'}"
-            >
-              <div
-                class="h-8 w-full rounded-xl border border-black/5"
-                style="background-color: {color}"
-              ></div>
-            </button>
+              aria-label="Use {color} click highlight color"
+              aria-pressed={isSelected}
+              class={cn(
+                "aspect-square rounded-md border-2 transition-all",
+                isSelected
+                  ? "border-foreground shadow-sm"
+                  : "border-border/40 hover:border-border",
+              )}
+              style="background-color: {color}"
+            ></Button>
           {/each}
         </div>
 
-        <div class="mt-3">
+        <div class="mt-2.5">
           <SliderControl
             label="Highlight opacity"
             value={store.cursorSettings.highlightOpacity}
@@ -218,44 +168,32 @@
             step={5}
             unit="%"
             onstart={() => store.pushUndoState()}
-            onchange={(nextValue) => {
-              store.updateCursorSettings({
-                highlightOpacity: nextValue,
-              });
-            }}
+            onchange={(next) => store.updateCursorSettings({ highlightOpacity: next })}
           />
         </div>
       {/if}
     </section>
 
-    <section id="idle-behavior">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <h4 class="text-sm font-semibold text-foreground">Idle behavior</h4>
-          <InspectorHint
-            content="Hide the cursor after inactivity for cleaner sections without interaction."
-          />
+    <!-- Idle behavior -->
+    <section>
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5">
+          <h3 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Idle Behavior
+          </h3>
+          <InspectorHint content="Hide the cursor after inactivity for cleaner sections without interaction." />
         </div>
-
         <Button
-          type="button"
+          variant={store.cursorSettings.hideWhenIdle ? "default_soft" : "outline"}
+          size="xs"
           onclick={() =>
             updateCursorSettings(
-              {
-                hideWhenIdle: !store.cursorSettings.hideWhenIdle,
-              },
+              { hideWhenIdle: !store.cursorSettings.hideWhenIdle },
               true,
             )}
           aria-pressed={store.cursorSettings.hideWhenIdle}
-          variant={store.cursorSettings.hideWhenIdle
-            ? "default_soft"
-            : "outline"}
-          size="sm"
-          aria-label={store.cursorSettings.hideWhenIdle
-            ? "Disable hide cursor when idle"
-            : "Enable hide cursor when idle"}
         >
-          {store.cursorSettings.hideWhenIdle ? "Enabled" : "Disabled"}
+          {store.cursorSettings.hideWhenIdle ? "On" : "Off"}
         </Button>
       </div>
 
@@ -268,25 +206,18 @@
           step={1}
           unit="s"
           onstart={() => store.pushUndoState()}
-          onchange={(nextValue) => {
-            store.updateCursorSettings({ idleTimeout: nextValue });
-          }}
+          onchange={(next) => store.updateCursorSettings({ idleTimeout: next })}
         />
       {/if}
     </section>
   {:else}
-    <section id="cursor-hidden">
-      <div class="flex items-start gap-3">
-        <div
-          class="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/80 text-muted-foreground"
-        >
-          <EyeOff size={18} />
-        </div>
-        <div>
-          <h4 class="text-sm font-semibold text-foreground">Cursor hidden</h4>
-          <p class="mt-1 text-xs text-muted-foreground">Enable it anytime</p>
-        </div>
-      </div>
-    </section>
+    <div
+      class="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5"
+    >
+      <EyeOff size={13} class="shrink-0 text-muted-foreground" />
+      <p class="flex-1 text-[11px] text-muted-foreground">
+        Cursor is hidden. Enable it to tune size, smoothing and click highlights.
+      </p>
+    </div>
   {/if}
 </div>

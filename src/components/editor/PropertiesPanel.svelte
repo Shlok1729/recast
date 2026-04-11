@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { Badge } from "$components/ui/badge";
   import * as Tabs from "$components/ui/tabs";
   import * as Tooltip from "$components/ui/tooltip";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import { ImageIcon, MousePointer, Volume2 } from "@lucide/svelte";
+  import { Clock, Film, Gauge, ImageIcon, MousePointer, Volume2 } from "@lucide/svelte";
   import AudioPanel from "./AudioPanel.svelte";
   import BackgroundPicker from "./BackgroundPicker.svelte";
   import CursorPanel from "./CursorPanel.svelte";
@@ -21,6 +20,7 @@
   ];
 
   let { store }: Props = $props();
+  let activeTab = $state<PanelTab>("background");
 
   function formatDuration(seconds: number | undefined) {
     if (!seconds || seconds <= 0) return "--:--";
@@ -37,33 +37,60 @@
     if (!store.metadata?.fps) return "--";
     return `${Math.round(store.metadata.fps)} fps`;
   }
+
+  const activeTabLabel = $derived(tabs.find((t) => t.id === activeTab)?.label ?? "Panel");
 </script>
 
-<div class="flex flex-col h-full bg-card">
-  <div
-    class="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-border"
-  >
-    <Badge variant="secondary" class="text-[10px]"
-      >{formatDuration(store.metadata?.duration)}</Badge
-    >
-    <Badge variant="secondary" class="text-[10px]">{formatResolution()}</Badge>
-    <Badge variant="secondary" class="text-[10px]">{formatFps()}</Badge>
-  </div>
+<aside class="@container/panel flex h-full min-h-0 flex-col bg-card text-[12px]">
+  <!-- Metadata header row: source specs in Raycast-style pinned badges -->
+  <header class="shrink-0 border-b border-border px-3 py-2">
+    <div class="flex items-center justify-between gap-2">
+      <span
+        class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+      >
+        Source
+      </span>
+    </div>
+    <div class="mt-1.5 flex flex-wrap items-center gap-1 text-[11px]">
+      <span
+        class="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono tabular-nums text-foreground"
+        title="Duration"
+      >
+        <Clock size={10} class="text-muted-foreground" />
+        {formatDuration(store.metadata?.duration)}
+      </span>
+      <span
+        class="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono tabular-nums text-foreground"
+        title="Resolution"
+      >
+        <Film size={10} class="text-muted-foreground" />
+        {formatResolution()}
+      </span>
+      <span
+        class="inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono tabular-nums text-foreground"
+        title="Frame rate"
+      >
+        <Gauge size={10} class="text-muted-foreground" />
+        {formatFps()}
+      </span>
+    </div>
+  </header>
 
-  <Tabs.Root value={tabs[0].id} class="flex flex-col flex-1 min-h-0">
+  <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col">
+    <!-- Tabs row: dense icon buttons + current tab label -->
     <div
-      class="shrink-0 flex items-center gap-0.5 px-2 py-1.5 border-b border-border"
+      class="shrink-0 flex items-center justify-between gap-2 border-b border-border px-2 py-1.5"
     >
-      <Tabs.List class="bg-transparent p-0 h-auto gap-0.5">
+      <Tabs.List class="h-auto gap-0.5 bg-transparent p-0">
         {#each tabs as tab}
           {@const Icon = tab.icon}
           <Tooltip.Root>
             <Tooltip.Trigger>
               <Tabs.Trigger
                 value={tab.id}
-                class="h-8 p-2 flex items-center justify-center rounded-md data-[state=active]:bg-muted data-[state=active]:text-foreground text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground"
               >
-                <Icon size={16} />
+                <Icon size={13} />
                 <span class="sr-only">{tab.label}</span>
               </Tabs.Trigger>
             </Tooltip.Trigger>
@@ -71,27 +98,23 @@
           </Tooltip.Root>
         {/each}
       </Tabs.List>
+      <span
+        class="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+      >
+        {activeTabLabel}
+      </span>
     </div>
 
-    <Tabs.Content
-      value="background"
-      class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
-    >
+    <Tabs.Content value="background" class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <BackgroundPicker {store} />
     </Tabs.Content>
 
-    <Tabs.Content
-      value="cursor"
-      class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
-    >
+    <Tabs.Content value="cursor" class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <CursorPanel {store} />
     </Tabs.Content>
 
-    <Tabs.Content
-      value="audio"
-      class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
-    >
+    <Tabs.Content value="audio" class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <AudioPanel {store} />
     </Tabs.Content>
   </Tabs.Root>
-</div>
+</aside>

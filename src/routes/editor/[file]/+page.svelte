@@ -7,6 +7,8 @@
   import VideoPreview from "$components/editor/VideoPreview.svelte";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import EditorSkeleton from "$components/skeletons/EditorSkeleton.svelte";
+  import { Button } from "$components/ui/button";
+  import { ArrowLeft } from "@lucide/svelte";
   import {
     autosaveProject,
     clearAutosave,
@@ -284,12 +286,10 @@
           <span class="text-[18px] font-semibold">!</span>
         </div>
         <p class="text-[12px] text-muted-foreground">{error}</p>
-        <button
-          onclick={handleBack}
-          class="rounded-md border border-border bg-background px-3 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
-        >
-          ← Back to recordings
-        </button>
+        <Button variant="outline" size="sm" onclick={handleBack} class="gap-1.5">
+          <ArrowLeft size={13} />
+          Back to recordings
+        </Button>
       </div>
     </div>
   {:else}

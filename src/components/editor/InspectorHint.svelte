@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from "$components/ui/button";
 	import * as Tooltip from "$components/ui/tooltip";
 	import { CircleHelp } from "@lucide/svelte";
 
@@ -11,15 +12,16 @@
 
 <Tooltip.Root>
 	<Tooltip.Trigger>
-		<button
-			type="button"
-			class="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+		<Button
+			variant="ghost"
+			size="raw"
+			class="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground"
 			aria-label="More information"
 		>
-			<CircleHelp size={13} />
-		</button>
+			<CircleHelp size={11} />
+		</Button>
 	</Tooltip.Trigger>
-	<Tooltip.Content class="max-w-56 text-xs leading-5">
+	<Tooltip.Content class="max-w-56 text-[11px] leading-relaxed">
 		{content}
 	</Tooltip.Content>
 </Tooltip.Root>
