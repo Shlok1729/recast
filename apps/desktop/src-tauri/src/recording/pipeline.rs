@@ -59,10 +59,12 @@ impl RecordingPipeline {
     pub fn push(&self, frame: VideoFrame) {
         self.stats.captured_frames.fetch_add(1, Ordering::Relaxed);
         if self.queue.push(frame).is_err() {
-            // The queue (capacity 180 ≈ 3 s at 60 fps) is full — the
-            // encoder is falling behind the pacer. Increment the
-            // counter and surface the condition in the log so a
-            // recording that comes out choppy has a paper trail.
+            // The queue is full — the encoder is falling behind the
+            // pacer. Increment the counter and surface the condition in
+            // the log so a recording that comes out choppy has a paper
+            // trail. Capacity is sized by `RecordingManager::start` based
+            // on the capture resolution (≤256 MB BGRA budget), so the
+            // queue holds anywhere from ~8 frames at 4K to 180 at 720p.
             //
             // We log loudly on the first drop of each session so the
             // problem is visible the moment it starts, then dampen to
@@ -82,10 +84,7 @@ impl RecordingPipeline {
                 );
             } else if prev % 300 == 299 {
                 // prev=299 ⇒ this drop is the 300th; prev=599 ⇒ 600th; …
-                log::warn!(
-                    "recording pipeline: {} frames dropped total (queue capacity 180)",
-                    prev + 1
-                );
+                log::warn!("recording pipeline: {} frames dropped total", prev + 1);
             }
         }
     }

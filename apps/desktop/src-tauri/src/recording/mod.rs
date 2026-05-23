@@ -537,7 +537,26 @@ impl RecordingManager {
         let clock = RecordingClock::new(started_at);
         let stop_flag = Arc::new(AtomicBool::new(false));
         let pause_flag = Arc::new(AtomicBool::new(false));
-        let pipeline = RecordingPipeline::new(180);
+        // Cap the frame queue by *memory*, not frame count. The previous
+        // hard-coded 180 was fine at 720p (~640 MB worst case) but
+        // OOM'd low-end machines at 1080p (~1.5 GB) and 4K (~6 GB) when
+        // the encoder fell behind. Target ~256 MB of BGRA backing buffers
+        // — that's a 3 s buffer at 1080p60 and ~8 frames at 4K, with a
+        // hard floor of 30 frames (0.5 s @ 60 fps) so even a single
+        // 4K monitor still gets enough headroom to ride out a hitch.
+        const QUEUE_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
+        let frame_bytes = (target.source.width as u64)
+            .saturating_mul(target.source.height as u64)
+            .saturating_mul(4)
+            .max(1);
+        let queue_capacity = (QUEUE_BUDGET_BYTES / frame_bytes).clamp(30, 180) as usize;
+        log::info!(
+            "recording pipeline queue: {queue_capacity} frames ({} MB at {}x{} BGRA)",
+            (frame_bytes * queue_capacity as u64) / (1024 * 1024),
+            target.source.width,
+            target.source.height,
+        );
+        let pipeline = RecordingPipeline::new(queue_capacity);
         let mut warnings = Vec::new();
 
         let capture_handle = spawn_capture_loop(

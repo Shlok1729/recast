@@ -996,9 +996,13 @@ pub async fn diagnose_ffmpeg() -> Result<FfmpegDiagnostics, String> {
                     missing.push(name.to_string());
                 }
             }
-            // Hardware encoder is informational, not required.
-            if table.contains("h264_nvenc") {
-                present.push("h264_nvenc".to_string());
+            // Hardware encoders are informational, not required. Listing
+            // every vendor-specific codec the bundled FFmpeg supports so
+            // the diagnostics page reflects what's actually selectable.
+            for hw in ["h264_nvenc", "h264_amf", "h264_qsv"] {
+                if table.contains(hw) {
+                    present.push(hw.to_string());
+                }
             }
         } else {
             for &name in REQUIRED {
