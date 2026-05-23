@@ -554,7 +554,14 @@
         emit("camera-recording-stopped");
         emit("refresh-recordings");
       } catch (e) {
-        alert(`Stop failed: ${e}\n\nMake sure ffmpeg is installed.`);
+        // Show the actual error, not a misleading "ffmpeg not installed"
+        // suffix. By the time stop runs, start has already succeeded —
+        // FFmpeg was available, so a stop failure is something else
+        // (encoder thread panic, disk full, codec mismatch in the
+        // bundled binary, etc.). Misattributing to FFmpeg sent users
+        // chasing missing-binary red herrings on bundles where FFmpeg
+        // was actually present.
+        alert(`Stop failed: ${e}`);
       }
     } else {
       if (!selectedSource) return;
