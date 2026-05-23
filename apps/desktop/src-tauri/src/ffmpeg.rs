@@ -246,27 +246,53 @@ pub fn cached_avfoundation_devices() -> &'static str {
 
 /// Detect the best available H.264 encoder on the system.
 /// Prefers hardware NVENC when available, falling back to libx264.
-/// Cached for the process lifetime — `ffmpeg -encoders` costs ~200–300ms cold.
+/// Cached for the process lifetime — the NVENC init probe costs ~300–500ms cold.
 pub fn preferred_h264_encoder() -> &'static str {
     static CACHED: OnceLock<&'static str> = OnceLock::new();
     CACHED.get_or_init(|| {
+        // `-encoders` only tells us NVENC was *compiled in* — the bundled
+        // FFmpeg binaries always have it. That's not the same as NVENC
+        // being *usable*: no NVIDIA GPU, missing/outdated driver, or
+        // hitting the consumer-card 3-session NVENC concurrency limit all
+        // produce a fully-compiled NVENC that fails at codec-init time.
+        // When that happens FFmpeg exits in the first ~100ms of the real
+        // recording, and the encoder thread surfaces it as the cryptic
+        // "the pipe is being closed (os error 232)" on first write.
+        //
+        // So actually exercise NVENC end-to-end against a 1-frame
+        // null source. If the probe exits 0, NVENC works on this machine.
         let mut command = Command::new(ffmpeg_path());
-        command.args(["-hide_banner", "-encoders"]);
+        command.args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "nullsrc=s=64x64:d=0.04",
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p1",
+            "-f",
+            "null",
+            "-",
+        ]);
         configure_silent_command(&mut command);
-        let output = command.output();
-        match output {
-            Ok(result) if result.status.success() => {
-                let encoders = String::from_utf8_lossy(&result.stdout);
-                if encoders.contains("h264_nvenc") {
-                    log::info!("preferred H.264 encoder: h264_nvenc");
-                    "h264_nvenc"
-                } else {
-                    log::info!("preferred H.264 encoder: libx264 (no hardware encoder detected)");
-                    "libx264"
-                }
+        match command.output() {
+            Ok(out) if out.status.success() => {
+                log::info!("preferred H.264 encoder: h264_nvenc (init probe ok)");
+                "h264_nvenc"
             }
-            _ => {
-                log::warn!("failed to probe ffmpeg encoders, defaulting to libx264");
+            Ok(out) => {
+                log::info!(
+                    "h264_nvenc init probe failed, falling back to libx264: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+                "libx264"
+            }
+            Err(e) => {
+                log::warn!("h264_nvenc probe could not run, defaulting to libx264: {e}");
                 "libx264"
             }
         }
