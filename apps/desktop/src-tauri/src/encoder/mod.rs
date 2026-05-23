@@ -87,6 +87,11 @@ pub fn spawn_encoder_loop(
                 args.extend(["-vf".to_string(), filter]);
             }
 
+            // Per-codec quality knobs. Hardware encoders get a low-latency
+            // preset matched to live capture; libx264 stays on `ultrafast`
+            // so weak CPUs (older laptops, no GPU at all) don't drop
+            // frames during recording — quality is recovered later by the
+            // export pipeline if the user re-encodes.
             match encoder {
                 "h264_nvenc" => {
                     args.extend([
@@ -100,12 +105,36 @@ pub fn spawn_encoder_loop(
                         "yuv420p".to_string(),
                     ]);
                 }
+                "h264_amf" => {
+                    args.extend([
+                        "-c:v".to_string(),
+                        "h264_amf".to_string(),
+                        "-quality".to_string(),
+                        "speed".to_string(),
+                        "-usage".to_string(),
+                        "lowlatency".to_string(),
+                        "-pix_fmt".to_string(),
+                        "yuv420p".to_string(),
+                    ]);
+                }
+                "h264_qsv" => {
+                    args.extend([
+                        "-c:v".to_string(),
+                        "h264_qsv".to_string(),
+                        "-preset".to_string(),
+                        "veryfast".to_string(),
+                        "-pix_fmt".to_string(),
+                        "nv12".to_string(),
+                    ]);
+                }
                 _ => {
                     args.extend([
                         "-c:v".to_string(),
                         "libx264".to_string(),
                         "-preset".to_string(),
-                        "veryfast".to_string(),
+                        "ultrafast".to_string(),
+                        "-tune".to_string(),
+                        "zerolatency".to_string(),
                         "-pix_fmt".to_string(),
                         "yuv420p".to_string(),
                     ]);

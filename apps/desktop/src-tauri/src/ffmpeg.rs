@@ -244,59 +244,67 @@ pub fn cached_avfoundation_devices() -> &'static str {
     })
 }
 
-/// Detect the best available H.264 encoder on the system.
-/// Prefers hardware NVENC when available, falling back to libx264.
-/// Cached for the process lifetime — the NVENC init probe costs ~300–500ms cold.
+/// Detect the best available H.264 encoder on the system, by *actually*
+/// running a 1-frame encode for each hardware candidate against a `lavfi`
+/// null source. `ffmpeg -encoders` only tells us a codec was *compiled in*
+/// (the bundled binaries always have NVENC/AMF/QSV) — it doesn't tell us
+/// codec-init will succeed: no GPU, missing driver, hitting NVENC's
+/// 3-session consumer-card concurrency limit, or an iGPU below the codec's
+/// minimum VRAM all surface only at runtime as a ~100ms-after-start
+/// FFmpeg exit, which the encoder thread sees as the cryptic "the pipe
+/// is being closed (os error 232)" on first frame write.
+///
+/// Priority: `h264_nvenc` (NVIDIA) → `h264_amf` (AMD) → `h264_qsv` (Intel)
+/// → `libx264` (CPU). Cached for the process lifetime; each probe costs
+/// ~300–500ms cold, so we stop at the first one that works.
 pub fn preferred_h264_encoder() -> &'static str {
     static CACHED: OnceLock<&'static str> = OnceLock::new();
     CACHED.get_or_init(|| {
-        // `-encoders` only tells us NVENC was *compiled in* — the bundled
-        // FFmpeg binaries always have it. That's not the same as NVENC
-        // being *usable*: no NVIDIA GPU, missing/outdated driver, or
-        // hitting the consumer-card 3-session NVENC concurrency limit all
-        // produce a fully-compiled NVENC that fails at codec-init time.
-        // When that happens FFmpeg exits in the first ~100ms of the real
-        // recording, and the encoder thread surfaces it as the cryptic
-        // "the pipe is being closed (os error 232)" on first write.
-        //
-        // So actually exercise NVENC end-to-end against a 1-frame
-        // null source. If the probe exits 0, NVENC works on this machine.
-        let mut command = Command::new(ffmpeg_path());
-        command.args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "nullsrc=s=64x64:d=0.04",
-            "-c:v",
-            "h264_nvenc",
-            "-preset",
-            "p1",
-            "-f",
-            "null",
-            "-",
-        ]);
-        configure_silent_command(&mut command);
-        match command.output() {
-            Ok(out) if out.status.success() => {
-                log::info!("preferred H.264 encoder: h264_nvenc (init probe ok)");
-                "h264_nvenc"
-            }
-            Ok(out) => {
-                log::info!(
-                    "h264_nvenc init probe failed, falling back to libx264: {}",
-                    String::from_utf8_lossy(&out.stderr).trim()
-                );
-                "libx264"
-            }
-            Err(e) => {
-                log::warn!("h264_nvenc probe could not run, defaulting to libx264: {e}");
-                "libx264"
+        for (name, extra_args) in [
+            ("h264_nvenc", &["-preset", "p1"][..]),
+            ("h264_amf", &["-quality", "speed"][..]),
+            ("h264_qsv", &["-preset", "veryfast"][..]),
+        ] {
+            if probe_encoder(name, extra_args) {
+                log::info!("preferred H.264 encoder: {name} (init probe ok)");
+                return name;
             }
         }
+        log::info!("preferred H.264 encoder: libx264 (no working hardware encoder)");
+        "libx264"
     })
+}
+
+fn probe_encoder(name: &str, extra_args: &[&str]) -> bool {
+    let mut command = Command::new(ffmpeg_path());
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "nullsrc=s=64x64:d=0.04",
+        "-c:v",
+        name,
+    ]);
+    command.args(extra_args);
+    command.args(["-f", "null", "-"]);
+    configure_silent_command(&mut command);
+    match command.output() {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => {
+            log::info!(
+                "{name} init probe failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+            false
+        }
+        Err(e) => {
+            log::warn!("{name} probe could not run: {e}");
+            false
+        }
+    }
 }
 
 /// Check if ffmpeg is available. Returns an error message if not.

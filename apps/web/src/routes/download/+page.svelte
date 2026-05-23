@@ -17,11 +17,15 @@
 	  ArrowDownToLine,
 	  CheckCircle2,
 	  ChevronDown,
+	  Cpu,
 	  Download,
 	  FileBox,
+	  HardDrive,
 	  Info,
 	  LifeBuoy,
+	  MemoryStick,
 	  Monitor,
+	  MonitorSmartphone,
 	  ShieldCheck,
 	  Sparkles,
 	  Terminal,
@@ -141,6 +145,45 @@
 		{ icon: Zap, label: "GPU export", value: "Hardware-encoded" },
 		{ icon: FileBox, label: "Open format", value: ".recast project" },
 		{ icon: ShieldCheck, label: "Open source", value: "MIT licensed" },
+	];
+
+	// System requirements. Recast probes NVENC (NVIDIA) → AMF (AMD) → QSV
+	// (Intel) at startup and falls back to libx264 (CPU) if none initialize.
+	// The "recommended" tier is what makes recording feel realtime at 1080p60;
+	// the "minimum" tier covers the integrated-GPU and no-GPU CPU path so
+	// users on older laptops know they're supported before they download.
+	const systemRequirements = [
+		{
+			icon: Cpu,
+			label: "CPU",
+			minimum: "Dual-core x86_64 or arm64 @ 2.0 GHz",
+			recommended: "Quad-core (8+ threads) @ 3.0 GHz or faster",
+		},
+		{
+			icon: MemoryStick,
+			label: "RAM",
+			minimum: "4 GB",
+			recommended: "8 GB or more",
+		},
+		{
+			icon: Zap,
+			label: "GPU",
+			minimum: "Integrated GPU or none — falls back to CPU (libx264)",
+			recommended:
+				"NVIDIA (NVENC, GTX 10-series+), AMD (AMF, RX 400+), or Intel iGPU (QSV, 6th-gen+)",
+		},
+		{
+			icon: HardDrive,
+			label: "Disk",
+			minimum: "500 MB free for the app + room for recordings (~1 GB / 10 min at 1080p60)",
+			recommended: "SSD with 10+ GB free",
+		},
+		{
+			icon: MonitorSmartphone,
+			label: "Display",
+			minimum: "1280 × 720",
+			recommended: "1920 × 1080 or higher",
+		},
 	];
 
 	// Per-platform install instructions. Step `code` is a copy-paste-ready
@@ -489,6 +532,71 @@
 							</div>
 						</div>
 					{/each}
+				</div>
+			</Reveal>
+		</Container>
+	</Section>
+
+	<!-- System requirements. Surface the honest "works without a GPU" path
+	     alongside the recommended hardware so users on entry-level laptops
+	     don't bounce thinking they need a discrete GPU. -->
+	<Section id="system-requirements" class="border-t border-border-low/60">
+		<Container>
+			<SectionHeader
+				eyebrow="System requirements"
+				title="Recording on every machine."
+				description="Hardware-accelerated where it counts — and a solid CPU fallback so a budget laptop without a discrete GPU still records cleanly."
+			/>
+
+			<Reveal>
+				<div class="mt-12 grid gap-4 lg:grid-cols-[1fr_2fr]">
+					<div class="glass-card flex flex-col gap-3 rounded-2xl p-6">
+						<span class="glass-chip grid size-10 place-items-center rounded-xl text-foreground/70">
+							<Info class="size-4" />
+						</span>
+						<h3 class="text-base font-semibold tracking-tight">How encoding picks itself</h3>
+						<p class="text-sm leading-relaxed text-muted-foreground">
+							Recast tests NVIDIA (NVENC), AMD (AMF), and Intel iGPU (QSV) at startup. If none initialise — old GPUs with under ~128 MB VRAM, integrated graphics without QSV, no GPU at all — it falls back to the CPU encoder (libx264) tuned for low-latency capture.
+						</p>
+						<p class="text-xs leading-relaxed text-muted-foreground/80">
+							You'll always be able to record. Hardware encoders just let your CPU breathe while you do it.
+						</p>
+					</div>
+
+					<div class="glass-card overflow-hidden rounded-2xl">
+						<div class="grid grid-cols-[auto_1fr_1fr] items-center gap-x-4 gap-y-0 border-b border-border-low/50 bg-foreground/2 px-5 py-3">
+							<span class="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+								Component
+							</span>
+							<span class="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+								Minimum
+							</span>
+							<span class="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+								Recommended
+							</span>
+						</div>
+						<ul>
+							{#each systemRequirements as req}
+								{@const Icon = req.icon}
+								<li class="grid grid-cols-[auto_1fr_1fr] items-start gap-x-4 gap-y-1 border-b border-border-low/40 px-5 py-4 last:border-b-0">
+									<span class="flex items-center gap-2.5 pt-0.5">
+										<span class="grid size-8 place-items-center rounded-lg bg-foreground/5 text-foreground/70 ring-1 ring-foreground/5">
+											<Icon class="size-4" />
+										</span>
+										<span class="text-sm font-semibold tracking-tight text-foreground">
+											{req.label}
+										</span>
+									</span>
+									<span class="text-sm leading-relaxed text-muted-foreground">
+										{req.minimum}
+									</span>
+									<span class="text-sm leading-relaxed text-foreground/85">
+										{req.recommended}
+									</span>
+								</li>
+							{/each}
+						</ul>
+					</div>
 				</div>
 			</Reveal>
 		</Container>
