@@ -847,22 +847,57 @@ fn trim_video_pause_intervals(path: &Path, intervals: &[(u64, u64)]) -> Result<(
     let in_path = path.to_string_lossy().to_string();
     let out_path = tmp.to_string_lossy().to_string();
 
+    // Camera trim runs synchronously at stop() — on a low-end CPU
+    // recording 10 min of camera, libx264-veryfast can take 30+ seconds
+    // while the user stares at a stuck "Saving recording…" UI. Route
+    // through the same hardware encoder the rest of the pipeline
+    // already probed (NVENC/AMF/QSV) so trim time scales with the GPU
+    // instead of the CPU. The CPU path drops to libx264 ultrafast for
+    // the same reason — quality is fine for a 720p camera bubble.
     let mut command = std::process::Command::new(crate::ffmpeg::ffmpeg_path());
-    command.args([
-        "-y",
-        "-i",
-        in_path.as_str(),
-        "-vf",
-        vf.as_str(),
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-pix_fmt",
-        "yuv420p",
-        out_path.as_str(),
-    ]);
+    let codec_args: &[&str] = match crate::ffmpeg::preferred_h264_encoder() {
+        "h264_nvenc" => &[
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p5",
+            "-rc",
+            "vbr",
+            "-cq",
+            "26",
+            "-b:v",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+        ],
+        "h264_amf" => &[
+            "-c:v", "h264_amf", "-quality", "speed", "-rc", "cqp", "-qp_i", "26", "-qp_p", "26",
+            "-pix_fmt", "yuv420p",
+        ],
+        "h264_qsv" => &[
+            "-c:v",
+            "h264_qsv",
+            "-preset",
+            "veryfast",
+            "-global_quality",
+            "26",
+            "-pix_fmt",
+            "nv12",
+        ],
+        _ => &[
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+        ],
+    };
+    command.args(["-y", "-i", in_path.as_str(), "-vf", vf.as_str(), "-an"]);
+    command.args(codec_args);
+    command.arg(out_path.as_str());
     crate::ffmpeg::configure_silent_command(&mut command);
     let output = command
         .output()

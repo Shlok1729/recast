@@ -1463,12 +1463,32 @@ pub async fn export_video(
             ]);
         }
         "webm" => {
+            // libvpx-vp9 is single-threaded and uses `deadline=best` by
+            // default — a combo that turned a 5-min 1080p export into a
+            // 30+ min job on a dual-core laptop with the machine pinned
+            // at one core. Switching on row-multithreading, letting FFmpeg
+            // pick the thread count, and bumping `cpu-used` to 4 with
+            // `deadline=good` gives ~4–8× faster encodes at the same CRF
+            // with quality loss that's invisible to viewers. `tile-columns`
+            // splits the frame for additional parallelism on multi-core
+            // machines — log2(2)=1 gives 2 tile columns, a safe default
+            // for 1080p+.
             args.extend([
                 "-c:v".to_string(),
                 "libvpx-vp9".to_string(),
                 "-crf".to_string(),
                 profile.webm_crf.to_string(),
                 "-b:v".to_string(),
+                "0".to_string(),
+                "-deadline".to_string(),
+                "good".to_string(),
+                "-cpu-used".to_string(),
+                "4".to_string(),
+                "-row-mt".to_string(),
+                "1".to_string(),
+                "-tile-columns".to_string(),
+                "1".to_string(),
+                "-threads".to_string(),
                 "0".to_string(),
             ]);
             if audio_map.is_some() {
