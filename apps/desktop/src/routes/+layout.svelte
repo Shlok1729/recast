@@ -16,8 +16,9 @@
   import { initAssets } from "$lib/assets";
   import { NavProgress } from "@recast/ui/nav-progress";
   import { getTauriTheme, isTauriApp } from "$lib/runtime/tauri";
-  import { Toaster } from "@recast/ui/sonner";
+  import { Toaster, toast } from "@recast/ui/sonner";
   import { ModeWatcher, setMode } from "@recast/ui/theme";
+  import { listen } from "@tauri-apps/api/event";
   import { onMount, tick } from "svelte";
 
   const TRANSPARENT_ROUTES = [
@@ -30,6 +31,41 @@
   const isTransparentRoute = $derived(
     TRANSPARENT_ROUTES.some((p) => page.url.pathname.startsWith(p)),
   );
+
+  // Cross-window toast bridge. The floating panel / camera-preview /
+  // picker windows are too narrow to host a 320px Sonner card themselves
+  // (they're in `TRANSPARENT_ROUTES` and don't render their own Toaster).
+  // They emit `ui:toast` events and we render them through the main
+  // window's Toaster instead. Keeps the in-window panel UI chrome-free
+  // while still giving users a polished notification language instead
+  // of the OS native alert popup.
+  type UiToastPayload = {
+    level: "error" | "warning" | "info" | "success";
+    message: string;
+    duration?: number;
+  };
+  onMount(() => {
+    if (isTransparentRoute) return;
+    const unlisten = listen<UiToastPayload>("ui:toast", ({ payload }) => {
+      const opts = payload.duration ? { duration: payload.duration } : undefined;
+      switch (payload.level) {
+        case "error":
+          toast.error(payload.message, opts);
+          break;
+        case "warning":
+          toast.warning(payload.message, opts);
+          break;
+        case "success":
+          toast.success(payload.message, opts);
+          break;
+        default:
+          toast.info(payload.message, opts);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  });
 
   // Native macOS-style page transitions via the View Transitions API.
   // Skipped for overlay/secondary windows (transparent routes) and when the

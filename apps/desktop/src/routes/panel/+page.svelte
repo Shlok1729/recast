@@ -56,6 +56,21 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
 
+  // The panel window is too small to host its own Sonner Toaster; the
+  // main window's layout listens for `ui:toast` events and renders
+  // them through its always-mounted Toaster. Native `window.alert` is
+  // a last-resort fallback for the rare case where `emit` itself
+  // throws (no Tauri runtime, IPC unavailable). Sonner is the primary
+  // notification surface across the app — see
+  // `+layout.svelte` for the listener side of the bridge.
+  type ToastLevel = "error" | "warning" | "info" | "success";
+  function notify(level: ToastLevel, message: string, duration?: number) {
+    emit("ui:toast", { level, message, duration }).catch((err) => {
+      console.error("ui:toast emit failed, falling back to alert", err);
+      window.alert(message);
+    });
+  }
+
   type TargetSource = {
     type: "monitor" | "window" | "region";
     id: number;
@@ -561,7 +576,7 @@
         // bundled binary, etc.). Misattributing to FFmpeg sent users
         // chasing missing-binary red herrings on bundles where FFmpeg
         // was actually present.
-        alert(`Stop failed: ${e}`);
+        notify("error", `Stop failed: ${e}`, 10000);
       }
     } else {
       if (!selectedSource) return;
@@ -593,10 +608,10 @@
           emit("camera-recording-started", { startedAtUnixMs: now });
         }
         if (result.warnings.length > 0) {
-          alert(result.warnings.join("\n"));
+          notify("warning", result.warnings.join("\n"), 8000);
         }
       } catch (e) {
-        alert(`Recording failed: ${e}`);
+        notify("error", `Recording failed: ${e}`, 10000);
       }
     }
   }
@@ -615,7 +630,7 @@
         isPaused = true;
       }
     } catch (e) {
-      alert(`Pause/resume failed: ${e}`);
+      notify("error", `Pause/resume failed: ${e}`, 8000);
     }
   }
 
