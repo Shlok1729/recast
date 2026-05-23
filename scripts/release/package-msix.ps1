@@ -56,10 +56,29 @@ Remove-Item -Recurse -Force $staging -ErrorAction Ignore
 New-Item -ItemType Directory -Force -Path "$staging/Assets" | Out-Null
 
 Copy-Item "$releaseDir/recast.exe" "$staging/recast.exe"
-Get-ChildItem $releaseDir -Filter "ffmpeg-*.exe" -ErrorAction Ignore |
-    Copy-Item -Destination $staging
-Get-ChildItem $releaseDir -Filter "ffprobe-*.exe" -ErrorAction Ignore |
-    Copy-Item -Destination $staging
+
+# FFmpeg sidecars are downloaded into `apps/desktop/src-tauri/binaries/`
+# (see `download-ffmpeg-windows.ps1`). Tauri's MSI/NSIS bundler picks
+# them up via `externalBin` automatically; the MSIX path is hand-rolled
+# so we have to stage them ourselves. The runtime resolver in
+# `ffmpeg.rs::candidate_pairs` accepts both `ffmpeg.exe` and the
+# triple-suffixed `ffmpeg-<triple>.exe`, so we copy under the unsuffixed
+# name to match what Tauri's other Windows installers ship.
+#
+# Without this, the MSIX is ~10 MB (recast.exe + manifest + icons only)
+# and exports fail at runtime with "ffmpeg not found".
+$sidecarDir = "apps/desktop/src-tauri/binaries"
+$ffmpegSidecar = "$sidecarDir/ffmpeg-$RustTarget.exe"
+$ffprobeSidecar = "$sidecarDir/ffprobe-$RustTarget.exe"
+if (-not (Test-Path $ffmpegSidecar)) {
+    throw "FFmpeg sidecar missing at $ffmpegSidecar — was download-ffmpeg-windows.ps1 run?"
+}
+if (-not (Test-Path $ffprobeSidecar)) {
+    throw "FFprobe sidecar missing at $ffprobeSidecar — was download-ffmpeg-windows.ps1 run?"
+}
+Copy-Item $ffmpegSidecar  "$staging/ffmpeg.exe"  -Force
+Copy-Item $ffprobeSidecar "$staging/ffprobe.exe" -Force
+
 Get-ChildItem $releaseDir -Filter "*.dll" -ErrorAction Ignore |
     Copy-Item -Destination $staging
 if (Test-Path "$releaseDir/resources") {

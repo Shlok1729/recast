@@ -32,14 +32,20 @@ $bundleRoots = @(
     "apps/desktop/src-tauri/target/release/bundle",
     "apps/desktop/src-tauri/target/$RustTarget/release/bundle"
 )
-# `.gz` covers the macOS updater bundle (recast.app.tar.gz); `.sig`
-# covers the updater signatures emitted alongside every bundle.
-$extensions = @(".AppImage", ".deb", ".dmg", ".exe", ".msi", ".msix", ".sig", ".json", ".gz")
+# `.sig` covers the updater signatures emitted alongside every bundle.
+# `.gz` was previously included to pick up the macOS updater bundle
+# (`recast*.app.tar.gz`) — but a broad `.gz` match also pulls in the
+# `.deb` package's `control.tar.gz` / `data.tar.gz` intermediates
+# during the recursive walk, which then get uploaded as release
+# assets. Handle `.tar.gz` separately with a name filter so we only
+# accept the macOS updater format.
+$extensions = @(".AppImage", ".deb", ".dmg", ".exe", ".msi", ".msix", ".sig", ".json")
 $assets = @()
 foreach ($root in $bundleRoots) {
     if (Test-Path -LiteralPath $root) {
         $assets += Get-ChildItem -Path $root -Recurse -File | Where-Object {
-            $extensions -contains $_.Extension
+            ($extensions -contains $_.Extension) -or
+            ($_.Name -like "recast*.app.tar.gz")
         }
     }
 }
