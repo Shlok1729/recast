@@ -1,4 +1,5 @@
 pub(crate) mod assets;
+pub(crate) mod auth;
 mod editor;
 mod ffmpeg;
 mod recording;
@@ -6,6 +7,7 @@ pub(crate) mod system;
 pub(crate) mod types;
 
 pub use assets::*;
+pub use auth::*;
 pub use editor::*;
 pub use recording::*;
 pub use system::*;

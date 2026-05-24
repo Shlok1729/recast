@@ -22,6 +22,13 @@
       "when": 1779472047470,
       "tag": "0002_thin_tiger_shark",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779604664917,
+      "tag": "0003_gifted_talisman",
+      "breakpoints": true
     }
   ]
 }

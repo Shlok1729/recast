@@ -40,6 +40,17 @@ sha2 = "0.10"
 futures-util = "0.3"
 hex = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# OS-native secrets storage for the cloud session token. On Windows this is
+# DPAPI (Credential Manager), on macOS the Keychain, on Linux SecretService
+# (libsecret/gnome-keyring/kwallet). Using `apple-native` + `windows-native`
+# keeps us off the older platform-specific crates this maps to internally.
+# `sync-secret-service` is the default Linux backend — fine for our token
+# size; SecretService is async-only behind a feature flag we don't enable.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
+# Used to label the cloud session row's User-Agent so the user can identify
+# their devices in the future Settings → Devices list. Better Auth captures
+# this header into session.userAgent automatically.
+hostname = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [

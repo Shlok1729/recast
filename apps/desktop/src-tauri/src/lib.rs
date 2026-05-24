@@ -169,7 +169,10 @@ pub fn run() {
             commands::ensure_assets_installed,
             commands::get_cached_asset_path,
             commands::hydrate_cached_assets,
-            commands::diagnose_ffmpeg
+            commands::diagnose_ffmpeg,
+            commands::auth_start,
+            commands::auth_status,
+            commands::auth_sign_out
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

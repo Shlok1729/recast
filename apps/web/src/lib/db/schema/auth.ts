@@ -1,4 +1,11 @@
-import { boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+	boolean,
+	index,
+	integer,
+	pgTable,
+	text,
+	timestamp,
+} from "drizzle-orm/pg-core";
 import { organization } from "./organization";
 
 /**
@@ -101,5 +108,44 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/**
+ * Owned by Better Auth's `device-authorization` plugin. Holds the in-flight
+ * OAuth 2.0 Device Authorization Grant (RFC 8628) requests issued from the
+ * desktop app:
+ *
+ *   - desktop POSTs /device/code → row inserted (status: "pending", no userId)
+ *   - browser GETs /device?user_code=... → userId populated from session
+ *   - browser POSTs /device/approve → status flips to "approved"
+ *   - desktop POSTs /device/token → row deleted, real `session` row issued
+ *
+ * Field names match the plugin's expected schema exactly — renaming will
+ * break the adapter's column lookups. `userId` is nullable because the row
+ * exists before the user has claimed it.
+ */
+export const deviceCode = pgTable(
+	"deviceCode",
+	{
+		id: text("id").primaryKey(),
+		deviceCode: text("device_code").notNull(),
+		userCode: text("user_code").notNull(),
+		userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+		expiresAt: timestamp("expires_at").notNull(),
+		status: text("status").notNull(),
+		lastPolledAt: timestamp("last_polled_at"),
+		pollingInterval: integer("polling_interval"),
+		clientId: text("client_id"),
+		scope: text("scope"),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at").notNull().defaultNow(),
+	},
+	(t) => [
+		// Plugin looks rows up by deviceCode (on /device/token poll) and by
+		// userCode (on /device GET + approve/deny). Both are hot paths.
+		index("device_code_device_code_idx").on(t.deviceCode),
+		index("device_code_user_code_idx").on(t.userCode),
+	],
+);
+
 export type User = typeof user.$inferSelect;
 export type Session = typeof session.$inferSelect;
+export type DeviceCode = typeof deviceCode.$inferSelect;

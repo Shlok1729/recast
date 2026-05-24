@@ -1,9 +1,11 @@
 <script lang="ts">
   import Logo from "$components/logo.svelte";
+  import CloudSignIn from "$components/settings/CloudSignIn.svelte";
   import { config } from "$constants/app";
   import { getOutputDir, setOutputDir } from "$lib/ipc";
   import {
     ArrowUpRight,
+    Cloud,
     ExternalLink,
     FlaskConical,
     FolderOpen,
@@ -197,6 +199,31 @@
                 </Button>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- Cloud -->
+        <section
+          id="settings-cloud"
+          in:fade={{ duration: 200, delay: 140 }}
+          class="flex flex-col gap-3"
+        >
+          <div class="px-1">
+            <h2
+              class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+            >
+              <Cloud class="size-3 text-primary" />
+              Cloud
+            </h2>
+            <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+              Sign in to sync recordings across devices and share from the
+              cloud.
+            </p>
+          </div>
+          <div
+            class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+          >
+            <CloudSignIn />
           </div>
         </section>
 
