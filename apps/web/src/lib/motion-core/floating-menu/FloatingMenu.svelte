@@ -4,10 +4,14 @@
 	import { SplitText } from "gsap/SplitText";
 	import { onMount, untrack } from "svelte";
 
-	import type { Snippet } from "svelte";
+	import type { Component, Snippet } from "svelte";
 	import { ensureMotionCoreEase, registerPluginOnce } from "../helpers/gsap";
 	import { cn } from "../utils/cn";
 	import { portal } from "../utils/use-portal";
+
+	// Matches the prop surface Lucide Svelte 5 components expose. Kept loose
+	// so consumers can also pass a tabler/heroicons-style component.
+	type IconComponent = Component<{ class?: string; size?: number | string }>;
 
 	type MenuVariant = "default" | "muted";
 
@@ -24,13 +28,35 @@
 
 	interface MenuButton {
 		/**
-		 * The text to display on the button.
+		 * The text to display on the button. When `iconOnly` is true the label
+		 * is hidden visually but still used as the default `aria-label`.
 		 */
 		label: string;
 		/**
 		 * The URL the button links to.
 		 */
 		href: string;
+		/**
+		 * Optional icon rendered before the label. Pass a Lucide / icon
+		 * component, not an instance.
+		 */
+		icon?: IconComponent;
+		/**
+		 * If true, hide the visible label and render the icon only. Falls
+		 * back to a `aria-label` derived from `ariaLabel ?? label`.
+		 */
+		iconOnly?: boolean;
+		/**
+		 * Override for `aria-label`. Useful when `label` is too short for
+		 * assistive tech ("GitHub" vs "Recast on GitHub").
+		 */
+		ariaLabel?: string;
+		/**
+		 * If true, open the link in a new tab with safe `rel` defaults.
+		 * Defaults to true when `href` starts with http(s):// — set to false
+		 * to force same-tab navigation for an external link.
+		 */
+		external?: boolean;
 	}
 
 	interface MenuGroup {
@@ -59,6 +85,7 @@
 		actions?: ClassValue;
 		primaryButton?: ClassValue;
 		secondaryButton?: ClassValue;
+		tertiaryButton?: ClassValue;
 		menuWrapper?: ClassValue;
 		grid?: ClassValue;
 		group?: ClassValue;
@@ -88,6 +115,12 @@
 		 */
 		secondaryButton?: MenuButton;
 		/**
+		 * Optional tertiary button — useful for an icon-only action like
+		 * GitHub. Rendered to the LEFT of secondaryButton; hidden on mobile
+		 * via the same `md:flex` breakpoint as secondary.
+		 */
+		tertiaryButton?: MenuButton;
+		/**
 		 * Additional classes for the container.
 		 */
 		class?: string;
@@ -108,10 +141,19 @@
 		logo,
 		primaryButton,
 		secondaryButton,
+		tertiaryButton,
 		class: className,
 		classes,
 		portalTarget = "body",
 	}: Props = $props();
+
+	function externalAttrs(btn: MenuButton) {
+		const isHttp = btn.href.startsWith("http://") || btn.href.startsWith("https://");
+		const open = btn.external ?? isHttp;
+		return open
+			? { target: "_blank", rel: "noopener noreferrer" }
+			: {};
+	}
 
 	let isOpen = $state(false);
 	let timeline: gsap.core.Timeline | null = null;
@@ -345,28 +387,67 @@
 			data-slot="actions"
 			class={cn("flex items-center gap-1", classes?.actions)}
 		>
+			{#if tertiaryButton}
+				{@const TIcon = tertiaryButton.icon}
+				<a
+					href={tertiaryButton.href}
+					aria-label={tertiaryButton.ariaLabel ?? tertiaryButton.label}
+					data-slot="tertiary-button"
+					class={cn(
+						"hidden h-10 items-center justify-center rounded-sm text-foreground transition-[background-color,color] duration-400 ease-[cubic-bezier(0.625,0.05,0,1)] hover:bg-background-muted hover:text-foreground md:flex",
+						tertiaryButton.iconOnly ? "w-10" : "gap-1.5 px-4 text-sm font-medium",
+						classes?.tertiaryButton,
+					)}
+					{...externalAttrs(tertiaryButton)}
+				>
+					{#if TIcon}
+						<TIcon class="size-4" />
+					{/if}
+					{#if !tertiaryButton.iconOnly}
+						<span>{tertiaryButton.label}</span>
+					{/if}
+				</a>
+			{/if}
 			{#if secondaryButton}
+				{@const SIcon = secondaryButton.icon}
 				<a
 					href={secondaryButton.href}
+					aria-label={secondaryButton.ariaLabel ?? secondaryButton.label}
 					data-slot="secondary-button"
 					class={cn(
-						"hidden h-10 items-center justify-center rounded-sm px-4 text-sm font-medium text-foreground transition-[background-color,color] duration-400 ease-[cubic-bezier(0.625,0.05,0,1)] hover:bg-background-muted hover:text-foreground md:flex",
+						"hidden h-10 items-center justify-center rounded-sm text-sm font-medium text-foreground transition-[background-color,color] duration-400 ease-[cubic-bezier(0.625,0.05,0,1)] hover:bg-background-muted hover:text-foreground md:flex",
+						secondaryButton.iconOnly ? "w-10" : "gap-1.5 px-4",
 						classes?.secondaryButton,
 					)}
+					{...externalAttrs(secondaryButton)}
 				>
-					{secondaryButton.label}
+					{#if SIcon}
+						<SIcon class="size-4" />
+					{/if}
+					{#if !secondaryButton.iconOnly}
+						<span>{secondaryButton.label}</span>
+					{/if}
 				</a>
 			{/if}
 			{#if primaryButton}
+				{@const PIcon = primaryButton.icon}
 				<a
 					href={primaryButton.href}
+					aria-label={primaryButton.ariaLabel ?? primaryButton.label}
 					data-slot="primary-button"
 					class={cn(
-						"flex h-10 items-center justify-center rounded-sm bg-primary/10 px-4 text-sm font-medium text-primary transition-[background-color] duration-400 ease-[cubic-bezier(0.625,0.05,0,1)] hover:bg-primary/20",
+						"flex h-10 items-center justify-center rounded-sm bg-primary/10 text-sm font-medium text-primary transition-[background-color] duration-400 ease-[cubic-bezier(0.625,0.05,0,1)] hover:bg-primary/20",
+						primaryButton.iconOnly ? "w-10" : "gap-1.5 px-4",
 						classes?.primaryButton,
 					)}
+					{...externalAttrs(primaryButton)}
 				>
-					{primaryButton.label}
+					{#if PIcon}
+						<PIcon class="size-4" />
+					{/if}
+					{#if !primaryButton.iconOnly}
+						<span>{primaryButton.label}</span>
+					{/if}
 				</a>
 			{/if}
 		</div>

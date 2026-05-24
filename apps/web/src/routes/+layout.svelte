@@ -20,6 +20,7 @@
 		"/forgot-password",
 		"/reset-password",
 		"/waitlist",
+		"/device",
 	]);
 	const isChromeless = $derived(
 		page.url.pathname.startsWith("/dashboard") ||

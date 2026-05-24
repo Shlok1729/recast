@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Logo from "$lib/logo.svelte";
 	import { FloatingMenu } from "$lib/motion-core";
+	import Github from "@lucide/svelte/icons/github";
 
 	const menuGroups = [
 		{
@@ -17,6 +18,9 @@
 			variant: "muted" as const,
 			links: [
 				{ label: "Changelog", href: "/changelog" },
+				// GitHub stays in the menu too — the icon button is desktop-only
+				// (md:flex), and mobile users discover external links through
+				// the open menu.
 				{ label: "GitHub", href: "https://github.com/kanakkholwal/recast" },
 				{ label: "Contact", href: "mailto:try-recast@gmail.com" },
 			],
@@ -34,9 +38,13 @@
 		portalTarget={menuContainer}
 		{menuGroups}
 		primaryButton={{ label: "Download", href: "/download" }}
-		secondaryButton={{
+		secondaryButton={{ label: "Join Waitlist", href: "/waitlist" }}
+		tertiaryButton={{
 			label: "GitHub",
 			href: "https://github.com/kanakkholwal/recast",
+			icon: Github,
+			iconOnly: true,
+			ariaLabel: "Recast on GitHub",
 		}}
 		classes={{
 			root: "border-border/40 bg-card/60 shadow-craft-floating ring-1 ring-border-low/60 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-card/40",

@@ -1,6 +1,7 @@
 import { polarClient } from "@polar-sh/better-auth";
 import {
 	adminClient,
+	deviceAuthorizationClient,
 	magicLinkClient,
 	organizationClient,
 } from "better-auth/client/plugins";
@@ -31,6 +32,7 @@ export const authClient = createAuthClient({
 		magicLinkClient(),
 		adminClient(),
 		organizationClient(),
+		deviceAuthorizationClient(),
 		polarClient(),
 	],
 });

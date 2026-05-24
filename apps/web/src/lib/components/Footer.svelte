@@ -15,7 +15,6 @@
 				{ label: "Pricing", href: "/pricing" },
 				{ label: "Download", href: "/download" },
 				{ label: "Join Waitlist", href: "/waitlist" },
-				{ label: "Changelog", href: "/changelog" },
 			],
 		},
 		{
@@ -32,6 +31,7 @@
 					href: "https://github.com/kanakkholwal/recast/releases",
 					external: true,
 				},
+				{ label: "Changelog", href: "/changelog" },
 			],
 		},
 		{
@@ -121,9 +121,26 @@
 			<p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
 				Record once · Ship the demo
 			</p>
-			<p class="text-xs text-muted-foreground">
-				© {new Date().getFullYear()} Recast. All rights reserved.
-			</p>
+			<div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-5">
+				<nav class="flex items-center gap-5">
+					<a
+						href="/privacy-policy"
+						class="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+					>
+						Privacy Policy
+					</a>
+					<a
+						href="/terms-of-service"
+						class="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+					>
+						Terms of Service
+					</a>
+				</nav>
+				<span class="hidden text-muted-foreground/40 sm:inline">·</span>
+				<p class="text-xs text-muted-foreground">
+					© {new Date().getFullYear()} Recast. All rights reserved.
+				</p>
+			</div>
 		</div>
 	</Container>
 </footer>

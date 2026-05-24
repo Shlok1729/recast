@@ -1,5 +1,5 @@
 import { dev } from "$app/environment";
-import { haveIBeenPwned } from "better-auth/plugins";
+import { bearer, deviceAuthorization, haveIBeenPwned } from "better-auth/plugins";
 
 import { polarProductIdFor } from "$lib/billing/plans";
 import { tryGetPolarClient } from "$lib/billing/polar";
@@ -45,6 +45,26 @@ function createAuth() {
 		baseURL: env.BETTER_AUTH_URL ?? publicEnv().PUBLIC_APP_URL,
 		trustedOrigins: buildTrustedOrigins(),
 		database: drizzleAdapter(getDb(), { provider: "pg", schema }),
+		// Production hosts the API behind Vercel / Cloudflare / proxies that
+		// terminate the client TCP connection — without these headers the
+		// session row's ipAddress would be the proxy's, not the user's. Order
+		// matters: Better Auth picks the first header that has a value and
+		// falls back to the request socket IP, so list the most specific
+		// (CDN-injected, harder to spoof when origin is locked down) first.
+		// Safe to keep enabled in dev — the headers just aren't present, so
+		// it falls through to the socket IP naturally.
+		advanced: {
+			ipAddress: {
+				ipAddressHeaders: [
+					"cf-connecting-ip",
+					"x-vercel-forwarded-for",
+					"x-real-ip",
+					"x-forwarded-for",
+					"x-client-ip",
+				],
+				disableIpTracking: false,
+			},
+		},
 		// `status` is an app-owned column, separate from the plugin-owned
 		// `role`. Surfaces on session.user so the dashboard load can read it.
 		user: {
@@ -300,7 +320,43 @@ function buildPlugins() {
 		},
 	});
 
-	return [adminPlugin, linkPlugin, orgPlugin, ...polarPlugins, haveIBeenPwned({
+	// OAuth 2.0 Device Authorization Grant (RFC 8628) — powers the desktop
+	// app's "Sign in to Cloud" flow. The desktop calls /device/code, opens
+	// the user's browser to verification_uri_complete (a /device page with
+	// the code pre-filled), then polls /device/token until the user approves.
+	// On approval the plugin's /device/token handler calls
+	// internalAdapter.createSession(user.id) during the desktop's polling
+	// request — meaning session.ipAddress and session.userAgent are the
+	// DESKTOP's, not the browser's. That's the whole reason this flow exists
+	// for us: we get a proper per-device session row we can revoke later.
+	//
+	// `validateClient` is the only thing standing between us and any random
+	// caller driving the device flow; keep the allowlist tight.
+	const RECAST_DEVICE_CLIENTS = new Set(["recast-desktop"]);
+	const devicePlugin = deviceAuthorization({
+		verificationUri: "/device",
+		expiresIn: "5h",
+		interval: "5s",
+		userCodeLength: 8,
+		validateClient: async (clientId) => RECAST_DEVICE_CLIENTS.has(clientId),
+		// Plugin bug in better-auth 1.6.11: `schema` is declared as a required
+		// `z.custom()` (no `.optional()`), so the Zod parse throws if it's
+		// missing — even though the field is meant for overriding model/field
+		// names (which we don't need). Passing `{}` satisfies the validator
+		// and falls through to the plugin's default schema.
+		schema: {},
+	});
+
+	// Bearer plugin — required for the desktop app to use its session token
+	// as `Authorization: Bearer <token>` against /api/auth/get-session,
+	// /api/auth/sign-out, and (later) cloud sync endpoints. The device-auth
+	// plugin's `/device/token` returns `session.token` as `access_token`;
+	// without the bearer plugin that token only works via the session cookie,
+	// which the desktop's reqwest client doesn't carry. Order doesn't matter
+	// for bearer — it adds request middleware that runs before route handlers.
+	const bearerPlugin = bearer();
+
+	return [adminPlugin, linkPlugin, orgPlugin, devicePlugin, bearerPlugin, ...polarPlugins, haveIBeenPwned({
 		enabled: !dev,
 	})];
 }
