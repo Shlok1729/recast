@@ -35,6 +35,12 @@
 		onReady: () => void;
 		onError: () => void;
 		onSeeked?: () => void;
+		/** Exposed method — captures the current preview canvas as a PNG
+		 *  blob (composite: video + background + zoom + blur + cursor, i.e.
+		 *  WYSIWYG). Returns null if the WebGL context isn't ready or the
+		 *  encode fails. Bind in the parent so other UI (player controls
+		 *  copy-to-clipboard button) can trigger it. */
+		captureFrame?: () => Promise<Blob | null>;
 	}
 
 	let {
@@ -49,6 +55,7 @@
 		onReady,
 		onError,
 		onSeeked,
+		captureFrame = $bindable(),
 	}: Props = $props();
 
 	//  DOM refs & GL state 
@@ -1246,7 +1253,49 @@ void main() {
 		rvfcHandle = null;
 	}
 
-	//  Lifecycle & reactive wiring 
+	/**
+	 * Capture the current preview frame (composite: video + background +
+	 * zoom + blur + cursor) as a PNG blob.
+	 *
+	 * Why this isn't just `videoEl` → `drawImage`: the WebGL pipeline
+	 * applies all the editor effects (zoom regions, motion blur, padded
+	 * background, cursor overlay), and the user expects the screenshot to
+	 * match what they see — not the raw recording. We pull from the canvas.
+	 *
+	 * preserveDrawingBuffer is `false` on the GL context (perf), which
+	 * means the back buffer is cleared after the JS task yields. Workaround:
+	 * call `draw()` synchronously, then immediately `drawImage` from the
+	 * WebGL canvas to a fresh 2D canvas — the browser preserves the buffer
+	 * for inter-canvas copies within the same task. `toBlob` then runs
+	 * against the 2D canvas, which has no such constraint.
+	 */
+	$effect(() => {
+		captureFrame = async () => {
+			if (!canvasEl || !gl || webgl2Unsupported) return null;
+			try {
+				draw();
+				const w = canvasEl.width;
+				const h = canvasEl.height;
+				if (!w || !h) return null;
+				const copy = document.createElement("canvas");
+				copy.width = w;
+				copy.height = h;
+				const ctx = copy.getContext("2d");
+				if (!ctx) return null;
+				// Same-task drawImage from a WebGL canvas captures the current
+				// front buffer even when preserveDrawingBuffer is false.
+				ctx.drawImage(canvasEl, 0, 0);
+				return await new Promise<Blob | null>((resolve) => {
+					copy.toBlob((b) => resolve(b), "image/png");
+				});
+			} catch (err) {
+				console.warn("captureFrame failed", err);
+				return null;
+			}
+		};
+	});
+
+	//  Lifecycle & reactive wiring
 	onMount(() => {
 		initGL();
 		const ro = new ResizeObserver(() => requestRedraw());

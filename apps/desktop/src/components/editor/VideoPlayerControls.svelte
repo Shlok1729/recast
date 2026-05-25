@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { EditorStore } from "$lib/stores/editor-store.svelte";
 	import {
+	  Camera,
+	  LoaderCircle,
 	  Maximize2,
 	  Minimize2,
 	  Pause,
@@ -10,6 +12,7 @@
 	  SkipForward,
 	} from "@lucide/svelte";
 	import { Kbd } from "@recast/ui/kbd";
+	import { toast } from "@recast/ui/sonner";
 	import * as Tooltip from "@recast/ui/tooltip";
 	import { cn } from "@recast/ui/utils";
 
@@ -18,31 +21,67 @@
 		videoEl?: HTMLVideoElement | null;
 		/** Element to request fullscreen on (usually the preview container). */
 		fullscreenTargetEl?: HTMLElement | null;
+		/** Returns a PNG blob of the current preview composite (provided by
+		 *  VideoPreview via its `bind:captureFrame`). When undefined the
+		 *  Copy-frame button is disabled — typically the preview hasn't
+		 *  initialized its WebGL2 context yet. */
+		captureFrame?: (() => Promise<Blob | null>) | undefined;
+		/** Bidirectional loop toggle. Lives in the editor page (not here)
+		 *  because the actual seek-and-replay has to coordinate with audio
+		 *  elements + the `ended` handler — both are out of scope for this
+		 *  controls component. Toggling here just flips the flag; the page
+		 *  reads it on `ended`/`timeupdate`. */
+		loopEnabled?: boolean;
 	}
 
-	let { store, videoEl = null, fullscreenTargetEl = null }: Props = $props();
+	let {
+		store,
+		videoEl = null,
+		fullscreenTargetEl = null,
+		captureFrame = undefined,
+		loopEnabled = $bindable(false),
+	}: Props = $props();
 
-	let loopEnabled = $state(false);
-	let isFullscreen = $state(false);
+	let capturing = $state(false);
 
-	// Loop: at trimEnd, seek back to trimStart instead of letting the clip end.
-	$effect(() => {
-		if (!videoEl || !loopEnabled) return;
-		const onTime = () => {
-			if (!videoEl) return;
-			const effectiveEnd =
-				store.trimEnd || store.metadata?.duration || Infinity;
-			if (videoEl.currentTime >= effectiveEnd - 0.04) {
-				videoEl.currentTime = store.trimStart;
-				if (!store.isPlaying) {
-					void videoEl.play();
-					store.isPlaying = true;
-				}
+	/**
+	 * Capture the current frame and write it to the system clipboard as
+	 * a PNG. The WebView's `navigator.clipboard.write` works on Tauri
+	 * because the WebView treats `tauri://localhost` as a secure context
+	 * — no Tauri plugin needed for image clipboard.
+	 *
+	 * Pauses playback first so the captured pixels match what the user
+	 * sees in the click moment; otherwise a frame drift of one rVFC tick
+	 * could change which pixel they actually got.
+	 */
+	async function copyFrameToClipboard() {
+		if (capturing || !captureFrame) return;
+		capturing = true;
+		const wasPlaying = store.isPlaying;
+		if (wasPlaying && videoEl) {
+			videoEl.pause();
+			store.isPlaying = false;
+		}
+		try {
+			const blob = await captureFrame();
+			if (!blob) {
+				toast.error("Couldn't capture frame — preview not ready.");
+				return;
 			}
-		};
-		videoEl.addEventListener("timeupdate", onTime);
-		return () => videoEl?.removeEventListener("timeupdate", onTime);
-	});
+			await navigator.clipboard.write([
+				new ClipboardItem({ "image/png": blob }),
+			]);
+			toast.success("Frame copied to clipboard.");
+		} catch (err) {
+			toast.error(
+				`Couldn't copy frame: ${(err as Error)?.message ?? String(err)}`,
+			);
+		} finally {
+			capturing = false;
+		}
+	}
+
+	let isFullscreen = $state(false);
 
 	// Mirror the browser's fullscreen state so the toggle icon reflects reality.
 	$effect(() => {
@@ -205,10 +244,31 @@
 		/>
 	</div>
 
-	<!-- Right: loop + fullscreen -->
+	<!-- Right: capture frame + loop + fullscreen -->
 	<div
 		class="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-inset ring-border/40"
 	>
+		<Tooltip.Root>
+			<Tooltip.Trigger>
+				<button
+					type="button"
+					onclick={copyFrameToClipboard}
+					disabled={!captureFrame || capturing}
+					aria-label="Copy current frame to clipboard"
+					class="cursor-pointer flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+				>
+					{#if capturing}
+						<LoaderCircle size={12} class="animate-spin" />
+					{:else}
+						<Camera size={12} />
+					{/if}
+				</button>
+			</Tooltip.Trigger>
+			<Tooltip.Content>
+				{capturing ? "Copying frame…" : "Copy frame to clipboard"}
+			</Tooltip.Content>
+		</Tooltip.Root>
+
 		<Tooltip.Root>
 			<Tooltip.Trigger>
 				<button
