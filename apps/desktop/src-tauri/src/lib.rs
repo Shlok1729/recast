@@ -73,6 +73,7 @@ pub fn run() {
                 last_file_path: Mutex::new(None),
                 config: Mutex::new(config),
                 export_cancel: Mutex::new(HashMap::new()),
+                auth_poller: Mutex::new(None),
             });
 
             // FFmpeg path resolution probes ffmpeg/ffprobe `-version` against
@@ -180,7 +181,8 @@ pub fn run() {
             commands::diagnose_ffmpeg,
             commands::auth_start,
             commands::auth_status,
-            commands::auth_sign_out
+            commands::auth_sign_out,
+            commands::auth_cancel
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

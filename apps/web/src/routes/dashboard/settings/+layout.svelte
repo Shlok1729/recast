@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>Settings — Recast Dashboard</title>
+	<title>Settings - Recast Dashboard</title>
 </svelte:head>
 
 <header in:fly={{ y: 12, duration: 500, easing: cubicOut }}>

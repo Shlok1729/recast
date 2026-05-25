@@ -209,4 +209,11 @@ pub struct AppState {
     /// `export_video` inserts a fresh `Arc<AtomicBool>` on entry and removes it on
     /// exit; `cancel_export` looks up a specific session and flips only that flag.
     pub export_cancel: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// JoinHandle for the in-flight device-authorization poller. `auth_start`
+    /// replaces this; `auth_cancel` aborts it. Holding the handle (vs. an
+    /// `AbortHandle`) lets us also `await` it later for graceful shutdown if
+    /// we ever need it — for cancellation the handle's `abort()` method is
+    /// enough. Only one poller can be live at a time: `auth_start` rejects
+    /// when this is `Some`.
+    pub auth_poller: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
