@@ -50,6 +50,10 @@
 					body: "Session tokens, OAuth refresh tokens (for Desktop sign-in via the Device Authorization flow), password reset tokens, and email verification tokens. These are stored only as long as needed to keep you signed in or to complete a flow.",
 				},
 				{
+					term: "Device session metadata",
+					body: "Each signed-in session also records the IP address and user-agent string of the device that signed in. For Desktop sign-ins the user-agent includes your operating system and computer hostname (e.g. \"Recast/0.1.9 (windows; Kanak-PC)\") so you can identify the device in your own Devices list and revoke it. This metadata is only shown back to you — never to other users.",
+				},
+				{
 					term: "Waitlist",
 					body: "If you join the waitlist, we store your email address and the source page (e.g. /pricing, /waitlist) so we can email you when access opens.",
 				},

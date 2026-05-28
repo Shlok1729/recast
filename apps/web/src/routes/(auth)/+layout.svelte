@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { ArrowLeft } from "@lucide/svelte";
+	import { NavProgress } from "@recast/ui/nav-progress";
 
 	let { children } = $props();
 </script>
-
+<NavProgress />
 <div class="relative grid min-h-screen place-items-center px-6 py-16 text-foreground">
 	<div
 		aria-hidden="true"

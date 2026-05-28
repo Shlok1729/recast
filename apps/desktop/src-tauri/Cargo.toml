@@ -24,7 +24,7 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 parking_lot = "0.12"
-tauri = { version = "2.10.3", features = ["protocol-asset"] }
+tauri = { version = "2.10.3", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-log = "2"
 xcap = "0.8.3"
 tokio = { version = "1.50.0", features = ["full"] }
@@ -56,6 +56,13 @@ hostname = "0.4"
 # Tauri doesn't propagate Vite's .env loading into the Rust process, so
 # without this the auth code always falls back to the production URL.
 dotenvy = "0.15"
+# URL-encode OAuth query params (client_id, redirect_uri, code_challenge, …).
+# Hand-rolled encoding is a foot-gun — RFC 3986 reserved chars in PKCE
+# verifiers / state tokens have caused real-world OAuth failures.
+urlencoding = "2"
+# Cryptographic-quality randomness for PKCE code verifier + state token.
+# The `getrandom` backend on each OS feeds /dev/urandom or BCryptGenRandom.
+rand = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [
@@ -137,3 +144,9 @@ sckit-loopback = ["dep:screencapturekit"]
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Without single-instance, launching Recast a second time (taskbar shortcut,
+# protocol handler, or tray "Show" while a hidden instance is still alive)
+# spawns a duplicate process that owns its own recording manager and tray
+# icon. The plugin gives us a callback to focus + show the existing main
+# window instead.
+tauri-plugin-single-instance = "2"

@@ -118,10 +118,10 @@ pub fn press_state_at(ts_us: i64, events: &[PressEvent]) -> PressFrameState {
 
     let mut scale = 1.0;
     let dt = ts_us - down;
-    if dt >= -PRESS_ANTICIP_US && dt < 0 {
+    if (-PRESS_ANTICIP_US..0).contains(&dt) {
         let u = (dt + PRESS_ANTICIP_US) as f64 / PRESS_ANTICIP_US as f64;
         scale = 1.0 + PRESS_LIFT * smooth_step_01(u);
-    } else if dt >= 0 && dt < PRESS_RECOVERY_US {
+    } else if (0..PRESS_RECOVERY_US).contains(&dt) {
         let u = dt as f64 / PRESS_RECOVERY_US as f64;
         if u < 0.6 {
             let v = u / 0.6;

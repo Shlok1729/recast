@@ -15,6 +15,10 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all",
+		"fmt:check": "cargo fmt --manifest-path src-tauri/Cargo.toml --all --check",
+		"lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings",
+		"lint:fix": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --fix --allow-dirty --allow-staged -- -D warnings",
 		"clean:cargo": "cd src-tauri && cargo clean"
 	},
 	"devDependencies": {

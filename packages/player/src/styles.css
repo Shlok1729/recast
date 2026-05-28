@@ -59,6 +59,7 @@
 	--media-button-icon-height: 16px;
 	--media-button-icon-width: 16px;
 	--media-button-padding: 0;
+	--media-focus-ring-color: var(--color-primary);
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -88,23 +89,21 @@
    ────────────────────────────────────────────────────────────────── */
 
 .recast-player {
-	--media-tooltip-background: rgba(15, 15, 14, 0.96);
-	--media-tooltip-color: rgba(255, 255, 255, 0.92);
-	--media-tooltip-padding: 4px 8px;
+	--media-tooltip-background: var(--color-foreground);
+	--media-tooltip-color: var(--color-background);
+	--media-tooltip-padding: 6px 12px;
 	--media-tooltip-border-radius: 6px;
-	--media-tooltip-font-size: 11px;
-	--media-tooltip-arrow-color: rgba(15, 15, 14, 0.96);
+	--media-tooltip-font-size: 12px;
+	--media-tooltip-arrow-color: var(--color-foreground);
 
-	--media-preview-thumbnail-border: 1px solid rgba(255, 255, 255, 0.16);
+	--media-preview-thumbnail-border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 	--media-preview-thumbnail-border-radius: 8px;
-	--media-preview-thumbnail-background: rgba(15, 15, 14, 0.96);
-	--media-preview-thumbnail-box-shadow:
-		0 12px 32px -8px rgba(0, 0, 0, 0.6),
-		0 2px 6px rgba(0, 0, 0, 0.4);
+	--media-preview-thumbnail-background: color-mix(in srgb, var(--color-popover) 78%, transparent);
+	--media-preview-thumbnail-box-shadow: var(--shadow-craft-floating);
 
-	--media-preview-time-background: rgba(15, 15, 14, 0.96);
-	--media-preview-time-color: rgba(255, 255, 255, 0.92);
-	--media-preview-time-padding: 3px 7px;
+	--media-preview-time-background: var(--color-foreground);
+	--media-preview-time-color: var(--color-background);
+	--media-preview-time-padding: 6px 12px;
 	--media-preview-time-border-radius: 6px;
 	--media-preview-time-margin: 6px 0 0;
 }
@@ -144,6 +143,40 @@
 	align-items: center;
 }
 
+.recast-topbar {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	padding: 10px 12px;
+	background: linear-gradient(
+		to bottom,
+		rgba(0, 0, 0, 0.66),
+		rgba(0, 0, 0, 0.08)
+	);
+	pointer-events: none;
+}
+
+.recast-titleblock {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.recast-title {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.2;
+	color: rgba(255, 255, 255, 0.96);
+	text-wrap: balance;
+}
+
+.recast-shortcuts {
+	font-size: 10px;
+	line-height: 1.2;
+	color: rgba(255, 255, 255, 0.62);
+}
+
 /* ──────────────────────────────────────────────────────────────────
    7. Bottom-bar buttons — shadcn ghost vocabulary
    ────────────────────────────────────────────────────────────────── */
@@ -163,6 +196,11 @@
 .recast-btn:focus-visible {
 	outline: 2px solid var(--color-primary);
 	outline-offset: 1px;
+}
+
+.recast-player:focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
 }
 
 /* Text-only buttons (playback rate). Tighter padding, mono digit width
@@ -312,4 +350,27 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 
 .recast-preview-time {
 	margin-top: 6px;
+	font-size: 12px;
+	font-weight: 500;
+	letter-spacing: 0;
+	box-shadow: var(--shadow-craft-sm);
+}
+
+@media (max-width: 640px) {
+	.recast-control-bar {
+		padding-inline: 6px;
+	}
+
+	.recast-volume {
+		display: none;
+	}
+
+	.recast-shortcuts {
+		display: none;
+	}
+
+	.recast-big-play {
+		width: 60px;
+		height: 60px;
+	}
 }

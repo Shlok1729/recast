@@ -6,9 +6,10 @@ import { isTauriApp } from "$lib/runtime/tauri";
  *
  * Flow: on app boot we ask the Tauri updater plugin to compare the running
  * build against the `latest.json` manifest published with each GitHub release.
- * If a newer version exists we download it immediately in the background, then
- * surface a non-blocking corner card. The actual install + relaunch is
- * deferred until the user explicitly clicks "Restart to update".
+ * If a newer version exists we surface a non-blocking corner card offering to
+ * download — the download itself does NOT start until the user clicks the
+ * download action. Once downloaded, install + relaunch is deferred until they
+ * explicitly click "Restart to update".
  *
  * All updater/process APIs are imported lazily so the module is safe to load
  * in the browser (web build) where the Tauri plugins don't exist.
@@ -17,6 +18,7 @@ export type UpdaterStatus =
 	| "idle"
 	| "checking"
 	| "up-to-date"
+	| "update-available"
 	| "downloading"
 	| "ready"
 	| "error";
@@ -33,7 +35,7 @@ function createUpdaterStore() {
 	// The resolved Update handle. Held across the download → install steps.
 	let update: Update | null = null;
 
-	async function download() {
+	async function runDownload() {
 		if (!update) return;
 		let total = 0;
 		let received = 0;
@@ -87,9 +89,11 @@ function createUpdaterStore() {
 			version = found.version;
 			notes = found.body ?? null;
 			dismissed = false;
-			// Start pulling the new build straight away — the user only ever
-			// waits on the install, never the download.
-			await download();
+			// Don't auto-download — surface the corner card and wait for the
+			// user to opt in via the Download button. Saves bandwidth for
+			// users on metered connections and matches the explicit-consent
+			// behavior users expect.
+			status = "update-available";
 		} catch (e) {
 			console.error("[updater] check failed", e);
 			error = e instanceof Error ? e.message : String(e);
@@ -125,6 +129,7 @@ function createUpdaterStore() {
 		get visible() {
 			if (dismissed) return false;
 			return (
+				status === "update-available" ||
 				status === "downloading" ||
 				status === "ready" ||
 				status === "error"
@@ -139,6 +144,11 @@ function createUpdaterStore() {
 		/** Re-run the check on demand (e.g. from settings / command palette). */
 		checkNow() {
 			return runCheck();
+		},
+
+		/** User-triggered download (from the corner card's Download button). */
+		download() {
+			return runDownload();
 		},
 
 		/** Hide the corner card until the next check finds something new. */

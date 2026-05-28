@@ -7,8 +7,9 @@
   // up the branded media-chrome styling.
   import "@recast/player/styles.css";
 
-  import { onNavigate } from "$app/navigation";
+  import { goto, onNavigate } from "$app/navigation";
   import { page } from "$app/state";
+  import { updater } from "$lib/stores/updater.svelte";
 
   let { children } = $props();
 
@@ -64,6 +65,36 @@
     });
     return () => {
       unlisten.then((fn) => fn());
+    };
+  });
+
+  // System-tray bridge. The tray icon emits high-level intent events that
+  // only make sense in the main window (the recording panel and overlay
+  // routes each have their own scoped listeners for tray actions that
+  // belong to them — e.g. panel listens for `tray:record-toggle` to stop
+  // an in-flight recording). Main-window handlers cover the cases where
+  // no recording is active: jump straight to the source picker for
+  // "Start Recording", run an updater check for "Check for Updates…".
+  onMount(() => {
+    if (isTransparentRoute) return;
+    const offToggle = listen("tray:record-toggle", async () => {
+      // If a recording panel is already open, it owns the toggle — its
+      // own listener will stop the recording. We only handle the
+      // "start from cold" path here.
+      const { getAllWebviewWindows } = await import(
+        "@tauri-apps/api/webviewWindow"
+      );
+      const all = await getAllWebviewWindows();
+      const hasPanel = all.some((w) => w.label === "panel");
+      if (hasPanel) return;
+      void goto("/select");
+    });
+    const offCheckUpdates = listen("updater:check-from-tray", () => {
+      void updater.checkNow();
+    });
+    return () => {
+      void offToggle.then((fn) => fn());
+      void offCheckUpdates.then((fn) => fn());
     };
   });
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import { ConfirmDialog, PlayerDialog, RenameDialog } from "$components/recast";
   import {
     deleteFile,
@@ -16,6 +17,8 @@
     Download,
     FolderOpen,
     Grid3x3,
+    HardDriveUpload,
+    Link2,
     List,
     ListChecks,
     MoreHorizontal,
@@ -25,8 +28,10 @@
     Search,
     SortAsc,
     Trash2,
+    UploadCloud,
     X,
   } from "@lucide/svelte";
+  import { gdrive } from "$lib/stores/gdrive.svelte";
   import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
@@ -61,6 +66,11 @@
 
   onMount(() => {
     fetchExports();
+    // Hydrate Drive upload history so each row's dropdown can pick the
+    // right action ("Upload to Drive" vs. "Copy link / Re-upload")
+    // without a per-row roundtrip. The store caches across mounts so
+    // subsequent visits are instant.
+    void gdrive.init();
     const storedView = localStorage.getItem("exports-view") as
       | "grid"
       | "list"
@@ -164,7 +174,50 @@
       const { [entry.path]: _, ...rest } = thumbnails;
       thumbnails = rest;
     }
+    // The file is gone — drop its Drive-upload record so the row doesn't
+    // come back next session claiming it was uploaded. The Drive file
+    // itself is left alone; users can still find it in their Drive.
+    void gdrive.forgetUpload(entry.path);
     toast.success(`Moved "${entry.filename}" to trash`);
+  }
+
+  /**
+   * Drive upload from the exports list. Routes to Settings if Drive isn't
+   * connected yet — the consent flow opens a browser tab and shouldn't
+   * happen inline from a dropdown menu.
+   */
+  async function uploadToDrive(entry: RecordingEntry) {
+    await gdrive.init();
+    if (!gdrive.connected) {
+      toast.info("Connect Google Drive in Settings first.");
+      void goto("/settings");
+      return;
+    }
+    try {
+      await gdrive.upload(entry.path);
+      // Progress is surfaced via the corner-notification stack.
+    } catch (e) {
+      toast.error(`Drive upload failed: ${e}`);
+    }
+  }
+
+  /**
+   * Copy the previously-recorded Drive link for this export to the
+   * clipboard. The history map is hydrated from a local JSON manifest on
+   * disk — no network roundtrip.
+   */
+  async function copyDriveLink(entry: RecordingEntry) {
+    const record = gdrive.getRecordForPath(entry.path);
+    if (!record?.webViewLink) {
+      toast.error("No Drive link recorded for this file.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(record.webViewLink);
+      toast.success("Drive link copied.");
+    } catch (e) {
+      toast.error(`Could not copy link: ${e}`);
+    }
   }
 
   const filtered = $derived.by(() => {
@@ -457,6 +510,13 @@
         >
           {#each displayed as entry, i (entry.path)}
             {@const isSelected = selected.has(entry.path)}
+            {@const activeUpload = gdrive.getActiveUploadForPath(entry.path)}
+            {@const uploadPct = activeUpload && activeUpload.totalBytes
+              ? Math.min(
+                  100,
+                  Math.round((activeUpload.bytesSent / activeUpload.totalBytes) * 100),
+                )
+              : 0}
             <div
               in:fade={{ duration: 200, delay: Math.min(i * 25, 200) }}
               animate:morph={{ duration: 340 }}
@@ -536,6 +596,19 @@
                 >
                   {getExtension(entry.filename)}
                 </Badge>
+
+                <!-- Drive upload progress chip. Sits on the thumbnail so
+                     the user can see at a glance which row is currently
+                     uploading — paired with the bottom progress bar
+                     below to make the state unambiguous. -->
+                {#if activeUpload}
+                  <span
+                    class="absolute left-1.5 top-1.5 flex h-4 items-center gap-1 rounded-md bg-background/85 px-1.5 text-[9px] font-semibold tracking-wide text-foreground shadow-craft-sm backdrop-blur"
+                  >
+                    <RefreshCw class="size-2.5 animate-spin text-primary" />
+                    {uploadPct}%
+                  </span>
+                {/if}
               </div>
 
               <!-- Info -->
@@ -604,6 +677,29 @@
                         <CopyIcon /> Copy path
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
+                      {#if gdrive.uploadHistory[entry.path]}
+                        <!-- Already uploaded — surface the existing link
+                             and let the user push a fresh copy if they've
+                             edited the file. Re-upload overwrites the
+                             stored Drive link with the new one. -->
+                        <DropdownMenu.Item
+                          onSelect={() => copyDriveLink(entry)}
+                        >
+                          <Link2 /> Copy Drive link
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          onSelect={() => uploadToDrive(entry)}
+                        >
+                          <UploadCloud /> Re-upload to Drive
+                        </DropdownMenu.Item>
+                      {:else}
+                        <DropdownMenu.Item
+                          onSelect={() => uploadToDrive(entry)}
+                        >
+                          <HardDriveUpload /> Upload to Drive
+                        </DropdownMenu.Item>
+                      {/if}
+                      <DropdownMenu.Separator />
                       <DropdownMenu.Item
                         onSelect={() => (deleteTarget = entry)}
                         class="text-destructive focus:bg-destructive/10 focus:text-destructive"
@@ -612,6 +708,22 @@
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Root>
+                </div>
+              {/if}
+
+              <!-- Drive upload progress strip. Pinned to the card's bottom
+                   edge; the card has overflow-hidden so this respects the
+                   rounded corners. Width animates with the bytes-sent ratio
+                   the Rust side emits between resumable-upload chunks. -->
+              {#if activeUpload}
+                <div
+                  class="pointer-events-none absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-muted/30"
+                  aria-hidden="true"
+                >
+                  <div
+                    class="h-full rounded-r-sm bg-primary/85 transition-[width] duration-200"
+                    style="width: {uploadPct}%"
+                  ></div>
                 </div>
               {/if}
             </div>

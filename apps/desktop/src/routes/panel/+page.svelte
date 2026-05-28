@@ -52,6 +52,7 @@
   import { ButtonGroup } from "@recast/ui/button-group";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { emit, listen } from "@tauri-apps/api/event";
+  import { invoke } from "@tauri-apps/api/core";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
@@ -87,6 +88,14 @@
   let isRecording = $state(false);
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
+
+  // Mirror the recording flag to the system tray so its "Start/Stop
+  // Recording" label and any tray-driven UX stays accurate. Best-effort:
+  // tray init may have failed (no icon registered) — the command is a
+  // no-op in that case.
+  $effect(() => {
+    void invoke("refresh_tray", { isRecording });
+  });
 
   // Pause state. `pausedAccumMs` banks completed pauses; `pausedSince` marks
   // an in-progress pause — the elapsed timer subtracts both so it freezes.
@@ -301,6 +310,13 @@
       void finalizeAndClose();
     });
 
+    // Tray "Start/Stop Recording" routes here when the panel is open. The
+    // toggleRecording() function already does the right thing for either
+    // direction (start with current selection, or stop the in-flight one).
+    const unlistenTrayToggle = listen("tray:record-toggle", () => {
+      void toggleRecording();
+    });
+
     return () => {
       window.clearInterval(timer);
       if (profileFlashTimer) clearTimeout(profileFlashTimer);
@@ -308,6 +324,7 @@
       unlistenDevice.then((fn) => fn());
       unlistenProfile.then((fn) => fn());
       closeReq.then((fn) => fn());
+      unlistenTrayToggle.then((fn) => fn());
       window.removeEventListener("keydown", handleGlobalShortcut);
     };
   });

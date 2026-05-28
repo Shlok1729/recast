@@ -239,7 +239,7 @@ fn cluster_click_candidates(
     // Group consecutive downs that are near in both time and space.
     let mut clusters: Vec<Vec<&super::CursorClickEvent>> = Vec::new();
     for c in downs {
-        let extend = clusters.last().map_or(false, |cur| {
+        let extend = clusters.last().is_some_and(|cur| {
             let last = cur.last().unwrap();
             c.timestamp_us.saturating_sub(last.timestamp_us) <= CLICK_CLUSTER_GAP_US
                 && dist_px(last.x, last.y, c.x, c.y) <= CLICK_CLUSTER_RADIUS_PX

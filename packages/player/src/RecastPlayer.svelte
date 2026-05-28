@@ -15,54 +15,155 @@
 		Volume2,
 		VolumeX,
 	} from "@lucide/svelte";
-	import type { RecastPlayerApi, RecastPlayerProps } from "./types";
+	import type {
+		RecastPlayerApi,
+		RecastPlayerControls,
+		RecastPlayerProps,
+		RecastPlayerState,
+	} from "./types";
 
-	/**
-	 * Side-effect imports — register the custom elements. `hls-video-element`
-	 * defines `<hls-video>`, which speaks HLS via hls.js and falls back to
-	 * native MP4 for non-`.m3u8` sources. `media-chrome` registers every
-	 * `<media-*>` element we slot in below.
-	 */
 	import "media-chrome";
 	import "hls-video-element";
+
+	const DEFAULT_CONTROLS: RecastPlayerControls = {
+		bigPlay: true,
+		seek: true,
+		time: true,
+		volume: true,
+		playbackRate: true,
+		captions: true,
+		pip: true,
+		fullscreen: true,
+	};
 
 	let {
 		src,
 		poster = null,
 		thumbnails = null,
+		tracks = [],
 		title = "",
 		autoplay = false,
-		volume = 1,
+		preload = "metadata",
+		crossorigin = "anonymous",
+		loop = false,
+		volume = $bindable(1),
+		muted = $bindable(false),
+		playbackRate = $bindable(1),
+		currentTime = $bindable(0),
+		paused = $bindable<boolean | null>(null),
 		showMenu = true,
+		controls = {},
+		aspectRatio = null,
+		objectFit = "contain",
+		ariaLabel = "",
 		className = "",
 		onengagement,
+		onstatechange,
 		api = $bindable<RecastPlayerApi | null>(null),
 	}: RecastPlayerProps = $props();
 
+	let controllerEl = $state<HTMLElement | null>(null);
 	let videoEl = $state<HTMLVideoElement | null>(null);
 	let lastReportedPct = 0;
 	let started = false;
+	let intrinsicWidth = $state(0);
+	let intrinsicHeight = $state(0);
 
-	// Whether to use <hls-video> or plain <video>. `.m3u8` URLs need HLS.js;
-	// MP4/WebM streams play natively. Recomputing on src change so a swap
-	// between cloud-HLS and a local blob URL doesn't strand us in the wrong
-	// element.
 	const isHls = $derived(/\.m3u8(\?|#|$)/i.test(src));
+	const mergedControls = $derived({ ...DEFAULT_CONTROLS, ...controls });
+	const showCaptions = $derived(mergedControls.captions && showMenu);
+	const playerLabel = $derived(ariaLabel || title || "Video player");
+	const resolvedAspectRatio = $derived.by(() => {
+		if (typeof aspectRatio === "number" && aspectRatio > 0) return `${aspectRatio}`;
+		if (typeof aspectRatio === "string" && aspectRatio.trim()) return aspectRatio.trim();
+		if (intrinsicWidth > 0 && intrinsicHeight > 0) {
+			return `${intrinsicWidth} / ${intrinsicHeight}`;
+		}
+		return null;
+	});
+	const playerStyle = $derived.by(() => {
+		const vars = [
+			resolvedAspectRatio
+				? `--recast-player-aspect-ratio: ${resolvedAspectRatio};`
+				: "--recast-player-aspect-ratio: auto;",
+			`--recast-player-object-fit: ${objectFit};`,
+		];
+		return vars.join(" ");
+	});
+
+	function clamp01(value: number) {
+		return Math.min(1, Math.max(0, value));
+	}
+
+	function emitState() {
+		if (!onstatechange || !videoEl) return;
+		onstatechange(getState());
+	}
+
+	function getState(): RecastPlayerState {
+		return {
+			paused: videoEl?.paused ?? true,
+			ended: videoEl?.ended ?? false,
+			currentTime: videoEl?.currentTime ?? currentTime,
+			duration: videoEl?.duration ?? 0,
+			volume: videoEl?.volume ?? clamp01(volume),
+			muted: videoEl?.muted ?? muted,
+			playbackRate: videoEl?.playbackRate ?? playbackRate,
+			videoWidth: videoEl?.videoWidth ?? intrinsicWidth,
+			videoHeight: videoEl?.videoHeight ?? intrinsicHeight,
+		};
+	}
+
+	async function safePlay() {
+		if (!videoEl) return;
+		try {
+			await videoEl.play();
+		} catch {
+			paused = true;
+			emitState();
+		}
+	}
+
+	async function enterFullscreen() {
+		if (!controllerEl) return;
+		if (document.fullscreenElement === controllerEl) return;
+		await controllerEl.requestFullscreen?.();
+	}
+
+	async function exitFullscreen() {
+		if (document.fullscreenElement) {
+			await document.exitFullscreen();
+		}
+	}
+
+	async function enterPictureInPicture() {
+		if (!videoEl || !document.pictureInPictureEnabled) return;
+		if (document.pictureInPictureElement === videoEl) return;
+		await videoEl.requestPictureInPicture?.();
+	}
 
 	onMount(() => {
-		// Publish the imperative API once mounted. Editor surfaces hold this
-		// reference and call seek() / pause() / etc. from transcript clicks,
-		// AI cut buttons, comment timeline interactions.
 		api = {
-			play: async () => {
-				if (videoEl) await videoEl.play();
-			},
+			play: safePlay,
 			pause: () => videoEl?.pause(),
 			seek: (seconds) => {
 				if (videoEl) videoEl.currentTime = Math.max(0, seconds);
 			},
+			setMuted: (next) => {
+				if (videoEl) videoEl.muted = next;
+			},
+			setVolume: (next) => {
+				if (videoEl) videoEl.volume = clamp01(next);
+			},
+			setPlaybackRate: (next) => {
+				if (videoEl) videoEl.playbackRate = next;
+			},
+			enterFullscreen,
+			exitFullscreen,
+			enterPictureInPicture,
 			getCurrentTime: () => videoEl?.currentTime ?? 0,
 			getDuration: () => videoEl?.duration ?? 0,
+			getState,
 			getVideoElement: () => videoEl,
 		};
 		return () => {
@@ -71,19 +172,35 @@
 	});
 
 	function handlePlay() {
-		if (started || !onengagement) return;
-		started = true;
-		onengagement({ type: "view-start", percent: 0 });
+		paused = false;
+		if (!started && onengagement) {
+			started = true;
+			onengagement({ type: "view-start", percent: 0 });
+		}
+		emitState();
+	}
+
+	function handlePause() {
+		paused = true;
+		emitState();
+	}
+
+	function handleLoadedMetadata() {
+		if (!videoEl) return;
+		intrinsicWidth = videoEl.videoWidth;
+		intrinsicHeight = videoEl.videoHeight;
+		currentTime = videoEl.currentTime;
+		emitState();
 	}
 
 	function handleTimeUpdate() {
-		if (!onengagement || !videoEl) return;
+		if (!videoEl) return;
+		currentTime = videoEl.currentTime;
+		emitState();
+		if (!onengagement) return;
 		const duration = videoEl.duration || 0;
 		if (!duration || !isFinite(duration)) return;
 		const pct = Math.min(100, Math.round((videoEl.currentTime / duration) * 100));
-		// Throttle to ~5% steps. A 5-minute video sends ~20 events instead
-		// of ~3000 — enough granularity for "watched %" without burying the
-		// analytics consumer in noise.
 		if (pct - lastReportedPct >= 5) {
 			lastReportedPct = pct;
 			onengagement({
@@ -94,8 +211,30 @@
 		}
 	}
 
+	function handleVolumeChange() {
+		if (!videoEl) return;
+		volume = videoEl.volume;
+		muted = videoEl.muted;
+		emitState();
+	}
+
+	function handleRateChange() {
+		if (!videoEl) return;
+		playbackRate = videoEl.playbackRate;
+		emitState();
+	}
+
+	function handleSeeked() {
+		if (!videoEl) return;
+		currentTime = videoEl.currentTime;
+		emitState();
+	}
+
 	function handleEnded() {
-		if (!onengagement || !videoEl) return;
+		if (!videoEl) return;
+		paused = true;
+		emitState();
+		if (!onengagement) return;
 		onengagement({
 			type: "ended",
 			percent: 100,
@@ -103,95 +242,227 @@
 		});
 	}
 
-	/**
-	 * Volume sync — Svelte 5 can't `bind:volume` to a custom element, so we
-	 * write through to the underlying media element via $effect.
-	 */
+	function handleKeyDown(event: KeyboardEvent) {
+		if (!videoEl) return;
+		const target = event.target as HTMLElement | null;
+		if (
+			target &&
+			(target.tagName === "INPUT" ||
+				target.tagName === "TEXTAREA" ||
+				target.isContentEditable)
+		) {
+			return;
+		}
+
+		switch (event.key) {
+			case " ":
+			case "k":
+			case "K":
+				event.preventDefault();
+				if (videoEl.paused) void safePlay();
+				else videoEl.pause();
+				break;
+			case "ArrowLeft":
+			case "j":
+			case "J":
+				event.preventDefault();
+				videoEl.currentTime = Math.max(0, videoEl.currentTime - 5);
+				break;
+			case "ArrowRight":
+			case "l":
+			case "L":
+				event.preventDefault();
+				videoEl.currentTime = Math.min(
+					videoEl.duration || Number.MAX_SAFE_INTEGER,
+					videoEl.currentTime + 5,
+				);
+				break;
+			case "m":
+			case "M":
+				event.preventDefault();
+				videoEl.muted = !videoEl.muted;
+				break;
+			case "f":
+			case "F":
+				event.preventDefault();
+				if (document.fullscreenElement) void exitFullscreen();
+				else void enterFullscreen();
+				break;
+			case "Home":
+				event.preventDefault();
+				videoEl.currentTime = 0;
+				break;
+			case "End":
+				if (isFinite(videoEl.duration)) {
+					event.preventDefault();
+					videoEl.currentTime = videoEl.duration;
+				}
+				break;
+		}
+	}
+
 	$effect(() => {
-		if (videoEl) videoEl.volume = Math.min(1, Math.max(0, volume));
+		if (!videoEl) return;
+		const next = clamp01(volume);
+		if (Math.abs(videoEl.volume - next) > 0.01) videoEl.volume = next;
+	});
+
+	$effect(() => {
+		if (!videoEl) return;
+		if (videoEl.muted !== muted) videoEl.muted = muted;
+	});
+
+	$effect(() => {
+		if (!videoEl) return;
+		if (Math.abs(videoEl.playbackRate - playbackRate) > 0.001) {
+			videoEl.playbackRate = playbackRate;
+		}
+	});
+
+	$effect(() => {
+		if (!videoEl) return;
+		if (paused === null) return;
+		if (paused && !videoEl.paused) videoEl.pause();
+		if (!paused && videoEl.paused) void safePlay();
+	});
+
+	$effect(() => {
+		if (!videoEl || !isFinite(currentTime)) return;
+		if (Math.abs(videoEl.currentTime - currentTime) > 0.05) {
+			videoEl.currentTime = Math.max(0, currentTime);
+		}
 	});
 </script>
 
-<media-controller class={`recast-player ${className}`} defaultsubtitles>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<media-controller
+	bind:this={controllerEl}
+	class={`recast-player ${className}`}
+	style={playerStyle}
+	aria-label={playerLabel}
+	role="region"
+	tabindex="0"
+	defaultsubtitles
+	onkeydown={handleKeyDown}
+>
 	{#if isHls}
 		<!-- svelte-ignore a11y_media_has_caption -->
 		<hls-video
 			bind:this={videoEl}
 			slot="media"
+			class="recast-media"
 			{src}
 			{poster}
 			{title}
-			crossorigin="anonymous"
+			{preload}
+			{loop}
+			crossorigin={crossorigin ?? undefined}
 			playsinline
 			{autoplay}
 			onplay={handlePlay}
+			onpause={handlePause}
+			onloadedmetadata={handleLoadedMetadata}
 			ontimeupdate={handleTimeUpdate}
+			onvolumechange={handleVolumeChange}
+			onratechange={handleRateChange}
+			onseeked={handleSeeked}
 			onended={handleEnded}
 		>
 			{#if thumbnails}
 				<track kind="metadata" src={thumbnails} label="thumbnails" default />
 			{/if}
+			{#each tracks as track (track.src)}
+				<track
+					src={track.src}
+					kind={track.kind}
+					label={track.label}
+					srclang={track.srclang}
+					default={track.default}
+				/>
+			{/each}
 		</hls-video>
 	{:else}
 		<!-- svelte-ignore a11y_media_has_caption -->
 		<video
 			bind:this={videoEl}
 			slot="media"
+			class="recast-media"
 			{src}
 			{poster}
 			{title}
-			crossorigin="anonymous"
+			{preload}
+			{loop}
+			crossorigin={crossorigin ?? undefined}
 			playsinline
 			{autoplay}
 			onplay={handlePlay}
+			onpause={handlePause}
+			onloadedmetadata={handleLoadedMetadata}
 			ontimeupdate={handleTimeUpdate}
+			onvolumechange={handleVolumeChange}
+			onratechange={handleRateChange}
+			onseeked={handleSeeked}
 			onended={handleEnded}
 		>
 			{#if thumbnails}
 				<track kind="metadata" src={thumbnails} label="thumbnails" default />
 			{/if}
+			{#each tracks as track (track.src)}
+				<track
+					src={track.src}
+					kind={track.kind}
+					label={track.label}
+					srclang={track.srclang}
+					default={track.default}
+				/>
+			{/each}
 		</video>
 	{/if}
 
-	<!-- Loading spinner — appears only while buffering. The default
-	     autohide window (~500ms buffer-stall) is what we want; removing
-	     it would leave a permanent spinner over a happily-playing video. -->
 	<media-loading-indicator class="recast-loading"></media-loading-indicator>
 
-	<!-- Big center play overlay. Positioned absolutely (rather than via
-	     media-chrome's centered-chrome slot) so it sits at the actual
-	     visual center of the video frame instead of being flex-stacked
-	     next to other centered-chrome children. Auto-hides during
-	     playback via the `mediapaused`-driven rule in styles.css. -->
-	<media-play-button class="recast-big-play">
-		<span slot="play" class="recast-icon recast-icon-big">
-			<Play class="size-7 translate-x-px" />
-		</span>
-		<span slot="pause" class="recast-icon recast-icon-big">
-			<Pause class="size-7" />
-		</span>
-	</media-play-button>
+	{#if mergedControls.bigPlay}
+		<media-play-button class="recast-big-play" aria-label="Toggle playback">
+			<span slot="play" class="recast-icon recast-icon-big">
+				<Play class="size-7 translate-x-px" />
+			</span>
+			<span slot="pause" class="recast-icon recast-icon-big">
+				<Pause class="size-7" />
+			</span>
+		</media-play-button>
+	{/if}
 
-	<!-- Bottom control bar. Custom-icon slots throughout so every button
-	     uses Lucide (the rest of the app's icon vocabulary) — no
-	     media-chrome default glyphs leak in. -->
+	<div slot="top-chrome" class="recast-topbar">
+		<div class="recast-titleblock">
+			{#if title}
+				<span class="recast-title">{title}</span>
+			{/if}
+			<span class="recast-shortcuts">Space/K play, arrows/J/L seek, M mute, F fullscreen</span>
+		</div>
+	</div>
+
 	<media-control-bar class="recast-control-bar">
-		<media-play-button class="recast-btn">
+		<media-play-button class="recast-btn" aria-label="Play or pause">
 			<span slot="play" class="recast-icon"><Play class="size-4 translate-x-[0.5px]" /></span>
 			<span slot="pause" class="recast-icon"><Pause class="size-4" /></span>
 		</media-play-button>
 
-		<media-seek-backward-button class="recast-btn" seekoffset="10">
-			<span slot="icon" class="recast-icon"><RotateCcw class="size-4" /></span>
-		</media-seek-backward-button>
+		{#if mergedControls.seek}
+			<media-seek-backward-button class="recast-btn" seekoffset="10" aria-label="Back 10 seconds">
+				<span slot="icon" class="recast-icon"><RotateCcw class="size-4" /></span>
+			</media-seek-backward-button>
 
-		<media-seek-forward-button class="recast-btn" seekoffset="10">
-			<span slot="icon" class="recast-icon"><RotateCw class="size-4" /></span>
-		</media-seek-forward-button>
+			<media-seek-forward-button class="recast-btn" seekoffset="10" aria-label="Forward 10 seconds">
+				<span slot="icon" class="recast-icon"><RotateCw class="size-4" /></span>
+			</media-seek-forward-button>
+		{/if}
 
-		<media-time-display class="recast-time" showduration></media-time-display>
+		{#if mergedControls.time}
+			<media-time-display class="recast-time" showduration></media-time-display>
+		{/if}
 
-		<media-time-range class="recast-scrubber">
+		<media-time-range class="recast-scrubber" aria-label="Seek">
 			{#if thumbnails}
 				<media-preview-thumbnail
 					slot="preview"
@@ -204,22 +475,27 @@
 			></media-preview-time-display>
 		</media-time-range>
 
-		<media-mute-button class="recast-btn">
-			<span slot="off" class="recast-icon"><VolumeX class="size-4" /></span>
-			<span slot="low" class="recast-icon"><Volume class="size-4" /></span>
-			<span slot="medium" class="recast-icon"><Volume1 class="size-4" /></span>
-			<span slot="high" class="recast-icon"><Volume2 class="size-4" /></span>
-		</media-mute-button>
+		{#if mergedControls.volume}
+			<media-mute-button class="recast-btn" aria-label="Mute or unmute">
+				<span slot="off" class="recast-icon"><VolumeX class="size-4" /></span>
+				<span slot="low" class="recast-icon"><Volume class="size-4" /></span>
+				<span slot="medium" class="recast-icon"><Volume1 class="size-4" /></span>
+				<span slot="high" class="recast-icon"><Volume2 class="size-4" /></span>
+			</media-mute-button>
 
-		<media-volume-range class="recast-volume"></media-volume-range>
+			<media-volume-range class="recast-volume" aria-label="Volume"></media-volume-range>
+		{/if}
 
-		<media-playback-rate-button
-			class="recast-btn recast-btn-text"
-			rates="0.5 1 1.25 1.5 2"
-		></media-playback-rate-button>
+		{#if mergedControls.playbackRate}
+			<media-playback-rate-button
+				class="recast-btn recast-btn-text"
+				rates="0.25 0.5 0.75 1 1.25 1.5 1.75 2"
+				aria-label="Playback speed"
+			></media-playback-rate-button>
+		{/if}
 
-		{#if showMenu}
-			<media-captions-button class="recast-btn">
+		{#if showCaptions}
+			<media-captions-button class="recast-btn" aria-label="Captions">
 				<span slot="on" class="recast-icon"><Captions class="size-4" /></span>
 				<span slot="off" class="recast-icon recast-icon-muted">
 					<Captions class="size-4" />
@@ -227,26 +503,34 @@
 			</media-captions-button>
 		{/if}
 
-		<media-pip-button class="recast-btn">
-			<span slot="enter" class="recast-icon"><PictureInPicture class="size-4" /></span>
-			<span slot="exit" class="recast-icon"><PictureInPicture2 class="size-4" /></span>
-		</media-pip-button>
+		{#if mergedControls.pip}
+			<media-pip-button class="recast-btn" aria-label="Picture in picture">
+				<span slot="enter" class="recast-icon"><PictureInPicture class="size-4" /></span>
+				<span slot="exit" class="recast-icon"><PictureInPicture2 class="size-4" /></span>
+			</media-pip-button>
+		{/if}
 
-		<media-fullscreen-button class="recast-btn">
-			<span slot="enter" class="recast-icon"><Maximize class="size-4" /></span>
-			<span slot="exit" class="recast-icon"><Minimize class="size-4" /></span>
-		</media-fullscreen-button>
+		{#if mergedControls.fullscreen}
+			<media-fullscreen-button class="recast-btn" aria-label="Fullscreen">
+				<span slot="enter" class="recast-icon"><Maximize class="size-4" /></span>
+				<span slot="exit" class="recast-icon"><Minimize class="size-4" /></span>
+			</media-fullscreen-button>
+		{/if}
 	</media-control-bar>
 </media-controller>
 
 <style>
-	/* Local minimum so the controller has dimensions even if the host app
-	   forgot to import @recast/player/styles.css. Full theming lives in
-	   that stylesheet so consumers can override per-app if they need. */
 	:global(.recast-player) {
 		display: block;
 		width: 100%;
-		aspect-ratio: 16 / 9;
+		aspect-ratio: var(--recast-player-aspect-ratio, auto);
+		background: #000;
+	}
+
+	:global(.recast-player .recast-media) {
+		width: 100%;
+		height: 100%;
+		object-fit: var(--recast-player-object-fit, contain);
 		background: #000;
 	}
 </style>

@@ -134,6 +134,13 @@ jobs:
             chmod +x "$dest/ffmpeg-$triple" "$dest/ffprobe-$triple"
           fi
 
+      # Google Drive OAuth credentials (optional). Only injected when the
+      # secret is present on the runner — fork PRs don't get it. Without
+      # the secret, `option_env!("GOOGLE_OAUTH_CLIENT_ID")` resolves to
+      # None and gdrive_connect returns "OAuth not configured" at runtime;
+      # the build itself still compiles cleanly. We pass via the build
+      # step's env (not a written .env file) so missing-secret runs
+      # produce empty strings rather than literal "${{ ... }}" text.
       # `tauri build --no-bundle` runs the frontend build (beforeBuildCommand)
       # and a full release compile of the Rust crate, then stops before
       # producing installers — no MSIX/DMG/AppImage, no code signing, no
@@ -141,6 +148,9 @@ jobs:
       # want: it proves the code builds on each OS without the slow, secret-
       # dependent packaging steps.
       - name: Compile desktop app (no bundle)
+        env:
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
         run: pnpm --filter recast-desktop tauri build --no-bundle ${{ matrix.platform.tauri_args }}
 
       # Clippy after the build so the compile gate above is the hard failure

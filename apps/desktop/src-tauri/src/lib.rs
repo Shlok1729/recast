@@ -11,6 +11,7 @@ mod project;
 mod recording;
 mod render;
 mod silence;
+mod tray;
 
 use commands::system::load_config;
 use commands::types::AppState;
@@ -29,6 +30,18 @@ pub fn run() {
     let _ = dotenvy::dotenv();
 
     let mut builder = tauri::Builder::default()
+        // Single-instance MUST be the first plugin registered. The handler
+        // fires inside the second-launched process — by the time it runs,
+        // any later plugin would have already initialized in that ghost
+        // process. The plugin shuts the ghost down after the handler returns,
+        // so we just refocus the existing window and exit.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
@@ -66,14 +79,22 @@ pub fn run() {
     builder
         .setup(|app| {
             let handle = app.handle();
-            let config = load_config(&handle);
+            let config = load_config(handle);
 
             app.manage(AppState {
                 recording_manager: RecordingManager::default(),
                 last_file_path: Mutex::new(None),
                 config: Mutex::new(config),
                 export_cancel: Mutex::new(HashMap::new()),
+                auth_poller: Mutex::new(None),
             });
+
+            // System tray. Init failure is non-fatal — the app still works
+            // without a tray (the user just can't quick-access actions while
+            // the window is hidden, which is fine). Log + continue.
+            if let Err(e) = tray::init(handle) {
+                log::warn!("tray init failed: {e}");
+            }
 
             // FFmpeg path resolution probes ffmpeg/ffprobe `-version` against
             // up to 4 candidate locations, each spawn taking ~100–300 ms cold.
@@ -180,29 +201,57 @@ pub fn run() {
             commands::diagnose_ffmpeg,
             commands::auth_start,
             commands::auth_status,
-            commands::auth_sign_out
+            commands::auth_sign_out,
+            commands::auth_cancel,
+            commands::get_close_to_tray,
+            commands::set_close_to_tray,
+            commands::gdrive_connect,
+            commands::gdrive_status,
+            commands::gdrive_disconnect,
+            commands::gdrive_upload,
+            commands::gdrive_cancel_upload,
+            commands::gdrive_list_uploads,
+            commands::gdrive_forget_upload,
+            tray::refresh_tray
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // Closing the main window must exit the whole app — auxiliary
-            // windows (camera-preview, recording-panel, editor-*, region-picker,
-            // …) would otherwise keep the process alive after the user thinks
-            // they've quit.
+            // Main-window close handling has two modes, gated by the user's
+            // `close_to_tray` setting (default on):
             //
-            // We close auxiliaries explicitly before `exit(0)` because on
-            // Linux/Wayland the close-event delivery is racy: `exit(0)` can
-            // tear the app down before the WM has finished delivering close
-            // events to the aux windows, which on some compositors leaves
-            // their surfaces lingering or blocks the main window's own close.
-            // Explicit close-then-exit is deterministic on every platform.
+            //   * close_to_tray=true: prevent the close, hide the window
+            //     instead. The tray icon is the only way to bring the app
+            //     back or to truly quit. Background captures (recording,
+            //     editor autosave) keep running.
+            //
+            //   * close_to_tray=false: legacy behavior — close auxiliaries
+            //     explicitly before exit(0) so Linux/Wayland doesn't race
+            //     surface teardown against the main-thread exit.
+            //
+            // Tray "Quit" calls `app.exit(0)` directly, bypassing this
+            // branch entirely (no CloseRequested event fires).
             if let tauri::RunEvent::WindowEvent {
                 label,
-                event: tauri::WindowEvent::CloseRequested { .. },
+                event: tauri::WindowEvent::CloseRequested { api, .. },
                 ..
             } = &event
             {
                 if label == "main" {
+                    let hide_to_tray = app_handle
+                        .try_state::<AppState>()
+                        .map(|state| state.config.lock().close_to_tray)
+                        .unwrap_or(true);
+
+                    if hide_to_tray {
+                        api.prevent_close();
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                        tray::rebuild_menu(app_handle);
+                        return;
+                    }
+
                     for (aux_label, window) in app_handle.webview_windows() {
                         if aux_label != "main" {
                             let _ = window.close();

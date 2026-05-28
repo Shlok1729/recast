@@ -111,12 +111,31 @@ pub struct LastSource {
     pub region_height: Option<u32>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub output_dir: Option<String>,
     #[serde(default)]
     pub last_source: Option<LastSource>,
+    /// When true, closing the main window hides it to the system tray instead
+    /// of exiting. The tray's "Quit Recast" item is the canonical exit. Users
+    /// who don't want background tray presence can flip this off in Settings.
+    #[serde(default = "default_close_to_tray")]
+    pub close_to_tray: bool,
+}
+
+fn default_close_to_tray() -> bool {
+    true
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: None,
+            last_source: None,
+            close_to_tray: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -209,4 +228,11 @@ pub struct AppState {
     /// `export_video` inserts a fresh `Arc<AtomicBool>` on entry and removes it on
     /// exit; `cancel_export` looks up a specific session and flips only that flag.
     pub export_cancel: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// JoinHandle for the in-flight device-authorization poller. `auth_start`
+    /// replaces this; `auth_cancel` aborts it. Holding the handle (vs. an
+    /// `AbortHandle`) lets us also `await` it later for graceful shutdown if
+    /// we ever need it — for cancellation the handle's `abort()` method is
+    /// enough. Only one poller can be live at a time: `auth_start` rejects
+    /// when this is `Some`.
+    pub auth_poller: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
