@@ -289,7 +289,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
         frame.fill(0);
 
         // Wall-clock time relative to the trimmed output, mapped to cursor-track time.
-        let t_out_us = (i as u64 * 1_000_000) / request.fps as u64;
+        let t_out_us = (i * 1_000_000) / request.fps as u64;
         let t_track_us = trim_start_us + t_out_us;
         // `t_track_secs` is the project-timeline time. Annotation/zoom-region
         // start/end fields are stored in timeline coordinates, so every check

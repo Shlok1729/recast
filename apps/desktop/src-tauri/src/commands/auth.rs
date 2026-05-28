@@ -49,8 +49,7 @@ const DEFAULT_CLOUD_API_URL: &str = "https://recast.nexonauts.com";
 /// an attacker-controlled host. Trailing slashes are stripped.
 fn cloud_api_url() -> String {
     #[cfg(debug_assertions)]
-    let raw =
-        std::env::var("CLOUD_API_URL").unwrap_or_else(|_| DEFAULT_CLOUD_API_URL.to_string());
+    let raw = std::env::var("CLOUD_API_URL").unwrap_or_else(|_| DEFAULT_CLOUD_API_URL.to_string());
     #[cfg(not(debug_assertions))]
     let raw = DEFAULT_CLOUD_API_URL.to_string();
     raw.trim_end_matches('/').to_string()
@@ -247,8 +246,16 @@ fn parse_profile_body(body: &serde_json::Value) -> AuthStatus {
             .and_then(|v| v.as_str())
             .map(str::to_string),
         plan: plan.map(|p| AuthPlan {
-            id: p.get("id").and_then(|v| v.as_str()).unwrap_or("free").to_string(),
-            name: p.get("name").and_then(|v| v.as_str()).unwrap_or("Free").to_string(),
+            id: p
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("free")
+                .to_string(),
+            name: p
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Free")
+                .to_string(),
             status: p
                 .get("status")
                 .and_then(|v| v.as_str())
@@ -444,9 +451,10 @@ async fn poll_for_token(
 
         // Non-2xx — try to parse the OAuth error envelope. RFC 8628 reserves
         // a specific set of error codes for the polling path.
-        let err: DeviceTokenError = resp.json().await.map_err(|e| {
-            format!("device/token error parse failed (status {status}): {e}")
-        })?;
+        let err: DeviceTokenError = resp
+            .json()
+            .await
+            .map_err(|e| format!("device/token error parse failed (status {status}): {e}"))?;
         match err.error.as_str() {
             "authorization_pending" => continue,
             "slow_down" => {
@@ -496,14 +504,23 @@ async fn fetch_status(client: &reqwest::Client, base: &str, token: &str) -> Auth
         .await;
 
     let Ok(resp) = resp else {
-        return AuthStatus { signed_in: true, ..Default::default() };
+        return AuthStatus {
+            signed_in: true,
+            ..Default::default()
+        };
     };
     if !resp.status().is_success() {
-        return AuthStatus { signed_in: true, ..Default::default() };
+        return AuthStatus {
+            signed_in: true,
+            ..Default::default()
+        };
     }
     match resp.json::<serde_json::Value>().await {
         Ok(body) => parse_session_body(&body),
-        Err(_) => AuthStatus { signed_in: true, ..Default::default() },
+        Err(_) => AuthStatus {
+            signed_in: true,
+            ..Default::default()
+        },
     }
 }
 
@@ -522,7 +539,10 @@ async fn fetch_status(client: &reqwest::Client, base: &str, token: &str) -> Auth
 #[tauri::command]
 pub async fn auth_status() -> Result<AuthStatus, String> {
     let Some(token) = read_session_token() else {
-        return Ok(AuthStatus { signed_in: false, ..Default::default() });
+        return Ok(AuthStatus {
+            signed_in: false,
+            ..Default::default()
+        });
     };
     let client = http_client().map_err(|e| format!("http client init failed: {e}"))?;
     let base = cloud_api_url();
@@ -542,7 +562,10 @@ pub async fn auth_status() -> Result<AuthStatus, String> {
         // token and assume signed-in — offline-first.
         Err(e) => {
             log::warn!("auth_status: transport failure, assuming signed-in: {e}");
-            return Ok(AuthStatus { signed_in: true, ..Default::default() });
+            return Ok(AuthStatus {
+                signed_in: true,
+                ..Default::default()
+            });
         }
     };
 
@@ -551,7 +574,10 @@ pub async fn auth_status() -> Result<AuthStatus, String> {
         // Authoritative server response: token is no longer valid — purge it
         // locally so we don't stay in a "signed in" UI state forever.
         let _ = delete_session_token();
-        return Ok(AuthStatus { signed_in: false, ..Default::default() });
+        return Ok(AuthStatus {
+            signed_in: false,
+            ..Default::default()
+        });
     }
 
     if status.is_success() {
@@ -561,7 +587,10 @@ pub async fn auth_status() -> Result<AuthStatus, String> {
             .map_err(|e| format!("desktop/profile parse failed: {e}"))?;
         if body.is_null() || body.get("user").is_none() {
             let _ = delete_session_token();
-            return Ok(AuthStatus { signed_in: false, ..Default::default() });
+            return Ok(AuthStatus {
+                signed_in: false,
+                ..Default::default()
+            });
         }
         return Ok(parse_profile_body(&body));
     }
@@ -599,4 +628,3 @@ pub async fn auth_sign_out() -> Result<(), String> {
 pub fn current_session_token() -> Option<String> {
     read_session_token()
 }
-

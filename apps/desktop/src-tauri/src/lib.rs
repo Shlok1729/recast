@@ -79,7 +79,7 @@ pub fn run() {
     builder
         .setup(|app| {
             let handle = app.handle();
-            let config = load_config(&handle);
+            let config = load_config(handle);
 
             app.manage(AppState {
                 recording_manager: RecordingManager::default(),

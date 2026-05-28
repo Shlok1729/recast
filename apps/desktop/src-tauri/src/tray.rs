@@ -131,8 +131,13 @@ fn build_recent_submenu(app: &AppHandle, recents: &[RecentExport]) -> tauri::Res
         // Empty submenu — render a disabled "(No exports yet)" placeholder so
         // the menu doesn't look broken. A submenu with zero children would
         // collapse to an unclickable header on some platforms.
-        let placeholder =
-            MenuItem::with_id(app, "tray.recent.empty", "(No exports yet)", false, None::<&str>)?;
+        let placeholder = MenuItem::with_id(
+            app,
+            "tray.recent.empty",
+            "(No exports yet)",
+            false,
+            None::<&str>,
+        )?;
         return Submenu::with_items(app, "Recent Exports", true, &[&placeholder]);
     }
 

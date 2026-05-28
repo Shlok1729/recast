@@ -216,8 +216,7 @@ fn random_url_safe_string(len: usize) -> String {
     // RFC 7636 §4.1: code_verifier = high-entropy cryptographic random string
     // using the URL/filename-safe alphabet [A-Z][a-z][0-9]-._~. We sample from
     // that exact charset to avoid needing further encoding.
-    const ALPHABET: &[u8] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
     let mut rng = rand::thread_rng();
     (0..len)
         .map(|_| {
@@ -287,7 +286,10 @@ async fn exchange_code_for_tokens(
         .map_err(|e| format!("token exchange parse failed: {e}"))
 }
 
-async fn refresh_access_token(client: &Client, refresh_token: &str) -> Result<TokenResponse, String> {
+async fn refresh_access_token(
+    client: &Client,
+    refresh_token: &str,
+) -> Result<TokenResponse, String> {
     let (id, secret) = require_credentials()?;
     let params = [
         ("client_id", id.as_str()),
@@ -633,7 +635,10 @@ fn render_callback_page(error: Option<&str>) -> (String, &'static str) {
 /// Bind a TCP listener to a kernel-chosen port on 127.0.0.1, await one
 /// HTTP GET callback, parse `code` and `state` from the query string,
 /// respond with a friendly success page, and return the parsed query.
-async fn await_oauth_callback(listener: TcpListener, expected_state: &str) -> Result<String, String> {
+async fn await_oauth_callback(
+    listener: TcpListener,
+    expected_state: &str,
+) -> Result<String, String> {
     let accept = tokio::time::timeout(OAUTH_CALLBACK_TIMEOUT, listener.accept())
         .await
         .map_err(|_| "Timed out waiting for Google sign-in. Try again.".to_string())?
@@ -758,11 +763,11 @@ pub async fn gdrive_connect(app: AppHandle) -> Result<(), String> {
     let code = await_oauth_callback(listener, &state).await?;
     let tokens = exchange_code_for_tokens(&client, &code, &verifier, &redirect_uri).await?;
 
-    let refresh = tokens
-        .refresh_token
-        .clone()
-        .ok_or_else(|| "Google did not return a refresh token. Try disconnecting and reconnecting; \
-             the consent prompt must request offline access.".to_string())?;
+    let refresh = tokens.refresh_token.clone().ok_or_else(|| {
+        "Google did not return a refresh token. Try disconnecting and reconnecting; \
+             the consent prompt must request offline access."
+            .to_string()
+    })?;
     store_refresh_token(&refresh)?;
     *ACCESS_TOKEN.lock() = Some(CachedAccessToken {
         token: tokens.access_token.clone(),
@@ -833,7 +838,10 @@ pub async fn gdrive_disconnect() -> Result<(), String> {
 // Drive upload
 // ──────────────────────────────────────────────────────────────────────────
 
-async fn find_or_create_recast_folder(client: &Client, access_token: &str) -> Result<String, String> {
+async fn find_or_create_recast_folder(
+    client: &Client,
+    access_token: &str,
+) -> Result<String, String> {
     // Search `My Drive` (default corpus) for an existing top-level folder
     // we own called `Recast`. The query escapes the literal name since
     // Drive's q syntax treats single quotes as string delimiters.
@@ -844,7 +852,11 @@ async fn find_or_create_recast_folder(client: &Client, access_token: &str) -> Re
     let resp = client
         .get(format!("{DRIVE_API}/files"))
         .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
-        .query(&[("q", q.as_str()), ("fields", "files(id)"), ("pageSize", "1")])
+        .query(&[
+            ("q", q.as_str()),
+            ("fields", "files(id)"),
+            ("pageSize", "1"),
+        ])
         .send()
         .await
         .map_err(|e| format!("folder lookup request failed: {e}"))?;
@@ -1028,7 +1040,9 @@ async fn gdrive_upload_inner(
         "mimeType": mime,
     });
     let init = client
-        .post(format!("{DRIVE_UPLOAD}?uploadType=resumable&fields=id,name,webViewLink"))
+        .post(format!(
+            "{DRIVE_UPLOAD}?uploadType=resumable&fields=id,name,webViewLink"
+        ))
         .header(header::AUTHORIZATION, format!("Bearer {access}"))
         .header("X-Upload-Content-Type", mime)
         .header("X-Upload-Content-Length", total_bytes.to_string())
@@ -1167,4 +1181,3 @@ pub fn gdrive_forget_upload(app: AppHandle, local_path: String) {
         write_manifest(&app, &manifest);
     }
 }
-

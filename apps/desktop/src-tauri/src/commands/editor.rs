@@ -1431,11 +1431,10 @@ pub async fn export_video(
         args.extend(["-t".to_string(), format!("{duration:.3}")]);
     }
 
-    if duration <= 0.0 {
-        if !export_plan.extra_inputs.is_empty() || cursor_overlay_path.is_some() {
+    if duration <= 0.0
+        && (!export_plan.extra_inputs.is_empty() || cursor_overlay_path.is_some()) {
             args.push("-shortest".to_string());
         }
-    }
 
     match request.format.as_str() {
         "gif" => {

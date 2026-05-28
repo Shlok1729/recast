@@ -215,7 +215,7 @@ fn list_files_by_ext(dir: &PathBuf, exts: &[&str]) -> Result<Vec<RecordingEntry>
             .extension()
             .and_then(|v| v.to_str())
             .unwrap_or_default();
-        if !exts.iter().any(|wanted| *wanted == file_ext) {
+        if !exts.contains(&file_ext) {
             continue;
         }
         if let Ok(meta) = entry.metadata() {
