@@ -32,11 +32,31 @@ type GdriveUploadResult = {
 	webViewLink?: string;
 };
 
+/**
+ * Persistent record of a previously-uploaded export, keyed by local file
+ * path. Mirrors the Rust `UploadRecord` struct from `commands/gdrive.rs`.
+ * Sourced from a JSON file on disk — no database.
+ */
+export type UploadRecord = {
+	fileId: string;
+	name: string;
+	webViewLink?: string;
+	/** Unix seconds. */
+	uploadedAt: number;
+};
+
 function createGdriveStore() {
 	let connected = $state(false);
 	let email = $state<string | null>(null);
 	let connecting = $state(false);
 	const uploads = $state<Record<string, GdriveUpload>>({});
+	/**
+	 * History of completed uploads, indexed by local file path. Hydrated
+	 * from disk on `init()` via `gdrive_list_uploads`, and incrementally
+	 * updated when `gdrive:upload-complete` fires. Drives the exports
+	 * list dropdown ("Upload to Drive" vs. "Copy link / Re-upload").
+	 */
+	const uploadHistory = $state<Record<string, UploadRecord>>({});
 
 	let listenersAttached = false;
 
@@ -67,19 +87,28 @@ function createGdriveStore() {
 				totalBytes: payload.totalBytes,
 			};
 		});
-		await listen<{ uploadId: string } & GdriveUploadResult>(
-			"gdrive:upload-complete",
-			({ payload }) => {
-				const existing = uploads[payload.uploadId];
-				if (!existing) return;
+		await listen<
+			{ uploadId: string; sourcePath: string } & GdriveUploadResult
+		>("gdrive:upload-complete", ({ payload }) => {
+			const existing = uploads[payload.uploadId];
+			if (existing) {
 				uploads[payload.uploadId] = {
 					...existing,
 					status: "complete",
 					bytesSent: existing.totalBytes || existing.bytesSent,
 					webViewLink: payload.webViewLink,
 				};
-			},
-		);
+			}
+			// Merge into the persistent history so the exports list flips
+			// its action from "Upload" to "Copy link / Re-upload" without
+			// a roundtrip to disk. Re-uploads overwrite the prior entry.
+			uploadHistory[payload.sourcePath] = {
+				fileId: payload.fileId,
+				name: payload.name,
+				webViewLink: payload.webViewLink,
+				uploadedAt: Math.floor(Date.now() / 1000),
+			};
+		});
 		await listen<{ uploadId: string; message: string; cancelled: boolean }>(
 			"gdrive:upload-error",
 			({ payload }) => {
@@ -106,6 +135,26 @@ function createGdriveStore() {
 			email = status.email ?? null;
 		} catch (e) {
 			console.error("[gdrive] status check failed", e);
+		}
+	}
+
+	/** Pull the upload history from disk into the in-memory map. */
+	async function refreshHistory() {
+		if (!(await isTauriApp())) return;
+		try {
+			const { invoke } = await import("@tauri-apps/api/core");
+			const records = await invoke<Record<string, UploadRecord>>(
+				"gdrive_list_uploads",
+			);
+			// Wipe then refill so deletions made elsewhere propagate.
+			for (const key of Object.keys(uploadHistory)) {
+				delete uploadHistory[key];
+			}
+			for (const [path, record] of Object.entries(records ?? {})) {
+				uploadHistory[path] = record;
+			}
+		} catch (e) {
+			console.error("[gdrive] history load failed", e);
 		}
 	}
 
@@ -189,6 +238,27 @@ function createGdriveStore() {
 		delete uploads[uploadId];
 	}
 
+	/**
+	 * Drop a path from upload history. Call when a local file is deleted
+	 * so its row stops claiming it was uploaded. The Drive file itself
+	 * isn't touched.
+	 */
+	async function forgetUpload(localPath: string) {
+		delete uploadHistory[localPath];
+		if (!(await isTauriApp())) return;
+		try {
+			const { invoke } = await import("@tauri-apps/api/core");
+			await invoke("gdrive_forget_upload", { localPath });
+		} catch (e) {
+			console.error("[gdrive] forget failed", e);
+		}
+	}
+
+	/** Look up the persisted record for a local export, if any. */
+	function getRecordForPath(localPath: string): UploadRecord | undefined {
+		return uploadHistory[localPath];
+	}
+
 	return {
 		get connected() {
 			return connected;
@@ -205,19 +275,26 @@ function createGdriveStore() {
 		get activeUploads() {
 			return Object.values(uploads);
 		},
+		get uploadHistory() {
+			return uploadHistory;
+		},
 
-		/** Wire event listeners and pull current status. Safe to call repeatedly. */
+		/** Wire event listeners and pull current status + history. Safe to call repeatedly. */
 		async init() {
 			await attachListeners();
 			await refreshStatus();
+			await refreshHistory();
 		},
 
 		refreshStatus,
+		refreshHistory,
 		connect,
 		disconnect,
 		upload,
 		cancelUpload,
 		dismissUpload,
+		forgetUpload,
+		getRecordForPath,
 	};
 }
 

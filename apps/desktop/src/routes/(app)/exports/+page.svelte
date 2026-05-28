@@ -18,6 +18,7 @@
     FolderOpen,
     Grid3x3,
     HardDriveUpload,
+    Link2,
     List,
     ListChecks,
     MoreHorizontal,
@@ -27,6 +28,7 @@
     Search,
     SortAsc,
     Trash2,
+    UploadCloud,
     X,
   } from "@lucide/svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
@@ -64,6 +66,11 @@
 
   onMount(() => {
     fetchExports();
+    // Hydrate Drive upload history so each row's dropdown can pick the
+    // right action ("Upload to Drive" vs. "Copy link / Re-upload")
+    // without a per-row roundtrip. The store caches across mounts so
+    // subsequent visits are instant.
+    void gdrive.init();
     const storedView = localStorage.getItem("exports-view") as
       | "grid"
       | "list"
@@ -167,6 +174,10 @@
       const { [entry.path]: _, ...rest } = thumbnails;
       thumbnails = rest;
     }
+    // The file is gone — drop its Drive-upload record so the row doesn't
+    // come back next session claiming it was uploaded. The Drive file
+    // itself is left alone; users can still find it in their Drive.
+    void gdrive.forgetUpload(entry.path);
     toast.success(`Moved "${entry.filename}" to trash`);
   }
 
@@ -187,6 +198,25 @@
       // Progress is surfaced via the corner-notification stack.
     } catch (e) {
       toast.error(`Drive upload failed: ${e}`);
+    }
+  }
+
+  /**
+   * Copy the previously-recorded Drive link for this export to the
+   * clipboard. The history map is hydrated from a local JSON manifest on
+   * disk — no network roundtrip.
+   */
+  async function copyDriveLink(entry: RecordingEntry) {
+    const record = gdrive.getRecordForPath(entry.path);
+    if (!record?.webViewLink) {
+      toast.error("No Drive link recorded for this file.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(record.webViewLink);
+      toast.success("Drive link copied.");
+    } catch (e) {
+      toast.error(`Could not copy link: ${e}`);
     }
   }
 
@@ -627,9 +657,28 @@
                         <CopyIcon /> Copy path
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
-                      <DropdownMenu.Item onSelect={() => uploadToDrive(entry)}>
-                        <HardDriveUpload /> Upload to Drive
-                      </DropdownMenu.Item>
+                      {#if gdrive.uploadHistory[entry.path]}
+                        <!-- Already uploaded — surface the existing link
+                             and let the user push a fresh copy if they've
+                             edited the file. Re-upload overwrites the
+                             stored Drive link with the new one. -->
+                        <DropdownMenu.Item
+                          onSelect={() => copyDriveLink(entry)}
+                        >
+                          <Link2 /> Copy Drive link
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          onSelect={() => uploadToDrive(entry)}
+                        >
+                          <UploadCloud /> Re-upload to Drive
+                        </DropdownMenu.Item>
+                      {:else}
+                        <DropdownMenu.Item
+                          onSelect={() => uploadToDrive(entry)}
+                        >
+                          <HardDriveUpload /> Upload to Drive
+                        </DropdownMenu.Item>
+                      {/if}
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item
                         onSelect={() => (deleteTarget = entry)}

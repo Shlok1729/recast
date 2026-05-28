@@ -210,6 +210,8 @@ pub fn run() {
             commands::gdrive_disconnect,
             commands::gdrive_upload,
             commands::gdrive_cancel_upload,
+            commands::gdrive_list_uploads,
+            commands::gdrive_forget_upload,
             tray::refresh_tray
         ])
         .build(tauri::generate_context!())

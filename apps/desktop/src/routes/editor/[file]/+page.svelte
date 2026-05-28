@@ -29,6 +29,7 @@
     type VideoMetadata,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
+  import { gdrive } from "$lib/stores/gdrive.svelte";
   import { applyAutoZooms } from "$lib/zoom/auto-apply";
   import {
     ArrowLeft,
@@ -39,7 +40,6 @@
     VolumeX,
     X,
   } from "@lucide/svelte";
-  import { gdrive } from "$lib/stores/gdrive.svelte";
   import { Button } from "@recast/ui/button";
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
@@ -1150,7 +1150,7 @@
       aria-labelledby="export-dialog-title"
     >
       <div
-        class="animate-in zoom-in-95 flex w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border/60 bg-popover/95 shadow-2xl ring-1 ring-border/40 backdrop-blur-xl duration-150"
+        class="animate-in zoom-in-95 flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border/60 bg-popover/95 shadow-2xl ring-1 ring-border/40 backdrop-blur-xl duration-150"
       >
         <!--
           Inner branch keys on `exportResult` (set by the `export-done` event

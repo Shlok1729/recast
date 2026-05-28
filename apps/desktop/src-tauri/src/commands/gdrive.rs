@@ -36,7 +36,7 @@ use rand::Rng;
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
@@ -104,6 +104,58 @@ struct CachedAccessToken {
 
 static ACCESS_TOKEN: Mutex<Option<CachedAccessToken>> = Mutex::new(None);
 static ACTIVE_UPLOADS: Mutex<Option<HashMap<String, Arc<AtomicBool>>>> = Mutex::new(None);
+
+/// Persistent record of which local exports have been uploaded to Drive,
+/// indexed by the local file path so the exports list can switch its menu
+/// from "Upload to Drive" to "Copy link / Re-upload" without hitting the
+/// network. Stored on disk as JSON in the app data dir — no database.
+/// Re-uploads overwrite the previous entry so users always see the latest
+/// Drive link.
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadRecord {
+    pub file_id: String,
+    pub name: String,
+    pub web_view_link: Option<String>,
+    /// Unix seconds. Lets the UI sort or stamp "uploaded 2 minutes ago"
+    /// if we ever want that. Cheap to record now, expensive to backfill.
+    pub uploaded_at: u64,
+}
+
+fn manifest_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join("drive-uploads.json"))
+}
+
+fn read_manifest(app: &AppHandle) -> HashMap<String, UploadRecord> {
+    let Some(path) = manifest_path(app) else {
+        return HashMap::new();
+    };
+    let Ok(data) = std::fs::read_to_string(&path) else {
+        return HashMap::new();
+    };
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+fn write_manifest(app: &AppHandle, manifest: &HashMap<String, UploadRecord>) {
+    let Some(path) = manifest_path(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(data) = serde_json::to_string_pretty(manifest) {
+        let _ = std::fs::write(path, data);
+    }
+}
+
+fn record_upload(app: &AppHandle, local_path: &str, record: UploadRecord) {
+    let mut manifest = read_manifest(app);
+    manifest.insert(local_path.to_string(), record);
+    write_manifest(app, &manifest);
+}
 
 fn upload_cancel_flag(upload_id: &str) -> Arc<AtomicBool> {
     let mut guard = ACTIVE_UPLOADS.lock();
@@ -871,6 +923,10 @@ pub struct GdriveUploadResult {
 #[serde(rename_all = "camelCase")]
 struct UploadCompleteEvent<'a> {
     upload_id: &'a str,
+    /// Source path on this machine. The frontend uses this to index the
+    /// upload-history map so the exports list can flip its menu state
+    /// based on whether this exact file was previously uploaded.
+    source_path: &'a str,
     #[serde(flatten)]
     result: &'a GdriveUploadResult,
 }
@@ -897,10 +953,31 @@ pub async fn gdrive_upload(
     drop_upload_cancel_flag(&upload_id);
     match &result {
         Ok(payload) => {
+            // Persist a record of this upload keyed by the local file path
+            // so the exports list can switch its action from "Upload" to
+            // "Copy link / Re-upload" without re-querying Google. The
+            // write is best-effort — if the disk is full or the path is
+            // unwriteable, the in-app upload still succeeded.
+            let uploaded_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            record_upload(
+                &app,
+                &path,
+                UploadRecord {
+                    file_id: payload.file_id.clone(),
+                    name: payload.name.clone(),
+                    web_view_link: payload.web_view_link.clone(),
+                    uploaded_at,
+                },
+            );
+
             let _ = app.emit(
                 "gdrive:upload-complete",
                 UploadCompleteEvent {
                     upload_id: upload_id.as_str(),
+                    source_path: path.as_str(),
                     result: payload,
                 },
             );
@@ -1069,5 +1146,25 @@ async fn gdrive_upload_inner(
 #[tauri::command]
 pub fn gdrive_cancel_upload(upload_id: String) {
     signal_upload_cancel(&upload_id);
+}
+
+/// Returns the local upload history — a map of `localPath -> UploadRecord`
+/// for every export the user has uploaded from this machine. Cheap (single
+/// JSON file read); the frontend caches the result in a Svelte store and
+/// merges in new entries as `gdrive:upload-complete` events fire.
+#[tauri::command]
+pub fn gdrive_list_uploads(app: AppHandle) -> HashMap<String, UploadRecord> {
+    read_manifest(&app)
+}
+
+/// Drop a single entry from the upload history. Used when a user moves an
+/// export to trash — keeping the stale "uploaded" badge on a non-existent
+/// file would be confusing. Best-effort: no error on missing keys.
+#[tauri::command]
+pub fn gdrive_forget_upload(app: AppHandle, local_path: String) {
+    let mut manifest = read_manifest(&app);
+    if manifest.remove(&local_path).is_some() {
+        write_manifest(&app, &manifest);
+    }
 }
 
