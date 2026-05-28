@@ -510,6 +510,13 @@
         >
           {#each displayed as entry, i (entry.path)}
             {@const isSelected = selected.has(entry.path)}
+            {@const activeUpload = gdrive.getActiveUploadForPath(entry.path)}
+            {@const uploadPct = activeUpload && activeUpload.totalBytes
+              ? Math.min(
+                  100,
+                  Math.round((activeUpload.bytesSent / activeUpload.totalBytes) * 100),
+                )
+              : 0}
             <div
               in:fade={{ duration: 200, delay: Math.min(i * 25, 200) }}
               animate:morph={{ duration: 340 }}
@@ -589,6 +596,19 @@
                 >
                   {getExtension(entry.filename)}
                 </Badge>
+
+                <!-- Drive upload progress chip. Sits on the thumbnail so
+                     the user can see at a glance which row is currently
+                     uploading — paired with the bottom progress bar
+                     below to make the state unambiguous. -->
+                {#if activeUpload}
+                  <span
+                    class="absolute left-1.5 top-1.5 flex h-4 items-center gap-1 rounded-md bg-background/85 px-1.5 text-[9px] font-semibold tracking-wide text-foreground shadow-craft-sm backdrop-blur"
+                  >
+                    <RefreshCw class="size-2.5 animate-spin text-primary" />
+                    {uploadPct}%
+                  </span>
+                {/if}
               </div>
 
               <!-- Info -->
@@ -688,6 +708,22 @@
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Root>
+                </div>
+              {/if}
+
+              <!-- Drive upload progress strip. Pinned to the card's bottom
+                   edge; the card has overflow-hidden so this respects the
+                   rounded corners. Width animates with the bytes-sent ratio
+                   the Rust side emits between resumable-upload chunks. -->
+              {#if activeUpload}
+                <div
+                  class="pointer-events-none absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-muted/30"
+                  aria-hidden="true"
+                >
+                  <div
+                    class="h-full rounded-r-sm bg-primary/85 transition-[width] duration-200"
+                    style="width: {uploadPct}%"
+                  ></div>
                 </div>
               {/if}
             </div>

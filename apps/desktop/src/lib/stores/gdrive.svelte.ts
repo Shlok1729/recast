@@ -18,6 +18,11 @@ export type GdriveUploadStatus = "uploading" | "complete" | "error" | "cancelled
 
 export type GdriveUpload = {
 	uploadId: string;
+	/**
+	 * The local source path being uploaded. Lets list views look up
+	 * "is this row currently uploading?" without scanning by filename.
+	 */
+	sourcePath: string;
 	fileName: string;
 	bytesSent: number;
 	totalBytes: number;
@@ -205,6 +210,7 @@ function createGdriveStore() {
 		const uploadId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 		uploads[uploadId] = {
 			uploadId,
+			sourcePath: path,
 			fileName,
 			bytesSent: 0,
 			totalBytes: 0,
@@ -259,6 +265,24 @@ function createGdriveStore() {
 		return uploadHistory[localPath];
 	}
 
+	/**
+	 * Look up an in-flight upload by its source file path. Used by list
+	 * views to render per-row progress without forcing every row to
+	 * scan the uploads map on every keystroke. Returns the most recently
+	 * started match if (somehow) multiple uploads target the same path.
+	 */
+	function getActiveUploadForPath(
+		localPath: string,
+	): GdriveUpload | undefined {
+		const list = Object.values(uploads).filter(
+			(u) => u.sourcePath === localPath && u.status === "uploading",
+		);
+		// Most recent uploadId wins (uploadIds are timestamp-prefixed in
+		// `upload()`, so lexicographic max = most recent).
+		list.sort((a, b) => b.uploadId.localeCompare(a.uploadId));
+		return list[0];
+	}
+
 	return {
 		get connected() {
 			return connected;
@@ -295,6 +319,7 @@ function createGdriveStore() {
 		dismissUpload,
 		forgetUpload,
 		getRecordForPath,
+		getActiveUploadForPath,
 	};
 }
 
