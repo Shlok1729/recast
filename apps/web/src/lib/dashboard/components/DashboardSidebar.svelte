@@ -2,28 +2,28 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import { authClient } from "$lib/auth/client";
+	import OrgSwitcher from "$lib/dashboard/components/OrgSwitcher.svelte";
 	import { settingsStore } from "$lib/dashboard/store.svelte";
 	import Logo from "$lib/logo.svelte";
+	import {
+	  ArrowUpRight,
+	  BarChart3,
+	  ChevronsUpDown,
+	  Film,
+	  LayoutDashboard,
+	  LogOut,
+	  Moon,
+	  Settings,
+	  Shield,
+	  Sun,
+	  User,
+	  Users,
+	} from "@lucide/svelte";
 	import * as DropdownMenu from "@recast/ui/dropdown-menu";
 	import * as Sidebar from "@recast/ui/sidebar";
 	import { useSidebar } from "@recast/ui/sidebar";
 	import { mode, toggleMode } from "@recast/ui/theme";
 	import { cn } from "@recast/ui/utils";
-	import OrgSwitcher from "$lib/dashboard/components/OrgSwitcher.svelte";
-	import {
-		ArrowUpRight,
-		BarChart3,
-		ChevronsUpDown,
-		Film,
-		LayoutDashboard,
-		LogOut,
-		Moon,
-		Settings,
-		Shield,
-		Sun,
-		User,
-		Users,
-	} from "@lucide/svelte";
 	import type { ComponentProps } from "svelte";
 	import { cubicOut } from "svelte/easing";
 	import { crossfade, fade, fly } from "svelte/transition";

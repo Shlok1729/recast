@@ -2,18 +2,18 @@
 	import { dev } from "$app/environment";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
+	import { authClient } from "$lib/auth/client";
 	import AuthCard from "$lib/auth/components/AuthCard.svelte";
 	import OrDivider from "$lib/auth/components/OrDivider.svelte";
 	import SocialButtons from "$lib/auth/components/SocialButtons.svelte";
-	import { authClient } from "$lib/auth/client";
 	import {
-		AlertCircle,
-		ArrowRight,
-		Eye,
-		EyeOff,
-		LoaderCircle,
-		MailCheck,
-		Wand2,
+	  AlertCircle,
+	  ArrowRight,
+	  Eye,
+	  EyeOff,
+	  LoaderCircle,
+	  MailCheck,
+	  Wand2,
 	} from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
 	import { Checkbox } from "@recast/ui/checkbox";
@@ -323,10 +323,11 @@
 						disabled={loading}
 						class="group/cta mt-1 w-full gap-2"
 					>
-						{loading ? "Signing in…" : "Sign in"}
 						{#if loading}
 							<LoaderCircle class="size-4 animate-spin" />
-						{:else}
+						{/if}
+						{loading ? "Signing in…" : "Sign in"}
+						{#if !loading}
 							<ArrowRight class="size-4 transition-transform group-hover/cta:translate-x-0.5" />
 						{/if}
 					</Button>

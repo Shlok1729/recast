@@ -57,6 +57,15 @@
   const store = createEditorStore();
 
   let videoEl: HTMLVideoElement | null = $state(null);
+  // VideoPreview binds its `captureFrame` to this slot so VideoPlayerControls
+  // can trigger a WYSIWYG screenshot (composite, not raw video frame).
+  let captureFrame = $state<(() => Promise<Blob | null>) | undefined>(undefined);
+  // Loop-within-trim toggle. Lives here (not inside VideoPlayerControls)
+  // because both the `ended` and `timeupdate` paths to "we hit the end"
+  // need to be handled in this file — `handleVideoEnded` already coordinates
+  // audio elements, and we want one source of truth for "what happens at
+  // the end of the clip" (pause vs. loop).
+  let loopEnabled = $state(false);
   let previewContainerEl: HTMLDivElement | null = $state(null);
   let systemAudioEl: HTMLAudioElement | null = $state(null);
   let micAudioEl: HTMLAudioElement | null = $state(null);
@@ -104,9 +113,45 @@
     }
   });
 
+  /** Seek the video (+ audio tracks) back to `trimStart` and resume playback.
+   *  Used by both loop paths — `timeupdate` (catches trimEnd < duration)
+   *  and `ended` (catches the natural end where timeupdate may have
+   *  missed its ~40 ms window thanks to Chromium's ~250 ms timeupdate
+   *  cadence). Returns true if it actually wrapped, so the timeupdate
+   *  handler can short-circuit further work on the same tick. */
+  function loopBackToStart(): boolean {
+    if (!videoEl) return false;
+    const start = store.trimStart || 0;
+    videoEl.currentTime = start;
+    for (const el of [systemAudioEl, micAudioEl]) {
+      if (el) el.currentTime = start;
+    }
+    // play() can reject if the browser thinks user-gesture is required —
+    // unlikely here since we're chaining off an existing play, but log
+    // it instead of silently stalling.
+    void videoEl.play().catch((err) => {
+      console.warn("loop replay failed:", err);
+    });
+    store.isPlaying = true;
+    return true;
+  }
+
   function handleTimeUpdate() {
-    if (videoEl && store.isPlaying) {
+    if (!videoEl) return;
+    if (store.isPlaying) {
       store.currentTime = videoEl.currentTime;
+      // Loop within trim region. Only relevant when trimEnd is set BELOW
+      // the natural duration — at the natural end we rely on the `ended`
+      // event below, which is more precise than timeupdate's ~250 ms tick.
+      if (loopEnabled && store.metadata) {
+        const trimEnd = store.trimEnd > 0 ? store.trimEnd : store.metadata.duration;
+        if (trimEnd > 0 && trimEnd < store.metadata.duration - 0.05) {
+          if (videoEl.currentTime >= trimEnd - 0.05) {
+            loopBackToStart();
+            return;
+          }
+        }
+      }
       // Cheap drift correction: if audio elements drift > 150ms from video, snap them back.
       const videoT = videoEl.currentTime;
       for (const el of [systemAudioEl, micAudioEl]) {
@@ -118,6 +163,16 @@
   }
 
   function handleVideoEnded() {
+    // Loop wins over the default "stop at end" — restart from trimStart
+    // and keep audio tracks rolling. Without this short-circuit the
+    // pause + audio.pause() calls below would race with loopBackToStart
+    // and the audio $effect (watching `isPlaying`) might batch the
+    // false→true transition out of existence, leaving audio paused
+    // while video plays.
+    if (loopEnabled && videoEl) {
+      loopBackToStart();
+      return;
+    }
     store.isPlaying = false;
     systemAudioEl?.pause();
     micAudioEl?.pause();
@@ -1000,6 +1055,7 @@
             <VideoPreview
               {store}
               bind:videoEl
+              bind:captureFrame
               {videoSrc}
               {cursorPath}
               {cameraSrc}
@@ -1014,6 +1070,8 @@
           <VideoPlayerControls
             {store}
             {videoEl}
+            {captureFrame}
+            bind:loopEnabled
             fullscreenTargetEl={previewContainerEl}
           />
         </div>
