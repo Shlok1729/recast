@@ -6,6 +6,7 @@
 		Reveal,
 		Section,
 		SectionHeader,
+		SeoMeta,
 	} from "$lib/components";
 	import { Button } from "@recast/ui/button";
 	import { TextLoop } from "$lib/motion-core";
@@ -103,13 +104,11 @@
 	const verbs = ["records.", "refines.", "ships.", "exports.", "delights."];
 </script>
 
-<svelte:head>
-	<title>Features — Recast</title>
-	<meta
-		name="description"
-		content="The cursor engine, smart layouts, and native capture that auto-polish raw screen captures into shareable demos — built for solo founders."
-	/>
-</svelte:head>
+<SeoMeta
+	title="Everything Recast does for you"
+	description="The cursor engine, smart layouts, and native capture that auto-polish raw screen captures into shareable demos — built for solo founders."
+	eyebrow="Features"
+/>
 
 <main class="text-foreground">
 	<Section spacing="none" class="relative overflow-hidden pt-36 pb-20 md:pt-48 md:pb-24">

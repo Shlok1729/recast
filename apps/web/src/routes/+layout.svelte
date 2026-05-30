@@ -2,11 +2,11 @@
 	import { dev } from "$app/environment";
 	import { page } from "$app/state";
 	import ImpersonationBanner from "$lib/auth/components/ImpersonationBanner.svelte";
-	import { DevThemeToggle, Navbar } from "$lib/components";
+	import { DevThemeToggle, Navbar, SeoMeta } from "$lib/components";
 	import { Toaster } from "@recast/ui/sonner";
 	import { ModeWatcher } from "@recast/ui/theme";
 	import "../app.css";
-	// Player theme — imported once at the root so any /share or dashboard
+// Player theme — imported once at the root so any /share or dashboard
 	// route that mounts <RecastPlayer> picks up the branded CSS variables.
 	import "@recast/player/styles.css";
 
@@ -32,6 +32,12 @@
 			chromelessPaths.has(page.url.pathname),
 	);
 </script>
+
+<SeoMeta
+	title="Record. Polish. Share."
+	description="Recast turns a raw screen capture into a polished, shareable demo. Smart auto-edits and a friendly timeline anyone can drive. macOS, Windows, Linux."
+	pageTitle="Recast - Record. Polish. Share."
+/>
 
 <ModeWatcher />
 

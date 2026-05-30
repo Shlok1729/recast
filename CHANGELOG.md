@@ -42,6 +42,73 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-30
+
+### Highlights
+- A single **morphing export dialog** that flows Options → Encoding → Success / Cancelled / Error without ever closing — width and height ease between phases, content cross-fades on top.
+- **Sliding tab indicator** behind every `Tabs.List` (Settings, properties panel, source select) — the active pill slides between tabs instead of snapping.
+- Export Options redesigned end-to-end against `DESIGN.md`: GIF extras open as a smooth side panel on wide screens, fall back to an inline accordion on narrow ones, and the dialog auto-morphs its width as you switch formats.
+
+### Added
+- `ExportFlowDialog` wrapper component that owns the dialog chrome (portal, backdrop, scale-in, focus + Esc routing) and auto-morphs its width and height to whatever the active phase declares via a `ResizeObserver`. A custom out-transition absolute-positions the leaving phase so its fade-out can't drag the wrapper size around — the new phase mounts in normal flow, the wrapper Tweens to match, the old phase fades on top.
+- Per-phase Esc and backdrop routing: Esc cancels a running export, dismisses a finished one, or closes the options picker; the backdrop never cancels an in-flight encode (too easy to misclick mid-render).
+- Share button on the export success card (when `navigator.share` is available), with sensible fallback messaging when the platform doesn't support sharing files but a Drive link is on hand.
+- Sliding active-tab indicator inside `Tabs.List` (shared `@recast/ui` component). Driven by a Svelte 5 `Tween` plus a `MutationObserver` watching `data-state` changes, so it stays decoupled from `bits-ui` internals. Variant-aware visual — `soft` uses `bg-card + shadow-craft-inset`, `default` uses `bg-background + shadow-sm`, `line` slides a 2 px `bg-foreground` bar. Works in both horizontal and vertical orientations and snaps on first measure so it doesn't grow from `(0,0)`.
+
+### Changed
+- Export UI consolidated into one surface across three previously-separate states (options dialog, inline progress overlay, inline result overlay) — eliminates the close/reopen flash between picking a format and seeing encode progress, and again between encode finishing and the success card.
+- Export Options dialog redesigned against `DESIGN.md` dialog rhythm: header `px-5 py-4` with title + description, section dividers softened to `border-border/40`, footer `bg-muted/30 py-2.5`, stat strip inlined with a single divider instead of nested glass cards, section labels paired with a one-line description per the design vocabulary. Buttons use the canonical glass surface (`bg-card/40 + border-border/40`) with `bg-primary/8 + ring-primary/25` for selection.
+- GIF extras (frame rate, color richness, gradients, loop) now reveal as a side panel on wide screens — the dialog grows from 440 px to 760 px through the flow dialog's morph rather than animating an internal collapse — and stack as an inline accordion when the viewport is narrower than 720 px.
+- Export Options dialog is now responsive: container clamps to `min(820px, calc(100vw - 2rem))` and the body picks its own natural width that the wrapper auto-morphs to.
+- `EditorToolbar` no longer mounts its own `ExportDialog`; the toolbar's Export button now bubbles a single `onexport` callback up to the editor page, which owns the flow phase.
+- Progress, Success, Cancelled, and Error views adopted the same chrome and spacing rhythm as the Options view — `size-10 rounded-xl` status icon badges, consistent footer padding, primary actions on the right.
+
+### Fixed
+- No more visual "snap" when switching the export format between MP4/WebM and GIF — the GIF settings panel mounts inline and the wrapper morphs to the new natural size in one motion.
+- Focus is re-routed back into the dialog on every phase change, so screen readers re-announce and keyboard navigation stays inside the modal as content swaps under the user.
+
+## [0.1.10] — 2026-05-28
+
+### Highlights
+- **Google Drive uploads** straight from the export success card, with per-upload progress, history, and cancel/retry — the first "send it somewhere" target after local files.
+- **Account and authentication** across desktop and web: device-authorization OAuth flow on the app, magic-link + password sign-in on the web, plus a templated transactional-email system behind both.
+- **Hardware-accelerated exports** on NVIDIA / AMD / Intel where available, with startup probing so the app picks the right encoder once and remembers — and multi-threaded VP9 + camera pause-trim on the recording path.
+- **macOS feature parity work**: native `ScreenCaptureKit` audio loopback, cross-platform cursor sampling, and the macOS / Linux audio + camera platform modules wired through the recorder.
+- **Tabbed Settings** layout (General / Local / Cloud) and a **frame snapshot → clipboard** action in the editor.
+
+### Added
+- Google Drive integration: connect from Settings → Cloud, upload exports from the success card, watch live upload progress with a per-upload progress bar, cancel in flight, retry failures, copy or open the Drive link once it's done, and review a per-file upload history that survives dismissals.
+- OAuth 2.0 Device Authorization Grant flow for the desktop app, with the matching UI components (device code display, polling state, success card), so the app can sign in without ever embedding a browser window.
+- Magic-link sign-in and password-reset on the web, backed by Better Auth + Drizzle, with templated transactional emails (layout + transport abstraction so future templates plug in cleanly).
+- Cross-window panel error routing through sonner toasts — Rust-side errors from the recording panel now surface as proper toasts in the main window instead of vanishing into the panel's own console.
+- Admin surface for the web: user management, waitlist approvals, teams management, and impersonation with transaction-safe team creation / switching.
+- `NavProgress` component for a top-of-page navigation indicator, with a generation token so stale completion callbacks from cancelled navigations can't flash the bar.
+- macOS-only `ScreenCaptureKit` audio loopback gated behind an opt-in `sckit-loopback` feature flag, and a cross-platform cursor sampler that finally unblocks the macOS / Linux recording paths.
+- Hardware-encoder startup probe + documentation of hardware requirements, so the encoder picker no longer fails late inside FFmpeg when a GPU encoder isn't actually installed.
+- Tabbed Settings interface (Local / Cloud / General) replacing the previous single-column scroll, with each tab keeping its own subtle slide-in.
+- Editor "capture frame" action: grab the current composited frame and copy it to the clipboard from the player controls.
+- Homebrew Cask publishing workflow and matching install instructions for macOS alongside the existing `.dmg`, `.deb`, `.AppImage`, and `.exe` artifacts.
+- Pricing page footer / navbar "Join Waitlist" entry and a refreshed pricing layout.
+- Top-level formatting + linting scripts wired through Turbo, so `pnpm format` and `pnpm lint` run consistently across the monorepo.
+
+### Changed
+- Export pipeline now multi-threads VP9 encodes and hardware-accelerates AMD / Intel paths in addition to NVENC, with a RAM-bounded capture queue to prevent runaway memory during long recordings.
+- Editor performance: thumbnails are batched into a single FFmpeg call, the preview falls back to WebGL2 where supported, and a temp-file sweep reclaims scratch storage during sessions.
+- Camera pause-trim is now hardware-accelerated end-to-end, removing the worst stalls on long captures with camera overlay.
+- Smart-zoom suggestions tightened with improved scoring + clustering (continuing the 0.1.8 rework with better dedupe behavior under repeat clicks).
+- Toaster + theming updated for consistent visual language across the corner notifications it shares space with.
+- Trusted-origins handling in `better-auth` now reads CSV-formatted env vars, and the env schema defaults sensible URLs for optional CSV fields so first-run setups don't trip on missing values.
+
+### Fixed
+- Updater manifest generation now runs even when one of the per-platform build legs fails, so a partial release no longer leaves the auto-updater pointing at the previous version forever.
+- MSIX builds now stage the FFmpeg sidecars correctly (and stop uploading internal `.deb` payloads as release artifacts).
+- FFmpeg / ffprobe spawn audit completed: every spawn site uses `configure_silent_command` on Windows, so console-flash focus theft no longer reads as "the whole window froze".
+- "Recording stop" failures no longer get blamed on FFmpeg by default — the UI now resets client-side state cleanly on stop-failure and reports the actual cause when there is one.
+- Diagnostics: file logging stays enabled in release builds and surfaces the full `anyhow` cause chain, so support reports actually contain the root error.
+- Pinned `apple-metal` to `0.6.1` for CI compatibility so macOS leg builds don't break on transitive bumps.
+- Contact email updated to the new address in Footer and Navbar.
+- Various button + UI fixes: prevent text selection on `<Button>`, button hover regressions, and a Vercel deploy workflow tweak so install no longer fails on lockfile drift.
+
 ## [0.1.9] — 2026-05-23
 
 ### Added

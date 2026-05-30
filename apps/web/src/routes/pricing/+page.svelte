@@ -6,6 +6,7 @@
 		Reveal,
 		Section,
 		SectionHeader,
+		SeoMeta,
 	} from "$lib/components";
 	import { Button } from "@recast/ui/button";
 	import { toast } from "@recast/ui/sonner";
@@ -99,13 +100,11 @@
 	];
 </script>
 
-<svelte:head>
-	<title>Pricing — Recast</title>
-	<meta
-		name="description"
-		content="The Recast app is free forever. Recast Cloud adds hosted demo links, watch analytics, and custom branding — join the waitlist for early access."
-	/>
-</svelte:head>
+<SeoMeta
+	title="The app is free. Cloud is optional."
+	description="The Recast app is free forever. Recast Cloud adds hosted demo links, watch analytics, and custom branding — join the waitlist for early access."
+	eyebrow="Pricing"
+/>
 
 <main class="text-foreground">
 	<Section spacing="none" class="relative overflow-hidden pt-36 pb-16 md:pt-48 md:pb-20">

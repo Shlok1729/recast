@@ -8,7 +8,7 @@
 	} from "$lib/components";
 	import { ScrollText } from "@lucide/svelte";
 
-	const lastUpdated = "May 24, 2026";
+	const lastUpdated = "May 30, 2026";
 
 	type Section = {
 		heading: string;
@@ -39,7 +39,15 @@
 			heading: "The desktop app",
 			paragraphs: [
 				"The Recast desktop application is provided under the project’s open-source license as published in the public repository at github.com/kanakkholwal/recast. The source license governs your use of the source code; these Terms govern your use of the hosted Service and any Recast-distributed binaries.",
-				"The app runs locally. Recordings, project files, and exports stay on your device unless you explicitly share or upload them.",
+				"The app runs locally. Recordings, project files, and exports stay on your device unless you explicitly share or upload them. When you opt in to a third-party storage integration — for example, the built-in Google Drive uploader — the file you select is sent directly to your account at that provider. Recast does not store the file on our servers.",
+			],
+		},
+		{
+			heading: "Bring-Your-Own-Storage integrations",
+			paragraphs: [
+				"Recast lets you connect third-party storage providers under your own account. Today that includes Google Drive in the desktop app; additional destinations (for example Cloudinary, autorender.io, Amazon S3, Cloudflare R2, Azure Blob Storage, Google Cloud Storage) are planned for Recast Cloud's free and paid tiers.",
+				"When you connect any such provider, the relationship between you and that provider is governed by their terms and privacy policy — not by these Terms. We don't operate that storage account, can't grant or revoke access on your behalf beyond ending the integration, and aren't responsible for their availability, fees, or data-handling practices. You're responsible for keeping your credentials secure, for paying any charges the provider bills you, and for revoking Recast's access (from the provider's UI) if you no longer want it.",
+				"OAuth scopes we request are limited to what the integration needs — for Google Drive, that's the drive.file scope, which grants access only to files Recast itself creates in your Drive.",
 			],
 		},
 		{
@@ -88,7 +96,7 @@
 		{
 			heading: "Third-party services",
 			paragraphs: [
-				"The Service may integrate with third-party services you choose to connect (for example, Google sign-in or payment processors). Those services are governed by their own terms and privacy policies. We are not responsible for the acts or omissions of third parties.",
+				"The Service may integrate with third-party services you choose to connect — for example Google sign-in, Google Drive uploads from the desktop app, payment processors, and (when Recast Cloud is generally available) additional storage providers such as Cloudinary, autorender.io, Amazon S3, Cloudflare R2, Azure Blob Storage, and Google Cloud Storage. Those services are governed by their own terms and privacy policies. We are not responsible for the acts or omissions of third parties, including service outages, billing changes, or content moderation decisions made by the provider.",
 			],
 		},
 		{

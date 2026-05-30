@@ -6,10 +6,8 @@
 	  Reveal,
 	  Section,
 	  SectionHeader,
+	  SeoMeta,
 	} from "$lib/components";
-	import { Button } from "@recast/ui/button";
-	import { toast } from "@recast/ui/sonner";
-	import { cn } from "@recast/ui/utils";
 	import {
 	  ArrowRight,
 	  BarChart3,
@@ -17,27 +15,41 @@
 	  Check,
 	  Cloud,
 	  Download,
+	  HardDriveUpload,
 	  Highlighter,
+	  KeyRound,
+	  Layers,
 	  Layout,
 	  Link2,
 	  LoaderCircle,
 	  Lock,
+	  Mic2,
 	  MonitorPlay,
 	  MousePointer2,
+	  Palette,
+	  Pause,
 	  Play,
 	  Rocket,
 	  Scissors,
 	  Search,
+	  ShieldCheck,
 	  Sparkles,
 	  Target,
+	  Users,
 	  VolumeX,
 	  X,
 	  Zap,
 	} from "@lucide/svelte";
+	import { Button } from "@recast/ui/button";
+	import { toast } from "@recast/ui/sonner";
+	import { cn } from "@recast/ui/utils";
 	import { cubicOut } from "svelte/easing";
 	import { fly, slide } from "svelte/transition";
 
-	// Step 3 — Share waitlist (Recast Cloud not shipped yet)
+	// Recast Cloud — premium hosted tier (not shipped yet). Drive sharing
+	// covers the free user-owned path today; Cloud is the future paid
+	// offering with workspace, analytics, and access controls beyond what a
+	// Drive link can express.
 	let email = $state("");
 	let joined = $state(false);
 	let loading = $state(false);
@@ -71,6 +83,44 @@
 		}
 	}
 
+	// Cloud preview features — the "more than a Drive link" promise. Kept
+	// short on purpose: this is a teaser, not a feature page.
+	const cloudFeatures = [
+		{ icon: BarChart3, title: "Watch analytics", description: "See who watched, how far they got, and what they replayed." },
+		{ icon: Lock, title: "Access controls", description: "Per-viewer access, password gates, link expiry, revoke any time." },
+		{ icon: Users, title: "Team workspaces", description: "Shared folders, roles, and per-team branding for your demos." },
+		{ icon: Palette, title: "Custom player", description: "Your colors, your logo, your domain on the player page." },
+	];
+
+	// Storage tiers — Cloud is intentionally storage-agnostic. Free users
+	// bring their own (the Drive flow already shipping today, plus Cloudinary
+	// and autorender.io as additional BYO destinations on the roadmap).
+	// Paid users get Recast-hosted storage and the option to point uploads
+	// at their own S3 / R2 / Azure / GCP bucket — useful for teams that
+	// want data residency or to amortise existing cloud spend.
+	const storageTiers = [
+		{
+			tier: "Free with Cloud",
+			tone: "muted",
+			label: "Bring your own storage",
+			lines: [
+				"Google Drive (shipping today)",
+				"Cloudinary, autorender.io (planned)",
+				"Your account, your storage bill, your retention",
+			],
+		},
+		{
+			tier: "Paid plans",
+			tone: "primary",
+			label: "Recast-hosted or your own bucket",
+			lines: [
+				"Recast-managed storage (turnkey, nothing to configure)",
+				"Custom S3, Cloudflare R2, Azure Blob, GCP Cloud Storage",
+				"Data residency + workspace billing in one place",
+			],
+		},
+	];
+
 	const founderUse = [
 		{
 			icon: Rocket,
@@ -97,7 +147,7 @@
 		{ os: "A raw .mp4 dumped on your desktop", recast: "A polished demo, framed and padded" },
 		{ os: "A jittery, distracting cursor", recast: "Cursor smoothed and snapped to targets" },
 		{ os: "You, manually trimming in iMovie", recast: "Trim, zoom, and backgrounds, all built in" },
-		{ os: "Drag the file into Drive and hope", recast: "One link, with watch analytics" },
+		{ os: "Manual export, upload, and link-fetching", recast: "One click to your Drive, share-link in hand" },
 	];
 
 	const polishFeatures = [
@@ -107,10 +157,32 @@
 		{ icon: Scissors, title: "Trim & ship", description: "Cut dead frames and export hardware-encoded MP4 in seconds." },
 	];
 
+	// Recording-side superpowers. These differentiate Recast from the OS
+	// built-in (which gives you a single source, one button, no resume) and
+	// from typical SaaS recorders (which lock profiles + pause/resume behind
+	// a paid tier). All free, all local.
+	const recordingFeatures = [
+		{
+			icon: Layers,
+			title: "Recording profiles",
+			description: "Save capture presets (region + window + camera + mic) and switch with one shortcut. Investor demo, changelog clip, tutorial — pick the profile, hit record.",
+		},
+		{
+			icon: Pause,
+			title: "Pause & resume mid-take",
+			description: "A knock at the door no longer means re-recording. Paused spans are trimmed cleanly out of the final video.",
+		},
+		{
+			icon: Mic2,
+			title: "Camera + mic + system audio",
+			description: "Capture any combination on one timeline. Per-source device picking and a floating webcam bubble with shape, border, and follow-cursor motion.",
+		},
+	];
+
 	const shareFeatures = [
-		{ icon: Link2, title: "One shareable link", description: "Send a demo without uploads, exports, or attachments." },
-		{ icon: BarChart3, title: "Watch analytics", description: "See who watched, how far they got, and what they replayed." },
-		{ icon: Lock, title: "Password & expiry", description: "Lock investor demos down, or set them to expire on their own." },
+		{ icon: HardDriveUpload, title: "Upload to your Drive", description: "Connect Google Drive once. The export dialog ships the file straight to your account — no manual upload step." },
+		{ icon: Link2, title: "Copy a share link", description: "When the upload finishes, the Drive link is one click away. Send it however you already send links." },
+		{ icon: ShieldCheck, title: "You own the file", description: "The video lives in your Drive, not on a Recast server. Your retention, your sharing rules, your delete button." },
 	];
 
 	// "Inside the editor" — honest tour of every tool a non-editor user will
@@ -190,13 +262,11 @@
 	};
 </script>
 
-<svelte:head>
-	<title>Recast</title>
-	<meta
-		name="description"
-		content="Recast turns a raw screen capture into a polished, shareable demo. Smart auto-edits + a friendly timeline anyone can drive. macOS, Windows, Linux."
-	/>
-</svelte:head>
+<SeoMeta
+	title="Record. Polish. Share."
+	description="Recast turns a raw screen capture into a polished, shareable demo. Smart auto-edits and a friendly timeline anyone can drive. macOS, Windows, Linux."
+	pageTitle="Recast - Record. Polish. Share."
+/>
 
 <main class="text-foreground">
 	<Hero />
@@ -289,6 +359,25 @@
 						title="Hit record. That's the whole setup."
 						description="Pick a region, a window, or your full screen, then start capturing with one shortcut. No projects to configure. No codecs to pick. No account to create."
 					/>
+
+					<!-- Recording-side differentiators. Profiles and pause/resume
+					     are typically paywalled in SaaS recorders; both ship in
+					     the free local app. -->
+					<ul class="mt-9 space-y-4">
+						{#each recordingFeatures as f, i}
+							{@const Icon = f.icon}
+							<Reveal as="li" variant="left" delay={i * 70} class="flex items-start gap-3.5">
+								<span class="glass-chip mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg text-primary">
+									<Icon class="size-4" />
+								</span>
+								<span>
+									<span class="text-sm font-semibold text-foreground">{f.title}</span>
+									<span class="block text-sm leading-relaxed text-muted-foreground">{f.description}</span>
+								</span>
+							</Reveal>
+						{/each}
+					</ul>
+
 					<div class="mt-10 flex items-center gap-3">
 						<Button href="/download" class="gap-2">
 							<Download class="size-4" />
@@ -533,15 +622,15 @@
 		</Container>
 	</Section>
 
-	<!-- Step 3 — Share (Recast Cloud — waitlist) -->
+	<!-- Step 3 — Share (Google Drive, user-owned) -->
 	<Section id="share" class="border-t border-border-low/60">
 		<Container>
 			<div class="grid items-center gap-14 lg:grid-cols-12 lg:gap-20">
 				<div class="lg:col-span-6">
 					<SectionHeader
 						eyebrow="Step 3 · Share"
-						title="Send a link, not a 200 MB file."
-						description="Recast Cloud turns a finished demo into a hosted link with watch analytics built in. No export-upload-attach dance, no Drive permissions emailed back and forth."
+						title="Ship a link. To your Drive."
+						description="Connect Google Drive once. From then on, the export dialog uploads the finished file straight to your own Drive and hands you a share-link. The video lives in your account, not on a Recast server — your storage, your retention, your access controls."
 					/>
 
 					<ul class="mt-10 space-y-3.5">
@@ -571,16 +660,151 @@
 
 							<div class="relative">
 								<span class="glass-chip inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground/80">
-									<Cloud class="size-3.5 text-primary" />
-									Recast Cloud · coming soon
+									<HardDriveUpload class="size-3.5 text-primary" />
+									Google Drive · built in
 								</span>
 
 								<h3 class="mt-6 text-2xl font-semibold tracking-tight text-foreground">
-									Get early access.
+									From export dialog to share link, in one click.
 								</h3>
 								<p class="mt-2 text-sm leading-relaxed text-muted-foreground">
-									The app is free and shipping today. Cloud sharing is on the way.
-									Drop your email and we'll save you a spot before the public list opens.
+									When the encode finishes, the success card shows live upload progress to your Drive. The moment it's done, "Copy link" is right there. No second tab, no manual upload, no Recast servers in the middle.
+								</p>
+
+								<!-- Mock of the export-success card. Mirrors the real
+								     desktop UI so the section reads as "this is what
+								     you'll actually see", not aspirational marketing. -->
+								<div
+									class="mt-7 rounded-xl border border-border-low/70 bg-background/80 p-4 shadow-craft-inset"
+								>
+									<div class="flex items-start gap-3">
+										<span class="grid size-9 shrink-0 place-items-center rounded-lg border border-success/30 bg-success/10 text-success">
+											<Check class="size-4" />
+										</span>
+										<div class="min-w-0 flex-1">
+											<div class="text-[13px] font-semibold tracking-tight text-foreground">
+												Export complete
+											</div>
+											<div class="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+												~/Recordings/launch-demo.mp4
+											</div>
+										</div>
+									</div>
+									<div
+										class="mt-3 flex items-center gap-2 rounded-lg border border-border-low/60 bg-foreground/2 px-3 py-2"
+									>
+										<HardDriveUpload class="size-3.5 shrink-0 text-success" />
+										<span class="text-[11.5px] font-medium text-foreground">Uploaded to Drive</span>
+										<span class="ml-auto inline-flex items-center gap-1 rounded-md border border-border-low/60 bg-background px-1.5 py-0.5 text-[10px] font-semibold text-foreground">
+											<Link2 class="size-3 text-primary" />
+											Copy link
+										</span>
+									</div>
+								</div>
+
+								<p class="mt-5 inline-flex items-center gap-2 text-xs text-muted-foreground">
+									<KeyRound class="size-3.5 text-primary" />
+									OAuth scoped to files Recast uploads. Revoke any time from your Google account.
+								</p>
+							</div>
+						</div>
+					</Reveal>
+				</div>
+			</div>
+		</Container>
+	</Section>
+
+	<!-- Coming next — Recast Cloud (premium hosted offering, waitlist). The
+	     Drive flow above is the free, user-owned default; this section is the
+	     paid future for users who outgrow a raw Drive link. -->
+	<Section id="cloud" class="border-t border-border-low/60 bg-foreground/1.5 dark:bg-foreground/2">
+		<Container>
+			<div class="grid items-center gap-14 lg:grid-cols-12 lg:gap-20">
+				<div class="lg:col-span-6">
+					<SectionHeader
+						eyebrow="Coming next · Recast Cloud"
+						title="When a Drive link isn't enough."
+						description="For the moments a shared file can't express — knowing which prospect actually watched, gating an investor demo by viewer, branding the player as your product. Loom-style hosted demos, with more of the dials handed to you."
+					/>
+
+					<ul class="mt-10 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+						{#each cloudFeatures as f, i}
+							{@const Icon = f.icon}
+							<Reveal as="li" variant="left" delay={i * 60} class="flex items-start gap-3">
+								<span class="glass-chip mt-0.5 grid size-7 shrink-0 place-items-center rounded-md text-primary">
+									<Icon class="size-3.5" />
+								</span>
+								<span>
+									<span class="text-sm font-semibold text-foreground">{f.title}</span>
+									<span class="block text-xs leading-relaxed text-muted-foreground">{f.description}</span>
+								</span>
+							</Reveal>
+						{/each}
+					</ul>
+				</div>
+
+				<div class="lg:col-span-6">
+					<Reveal variant="morph">
+						<div class="glass-card relative overflow-hidden rounded-2xl p-7 shadow-craft-lg sm:p-9">
+							<div
+								aria-hidden="true"
+								class="pointer-events-none absolute -top-24 right-0 size-72 rounded-full opacity-60"
+								style="background: radial-gradient(closest-side, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 70%);"
+							></div>
+
+							<div class="relative">
+								<span class="glass-chip inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground/80">
+									<Cloud class="size-3.5 text-primary" />
+									Recast Cloud · waitlist open
+								</span>
+
+								<h3 class="mt-6 text-2xl font-semibold tracking-tight text-foreground">
+									Storage-agnostic by design.
+								</h3>
+								<p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+									Most hosted recorders lock you to their bucket and bill you for the privilege. Recast Cloud is a sharing + analytics layer that points at <span class="font-semibold text-foreground">whichever storage you want</span> — yours or ours.
+								</p>
+
+								<!-- Storage tier mini-table. Free → BYO storage,
+								     Paid → Recast-hosted or your own bucket. -->
+								<div class="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+									{#each storageTiers as t}
+										<div
+											class={cn(
+												"flex flex-col gap-2 rounded-xl border p-4",
+												t.tone === "primary"
+													? "border-primary/30 bg-primary/4"
+													: "border-border-low/60 bg-background/60",
+											)}
+										>
+											<span class="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+												{t.tier}
+											</span>
+											<span
+												class={cn(
+													"text-sm font-semibold tracking-tight",
+													t.tone === "primary" ? "text-primary" : "text-foreground",
+												)}
+											>
+												{t.label}
+											</span>
+											<ul class="space-y-1 text-[11.5px] leading-relaxed text-muted-foreground">
+												{#each t.lines as line}
+													<li class="flex items-start gap-1.5">
+														<span class="mt-1.5 size-1 shrink-0 rounded-full bg-foreground/40"></span>
+														<span>{line}</span>
+													</li>
+												{/each}
+											</ul>
+										</div>
+									{/each}
+								</div>
+
+								<h4 class="mt-7 text-[13px] font-semibold tracking-tight text-foreground">
+									Get early access.
+								</h4>
+								<p class="mt-1 text-sm leading-relaxed text-muted-foreground">
+									Drop your email — we'll let you in before the public launch.
 								</p>
 
 								{#if joined}
@@ -620,9 +844,10 @@
 								{/if}
 
 								<p class="mt-4 text-xs text-muted-foreground">
-									Free tier includes <span class="font-semibold text-foreground">10 shareable links</span>. No card, ever.
+									Until Cloud lands, the free app + Drive flow covers the whole loop. No card, ever, just for joining the list.
 								</p>
 							</div>
+
 						</div>
 					</Reveal>
 				</div>
@@ -661,7 +886,7 @@
 		</Container>
 	</Section>
 
-	<!-- Pricing teaser -->
+	<!-- Pricing teaser — the recorder is free, sharing is your storage. -->
 	<Section id="pricing-teaser" class="border-t border-border-low/60">
 		<Container>
 			<div class="grid gap-4 md:grid-cols-2">
@@ -696,11 +921,11 @@
 							Recast Cloud
 						</span>
 						<div class="relative mt-2 flex items-baseline gap-2">
-							<span class="text-4xl font-semibold tracking-tight text-foreground">Sharing</span>
-							<span class="text-sm text-muted-foreground">+ analytics</span>
+							<span class="text-4xl font-semibold tracking-tight text-foreground">Hosted</span>
+							<span class="text-sm text-muted-foreground">+ controls</span>
 						</div>
 						<p class="relative mt-3 text-sm leading-relaxed text-muted-foreground">
-							Hosted links, watch analytics, custom branding, and password-protected demos. Coming soon. Pricing follows.
+							A Loom-style hosted layer with watch analytics, per-viewer access, link expiry, team workspaces, and custom branding, but storage-agnostic. Free tier brings your own (Drive today, Cloudinary + autorender.io planned); paid plans add Recast-managed storage or your own S3 / R2 / Azure / GCP bucket. Coming soon.
 						</p>
 						<div class="relative mt-7">
 							<Button href="/pricing" class="group/cta gap-2">

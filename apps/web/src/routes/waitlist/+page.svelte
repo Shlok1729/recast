@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { SeoMeta } from "$lib/components";
 	import Logo from "$lib/logo.svelte";
 	import { ArrowLeft, ArrowRight, LoaderCircle, MailCheck, Sparkles } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
@@ -51,13 +52,12 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Join the Recast waitlist</title>
-	<meta
-		name="description"
-		content="Recast accounts are invite-only right now. Drop your email and we'll let you in when sign-ups open."
-	/>
-</svelte:head>
+<SeoMeta
+	title="Join the Recast waitlist"
+	description="Recast accounts are invite-only right now. Drop your email and we'll let you in when sign-ups open."
+	eyebrow="Waitlist"
+	pageTitle="Join the Recast waitlist"
+/>
 
 <div class="relative grid min-h-screen place-items-center px-6 py-16 text-foreground">
 	<div

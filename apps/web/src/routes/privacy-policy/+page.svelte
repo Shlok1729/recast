@@ -8,7 +8,7 @@
 	} from "$lib/components";
 	import { ShieldCheck } from "@lucide/svelte";
 
-	const lastUpdated = "May 24, 2026";
+	const lastUpdated = "May 30, 2026";
 
 	type Section = {
 		heading: string;
@@ -35,7 +35,17 @@
 			heading: "What the desktop app collects",
 			paragraphs: [
 				"The Recast desktop app is local-first. Screen, camera, microphone, and system audio captured during recording stay on your device as .recast project files and exported videos in folders you choose.",
-				"The app does not transmit recordings, telemetry, or analytics to us. It only contacts our servers when you explicitly sign in, share a recording to Cloud, check for updates, or fetch the public changelog from GitHub.",
+				"The app does not transmit recordings, telemetry, or analytics to us. It only contacts our servers when you explicitly sign in, check for updates, or fetch the public changelog from GitHub.",
+				"When you opt in to a third-party storage integration (for example, Google Drive — see below), the app uploads the specific export you choose directly to your account at that provider. The file does not pass through Recast servers.",
+			],
+		},
+		{
+			heading: "Google Drive integration (opt-in)",
+			paragraphs: [
+				"The desktop app can upload finished exports to your own Google Drive. This is strictly opt-in: you connect your Google account once via Google's OAuth 2.0 Device Authorization flow, and from then on the export dialog can ship the file directly to your Drive.",
+				"We request a scoped OAuth permission limited to files Recast itself creates in your Drive (Google's drive.file scope). We can read, update, or delete only the files Recast uploads — never your wider Drive. You can revoke this access at any time from your Google Account's connected apps page.",
+				"Upload progress, success state, and the resulting Drive link are processed locally in the app. Recast servers do not see the video, the file bytes, or the Drive link unless you separately choose to share it through Recast Cloud once that service is generally available.",
+				"We do not retain a copy of any file you upload to Drive. Per-upload history shown inside the app (file name, status, timestamps) lives in your local Recast app state and is cleared when you remove it or uninstall the app.",
 			],
 		},
 		{
@@ -78,8 +88,10 @@
 		{
 			heading: "Recast Cloud (when you opt in)",
 			paragraphs: [
-				"Recast Cloud is the optional, paid service for sharing recordings via a link. It is not included in the free desktop app. If you upload a recording to Cloud, we store the video file, generated thumbnails, captions, share-link metadata, and viewer analytics (anonymous view counts, country-level region, and duration watched) tied to that recording.",
-				"You can delete a Cloud recording at any time. Deletion removes the file and all associated analytics within 30 days.",
+				"Recast Cloud is the optional, hosted sharing layer for recordings. It is not included in the free desktop app, and is currently in development.",
+				"Cloud is storage-agnostic by design: the recording's video file lives in whichever storage you point Cloud at. On the free Cloud tier you bring your own — for example Google Drive (shipping in the desktop app today), and Cloudinary or autorender.io in the future. On paid plans you can either use Recast-managed storage or point uploads at your own object-storage bucket (Amazon S3, Cloudflare R2, Azure Blob Storage, Google Cloud Storage).",
+				"Regardless of where the video bytes live, Recast Cloud stores the share-link metadata (slug, visibility settings, expiry, password salt where applicable), generated thumbnails and captions, and viewer analytics (anonymous view counts, country-level region, duration watched) tied to that recording. When you bring your own storage, we store only a reference to the file in your storage account — we do not copy or rehost the video bytes.",
+				"You can delete a Cloud recording at any time. Deletion removes the share-link, analytics, and any Recast-side caches within 30 days. When the video is stored in your own bucket, deletion at our end does not delete the file from your storage — you remain in control there.",
 			],
 		},
 		{
@@ -107,17 +119,18 @@
 			],
 		},
 		{
-			heading: "Subprocessors",
+			heading: "Subprocessors and user-chosen integrations",
 			paragraphs: [
-				"We rely on a small set of vetted infrastructure providers. The current list, by category, is:",
+				"We rely on a small set of vetted infrastructure providers to run the Site, account system, and (when generally available) Recast Cloud. Separately, you may choose to connect third-party storage providers under your own account — when you do, that provider becomes a recipient of your content under their own terms, not a subprocessor of ours.",
 			],
 			bullets: [
-				{ term: "Hosting & database", body: "Cloud providers we use to run the Site and store account data." },
-				{ term: "Email delivery", body: "Transactional email provider for verification, reset, and invitations." },
-				{ term: "OAuth identity", body: "Google, only if you choose Google sign-in." },
-				{ term: "Object storage", body: "For Recast Cloud recording uploads, once that service is generally available." },
-				{ term: "Payments", body: "Stripe (or equivalent), once paid plans are available." },
-				{ term: "Error monitoring", body: "Server-side crash reporting." },
+				{ term: "Hosting & database (Recast subprocessor)", body: "Cloud providers we use to run the Site and store account data." },
+				{ term: "Email delivery (Recast subprocessor)", body: "Transactional email provider for verification, reset, and invitations." },
+				{ term: "OAuth identity (user-authorized)", body: "Google, only if you choose Google sign-in or Google Drive integration." },
+				{ term: "Recast-managed storage (paid Cloud)", body: "Object storage providers we use to host video bytes for paid Cloud plans that use Recast-managed storage, once that tier is generally available." },
+				{ term: "User-chosen storage (Cloud, free + paid BYO)", body: "Google Drive (today), Cloudinary, autorender.io (planned for free Cloud), and Amazon S3 / Cloudflare R2 / Azure Blob / Google Cloud Storage (planned for paid Bring-Your-Own-Storage). When you connect any of these, your content is sent directly to your account at that provider; we receive only the metadata needed to keep your share-link in sync." },
+				{ term: "Payments (Recast subprocessor)", body: "Stripe (or equivalent), once paid plans are available." },
+				{ term: "Error monitoring (Recast subprocessor)", body: "Server-side crash reporting." },
 			],
 		},
 		{
