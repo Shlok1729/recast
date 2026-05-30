@@ -9,12 +9,17 @@
 	  SeoMeta,
 	} from "$lib/components";
 	import {
+	  Apple,
 	  ArrowRight,
 	  BarChart3,
 	  Camera,
 	  Check,
 	  Cloud,
+	  Cpu,
 	  Download,
+	  EyeOff,
+	  Github,
+	  HardDrive,
 	  HardDriveUpload,
 	  Highlighter,
 	  KeyRound,
@@ -24,6 +29,7 @@
 	  LoaderCircle,
 	  Lock,
 	  Mic2,
+	  Monitor,
 	  MonitorPlay,
 	  MousePointer2,
 	  Palette,
@@ -35,6 +41,8 @@
 	  ShieldCheck,
 	  Sparkles,
 	  Target,
+	  Terminal,
+	  UserX,
 	  Users,
 	  VolumeX,
 	  X,
@@ -132,7 +140,7 @@
 			icon: Sparkles,
 			title: "For indie hackers",
 			description:
-				"Launch videos, changelog clips, and Twitter cuts on your own schedule. Fully offline. Ship at midnight, fix typos at 2 AM, nobody knows.",
+				"Launch videos, changelog clips, and Twitter cuts on your own schedule. Save a profile for each one and hit record. Fully offline, ship at midnight, fix typos at 2 AM.",
 		},
 		{
 			icon: MonitorPlay,
@@ -142,10 +150,60 @@
 		},
 	];
 
+	// Open-source values strip. Sits between the proof shot and the
+	// tech-stack logo row. Different signal: the logos say "what we're
+	// built on", this strip says "what that buys you as a user".
+	const openSourceClaims = [
+		{ icon: Github, label: "GPLv3 open source" },
+		{ icon: Cpu, label: "Tauri + Rust" },
+		{ icon: EyeOff, label: "No telemetry" },
+		{ icon: HardDrive, label: "Files never leave your machine" },
+		{ icon: UserX, label: "No account required" },
+	];
+
+	// Platform-split download buttons for the final CTA. Mirrors the
+	// stability semantics in /download so the marketing voice never
+	// over-promises the macOS or Linux builds.
+	const platformDownloads = [
+		{
+			os: "Windows",
+			icon: Monitor,
+			href: "/download?os=windows",
+			variant: "default" as const,
+			stability: "stable" as const,
+		},
+		{
+			os: "macOS",
+			icon: Apple,
+			href: "/download?os=macos",
+			variant: "outline" as const,
+			stability: "beta" as const,
+		},
+		{
+			os: "Linux",
+			icon: Terminal,
+			href: "/download?os=linux",
+			variant: "outline" as const,
+			stability: "beta" as const,
+		},
+	];
+
+	const stabilityChip: Record<"stable" | "beta", { label: string; cls: string }> = {
+		stable: {
+			label: "Stable",
+			cls: "bg-emerald-500/12 text-emerald-600 ring-emerald-500/25 dark:text-emerald-400",
+		},
+		beta: {
+			label: "Beta",
+			cls: "bg-amber-500/12 text-amber-600 ring-amber-500/25 dark:text-amber-400",
+		},
+	};
+
 	// "OS recorder stops at a file" — contrast rows
 	const contrast = [
 		{ os: "A raw .mp4 dumped on your desktop", recast: "A polished demo, framed and padded" },
 		{ os: "A jittery, distracting cursor", recast: "Cursor smoothed and snapped to targets" },
+		{ os: "Re-pick region, window, mic, camera every take", recast: "Saved recording profiles, one shortcut to switch" },
 		{ os: "You, manually trimming in iMovie", recast: "Trim, zoom, and backgrounds, all built in" },
 		{ os: "Manual export, upload, and link-fetching", recast: "One click to your Drive, share-link in hand" },
 	];
@@ -271,11 +329,102 @@
 <main class="text-foreground">
 	<Hero />
 
+	<!--
+	  Proof section. Permanently dark band regardless of site theme: the
+	  `data-theme="dark"` wrapper re-scopes the design tokens, so `bg-canvas`
+	  resolves to the dark surface and `text-ink` to the dark foreground. This
+	  is the landing anchor for the Hero's "Watch it work" CTA (#proof) so
+	  that button is never dead. Static-first: the preview is a plain image
+	  today, swappable for a <video> later without touching layout.
+	-->
+	<div data-theme="dark" id="proof" class="bg-canvas text-ink">
+		<Section spacing="tight" class="overflow-hidden">
+			<Container>
+				<Reveal variant="up">
+					<div class="mx-auto flex max-w-3xl flex-col items-center gap-5 text-center">
+						<span class="glass-chip inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/80">
+							<Play class="size-3.5 text-primary" />
+							See it work
+						</span>
+						<h2 class="text-balance text-3xl font-semibold leading-[1.05] tracking-tight sm:text-4xl md:text-5xl">
+							From raw capture to ready-to-send,
+							<span class="block font-medium italic text-ink/50">
+								in the time it took to record.
+							</span>
+						</h2>
+						<p class="text-pretty max-w-xl text-sm leading-relaxed text-ink-muted sm:text-base">
+							The same thirty seconds. One with the OS recorder. One with Recast. Padding, cursor smoothing, smart zoom, and silence cuts already applied.
+						</p>
+					</div>
+				</Reveal>
+
+				<Reveal variant="scale" delay={120}>
+					<div
+						class="relative mx-auto mt-12 max-w-6xl overflow-hidden rounded-2xl border border-hairline shadow-craft-xl"
+					>
+						<!-- Window chrome strip for the framed shot. Visual cue that
+						     this is product UI, not stock imagery. -->
+						<div class="flex h-10 items-center gap-2 border-b border-hairline-soft bg-white/5 px-4">
+							<div class="flex gap-1.5">
+								<span class="size-2.5 rounded-full bg-ink/20"></span>
+								<span class="size-2.5 rounded-full bg-ink/20"></span>
+								<span class="size-2.5 rounded-full bg-ink/20"></span>
+							</div>
+							<span class="ml-3 text-[11px] font-medium text-ink-muted">
+								Recast · Editor
+							</span>
+						</div>
+
+						<div class="relative bg-canvas">
+							<img
+								src="/product_preview_hero.png"
+								alt="Recast editor showing a polished recording in the timeline"
+								loading="lazy"
+								decoding="async"
+								class="block w-full"
+							/>
+
+							<!-- Play affordance pinned bottom-left of the proof frame.
+							     Non-interactive today; ready to wire to an inline
+							     video modal when the asset lands. -->
+							<div class="pointer-events-none absolute bottom-5 left-5 hidden items-center gap-2 rounded-full bg-canvas/90 px-3.5 py-2 ring-1 ring-hairline backdrop-blur sm:inline-flex">
+								<span class="grid size-6 place-items-center rounded-full bg-primary text-primary-foreground">
+									<Play class="size-3" />
+								</span>
+								<span class="text-xs font-semibold text-ink">
+									Walkthrough video lands with v0.2
+								</span>
+							</div>
+						</div>
+					</div>
+				</Reveal>
+			</Container>
+		</Section>
+	</div>
+
 	<!-- Trust strip -->
 	<Section spacing="tight" class="border-t border-border-low/60">
 		<Container>
+			<!--
+			  Open-source values strip. Renders first so the page-fold "trust"
+			  beat reads as a values statement before it reads as a tech-stack
+			  brag. Chips wrap on narrow viewports; divider hairlines disappear
+			  when wrapped so we don't get orphan separators.
+			-->
 			<Reveal variant="blur">
-				<p class="text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+				<ul class="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-6 gap-y-3">
+					{#each openSourceClaims as claim (claim.label)}
+						{@const Icon = claim.icon}
+						<li class="inline-flex items-center gap-2 rounded-full border border-border-low/50 bg-card/40 px-3 py-1.5 text-[11.5px] font-semibold text-foreground/85 ring-1 ring-inset ring-border-low/30 backdrop-blur">
+							<Icon class="size-3.5 text-primary" />
+							{claim.label}
+						</li>
+					{/each}
+				</ul>
+			</Reveal>
+
+			<Reveal variant="blur" delay={120}>
+				<p class="mt-14 text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
 					Built on tools makers trust
 				</p>
 				<div class="mt-10 flex flex-wrap items-center justify-center gap-x-10 gap-y-7 sm:gap-x-14">
@@ -973,19 +1122,46 @@
 						</h2>
 
 						<p class="text-pretty mt-7 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-							Free forever. No account. Three platforms. A timeline you'll actually want to open.
+							Free forever. No account. Windows is daily-driver stable, macOS and Linux are in active beta.
 						</p>
 
-						<div class="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
-							<Button href="/download" size="lg" class="gap-2.5">
-								<Download class="size-4" />
-								Download free
-							</Button>
-							<Button href="/features" variant="outline" size="lg" class="group/cta gap-2">
-								See a demo
-								<ArrowRight class="size-4 transition-transform group-hover/cta:translate-x-0.5" />
-							</Button>
+						<!--
+						  Platform-split downloads. Stability chips mirror /download
+						  so the marketing voice never over-promises macOS or Linux.
+						  Wraps to one column under sm: so the buttons stay
+						  full-width and tap-friendly on phones.
+						-->
+						<div class="mt-10 flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
+							{#each platformDownloads as p}
+								{@const Icon = p.icon}
+								{@const chip = stabilityChip[p.stability]}
+								<Button
+									href={p.href}
+									size="lg"
+									variant={p.variant}
+									class="group/dl gap-2.5"
+								>
+									<Icon class="size-4" />
+									Download for {p.os}
+									<span
+										class={cn(
+											"ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ring-1 ring-inset",
+											chip.cls,
+										)}
+									>
+										{chip.label}
+									</span>
+								</Button>
+							{/each}
 						</div>
+
+						<a
+							href="/download"
+							class="mt-5 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+						>
+							All downloads and checksums
+							<ArrowRight class="size-3.5 transition-transform group-hover/cta:translate-x-0.5" />
+						</a>
 					</div>
 				</div>
 			</Reveal>

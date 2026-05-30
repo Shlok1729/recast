@@ -16,9 +16,11 @@
 		Check,
 		Cloud,
 		Download,
+		HardDriveUpload,
 		LoaderCircle,
 		Mail,
 		Minus,
+		ShieldCheck,
 		Sparkles,
 		Users,
 	} from "@lucide/svelte";
@@ -48,7 +50,7 @@
 				})(),
 				{
 					loading: "Adding you to the waitlist…",
-					success: "You're on the list — we'll email when access opens.",
+					success: "You're on the list. We'll email when access opens.",
 					error: (err) => (err as Error)?.message ?? "Couldn't join the waitlist.",
 				},
 			);
@@ -59,50 +61,71 @@
 	}
 
 	type Cell = boolean | string;
-	type Row = { label: string; free: Cell; cloud: Cell; enterprise: Cell };
+	type Row = { label: string; desktop: Cell; cloudFree: Cell; cloudPro: Cell; enterprise: Cell };
 	type RowGroup = { heading: string; rows: Row[] };
 
+	// Comparison table. Storage row is the centerpiece of the new positioning:
+	// Drive ships in the free desktop today; additional BYO destinations land
+	// on the Cloud free tier; paid Pro adds Recast-managed plus custom buckets.
 	const groups: RowGroup[] = [
 		{
-			heading: "The app",
+			heading: "Desktop app",
 			rows: [
-				{ label: "Record, auto-polish & edit", free: true, cloud: true, enterprise: true },
-				{ label: "Hardware-accelerated export", free: true, cloud: true, enterprise: true },
-				{ label: "Local .recast project files", free: true, cloud: true, enterprise: true },
-				{ label: "Fully offline — no account", free: true, cloud: true, enterprise: true },
-				{ label: "macOS, Windows & Linux", free: true, cloud: true, enterprise: true },
+				{ label: "Record, auto-polish, edit, export", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Recording profiles", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Pause and resume mid-take", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Annotations, blur, camera bubble", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Hardware-accelerated export", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Local .recast project files", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Account required to record", desktop: "Never", cloudFree: "Never", cloudPro: "Never", enterprise: "Never" },
 			],
 		},
 		{
-			heading: "Sharing & analytics",
+			heading: "Sharing",
 			rows: [
-				{ label: "Active shareable links", free: "10", cloud: "Unlimited", enterprise: "Unlimited" },
-				{ label: "Watch analytics", free: false, cloud: true, enterprise: true },
-				{ label: "Custom branding & domain", free: false, cloud: true, enterprise: true },
-				{ label: "Password & link expiry", free: false, cloud: true, enterprise: true },
-				{ label: "Cloud library & device sync", free: false, cloud: true, enterprise: true },
-				{ label: "Recast watermark on links", free: "Always on", cloud: "Removable", enterprise: "Removable" },
+				{ label: "Share link from your storage", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Hosted Recast player page", desktop: false, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Watch analytics", desktop: false, cloudFree: "Basic", cloudPro: "Full", enterprise: "Full + export" },
+				{ label: "Password protection and link expiry", desktop: false, cloudFree: false, cloudPro: true, enterprise: true },
+				{ label: "Per-viewer access controls", desktop: false, cloudFree: false, cloudPro: true, enterprise: true },
+				{ label: "Custom branding and domain", desktop: false, cloudFree: false, cloudPro: true, enterprise: true },
 			],
 		},
 		{
-			heading: "Teams",
+			heading: "Storage",
 			rows: [
-				{ label: "Members per team", free: "Up to 3", cloud: "Up to 50", enterprise: "Unlimited" },
-				{ label: "Teams you can own", free: "Up to 3", cloud: "Up to 10", enterprise: "Custom" },
-				{ label: "Roles (owner / admin / member)", free: true, cloud: true, enterprise: true },
-				{ label: "Email invitations", free: true, cloud: true, enterprise: true },
-				{ label: "Per-team shared library", free: true, cloud: true, enterprise: true },
-				{ label: "Audit log", free: false, cloud: false, enterprise: true },
-				{ label: "SSO / SAML", free: false, cloud: false, enterprise: true },
-				{ label: "Dedicated success & priority support", free: false, cloud: false, enterprise: true },
+				{ label: "Google Drive (your account)", desktop: true, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Cloudinary, autorender.io", desktop: false, cloudFree: "Planned", cloudPro: "Planned", enterprise: "Planned" },
+				{ label: "Recast-managed storage", desktop: false, cloudFree: false, cloudPro: true, enterprise: true },
+				{ label: "Custom S3 / R2 / Azure / GCP", desktop: false, cloudFree: false, cloudPro: true, enterprise: true },
+				{ label: "Data residency control", desktop: false, cloudFree: false, cloudPro: true, enterprise: true },
 			],
 		},
+		{
+			heading: "Team and admin",
+			rows: [
+				{ label: "Team workspaces", desktop: false, cloudFree: "Up to 3", cloudPro: "Up to 50", enterprise: "Unlimited" },
+				{ label: "Roles (owner, admin, member)", desktop: false, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Email invitations", desktop: false, cloudFree: true, cloudPro: true, enterprise: true },
+				{ label: "Audit log", desktop: false, cloudFree: false, cloudPro: false, enterprise: true },
+				{ label: "SSO / SAML / SCIM", desktop: false, cloudFree: false, cloudPro: false, enterprise: true },
+				{ label: "Dedicated success and SLAs", desktop: false, cloudFree: false, cloudPro: false, enterprise: true },
+			],
+		},
+	];
+
+	type ColKey = "desktop" | "cloudFree" | "cloudPro" | "enterprise";
+	const columns: { key: ColKey; label: string; tone: "muted" | "primary" | "foreground" }[] = [
+		{ key: "desktop", label: "Desktop", tone: "foreground" },
+		{ key: "cloudFree", label: "Cloud Free", tone: "muted" },
+		{ key: "cloudPro", label: "Cloud Pro", tone: "primary" },
+		{ key: "enterprise", label: "Enterprise", tone: "foreground" },
 	];
 </script>
 
 <SeoMeta
-	title="The app is free. Cloud is optional."
-	description="The Recast app is free forever. Recast Cloud adds hosted demo links, watch analytics, and custom branding — join the waitlist for early access."
+	title="Free, local, yours."
+	description="Recast Desktop is free forever and runs offline. Recast Cloud adds hosted sharing and watch analytics with bring-your-own storage, free or paid."
 	eyebrow="Pricing"
 />
 
@@ -112,42 +135,59 @@
 			<div class="mx-auto flex max-w-3xl flex-col items-center gap-7 text-center">
 				<Eyebrow icon={Sparkles} variant="primary">Pricing</Eyebrow>
 				<h1 class="text-balance text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl md:text-7xl">
-					The app is free.
-					<span class="block font-medium italic text-foreground/40">So is your first team.</span>
+					Free, local,
+					<span class="block font-medium italic text-foreground/40">yours.</span>
 				</h1>
 				<p class="text-pretty max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-					Recording and polishing demos costs nothing — and always will. Bring along
-					two teammates on a free team, or upgrade to Recast Cloud when the sharing
-					layer earns its keep.
+					The desktop app is free forever and runs offline. Recast Cloud, when it lands, is a sharing layer on top. Bring your own storage on the free tier, or let Recast manage it (or plug in your own bucket) on Pro.
 				</p>
+				<div class="mt-2 inline-flex flex-wrap items-center justify-center gap-2 text-[11.5px] font-medium text-foreground/75">
+					<span class="inline-flex items-center gap-1.5 rounded-full border border-border-low/60 bg-card/40 px-3 py-1 ring-1 ring-inset ring-border-low/30">
+						<ShieldCheck class="size-3.5 text-primary" /> No telemetry
+					</span>
+					<span class="inline-flex items-center gap-1.5 rounded-full border border-border-low/60 bg-card/40 px-3 py-1 ring-1 ring-inset ring-border-low/30">
+						<HardDriveUpload class="size-3.5 text-primary" /> Bring your own storage
+					</span>
+					<span class="inline-flex items-center gap-1.5 rounded-full border border-border-low/60 bg-card/40 px-3 py-1 ring-1 ring-inset ring-border-low/30">
+						<Sparkles class="size-3.5 text-primary" /> No per-seat tax
+					</span>
+				</div>
 			</div>
 		</Container>
 	</Section>
 
-	<!-- Plan cards -->
+	<!-- Plan cards: Desktop (today), Cloud Free (waitlist), Cloud Pro (waitlist) -->
 	<Section spacing="tight">
 		<Container>
 			<div class="grid gap-4 lg:grid-cols-3">
-				<!-- Free -->
+				<!-- Desktop (free, today) -->
 				<Reveal variant="left">
 					<article class="glass-card flex h-full flex-col rounded-2xl p-7 sm:p-8">
-						<span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-							Free
-						</span>
+						<div class="flex items-center justify-between">
+							<span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+								Desktop
+							</span>
+							<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-600 ring-1 ring-inset ring-emerald-500/25 dark:text-emerald-400">
+								<span class="size-1.5 rounded-full bg-emerald-500"></span>
+								Available now
+							</span>
+						</div>
 						<div class="mt-3 flex items-baseline gap-2">
 							<span class="text-5xl font-semibold tracking-tight text-foreground">$0</span>
 							<span class="text-sm text-muted-foreground">forever</span>
 						</div>
 						<p class="mt-4 text-sm leading-relaxed text-muted-foreground">
-							The whole recorder and editor — plus a real team of three.
-							Offline, no account required to record.
+							The whole recorder and editor, offline. No account, no telemetry, GPLv3 open source.
 						</p>
-						<div class="mt-5 inline-flex items-center gap-2 self-start rounded-full border border-border-low/60 bg-foreground/3 px-3 py-1 text-[11px] font-medium text-foreground/80">
-							<Users class="size-3.5 text-primary" />
-							Team of 3 included
-						</div>
 						<ul class="mt-6 space-y-3">
-							{#each ["Record region, window, or full screen", "Auto cursor smoothing, layouts & zoom", "Trim, edit & hardware-accelerated export", "Up to 3 teammates per team, own up to 3 teams", "10 active shareable links (Recast watermark)", "macOS, Windows & Linux"] as point}
+							{#each [
+								"Record region, window, or full screen",
+								"Recording profiles and pause / resume",
+								"Smart zoom, cursor smoothing, silence cuts",
+								"Annotations, blur, camera bubble",
+								"Upload exports to your own Google Drive",
+								"Windows stable, macOS and Linux in beta",
+							] as point}
 								<li class="flex items-start gap-2.5 text-sm text-foreground/85">
 									<Check class="mt-0.5 size-4 shrink-0 text-primary" />
 									{point}
@@ -163,7 +203,7 @@
 					</article>
 				</Reveal>
 
-				<!-- Cloud / Pro -->
+				<!-- Cloud Free (waitlist) -->
 				<Reveal variant="up" delay={80}>
 					<article class="glass-card relative flex h-full flex-col overflow-hidden rounded-2xl p-7 ring-1 ring-primary/25 sm:p-8">
 						<div
@@ -172,26 +212,33 @@
 						></div>
 						<div class="relative flex items-center justify-between">
 							<span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
-								Cloud
+								Cloud Pro
 							</span>
 							<span class="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-foreground/80">
 								<Cloud class="size-3 text-primary" />
-								Coming soon
+								Coming next
 							</span>
 						</div>
 						<div class="relative mt-3 flex items-baseline gap-2">
 							<span class="text-5xl font-semibold tracking-tight text-foreground">Soon</span>
-							<span class="text-sm text-muted-foreground">~$10 / mo </span>
+							<span class="text-sm text-muted-foreground">~$10 / mo</span>
 						</div>
 						<p class="relative mt-4 text-sm leading-relaxed text-muted-foreground">
-							Everything in Free, plus the sharing layer and room for a growing team.
+							Hosted sharing with watch analytics, custom branding, and team workspaces. Storage stays yours (Recast-managed or your own bucket).
 						</p>
 						<div class="relative mt-5 inline-flex items-center gap-2 self-start rounded-full border border-primary/30 bg-primary/8 px-3 py-1 text-[11px] font-medium text-foreground/90">
 							<Users class="size-3.5 text-primary" />
-							Up to 50 members per team
+							Up to 50 workspace members
 						</div>
 						<ul class="relative mt-6 space-y-3">
-							{#each ["Unlimited hosted demo links, no watermark", "Watch analytics — who watched, how far", "Custom branding & your own domain", "Password protection & link expiry", "Cloud library, synced across machines", "Own up to 10 teams"] as point}
+							{#each [
+								"Everything in Desktop, plus a hosted player page",
+								"Full watch analytics (who watched, how far)",
+								"Password protection and link expiry",
+								"Per-viewer access controls",
+								"Custom branding and your own domain",
+								"Recast-managed storage or your own S3, R2, Azure, GCP bucket",
+							] as point}
 								<li class="flex items-start gap-2.5 text-sm text-foreground/85">
 									<Check class="mt-0.5 size-4 shrink-0 text-primary" />
 									{point}
@@ -222,7 +269,7 @@
 										class="w-full rounded-lg border border-border-low/70 bg-background/80 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary/60"
 									/>
 									<Button type="submit" size="lg" disabled={loading} class="gap-2">
-										{loading ? "Joining…" : "Join waitlist"}
+										{loading ? "Joining…" : "Join Cloud waitlist"}
 										{#if loading}
 											<LoaderCircle class="size-4 animate-spin" />
 										{:else}
@@ -235,10 +282,60 @@
 					</article>
 				</Reveal>
 
-				<!-- Enterprise -->
+				<!-- Cloud Free tier (also waitlist; storage-agnostic flavour) -->
 				<Reveal variant="right" delay={160}>
 					<article class="glass-card flex h-full flex-col rounded-2xl p-7 sm:p-8">
 						<div class="flex items-center justify-between">
+							<span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+								Cloud Free
+							</span>
+							<span class="glass-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-foreground/70">
+								<Cloud class="size-3" />
+								Coming next
+							</span>
+						</div>
+						<div class="mt-3 flex items-baseline gap-2">
+							<span class="text-5xl font-semibold tracking-tight text-foreground">$0</span>
+							<span class="text-sm text-muted-foreground">BYO storage</span>
+						</div>
+						<p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+							A sharing layer on top of the storage you already pay for. Free for small teams, no card required.
+						</p>
+						<div class="mt-5 inline-flex items-center gap-2 self-start rounded-full border border-border-low/60 bg-foreground/3 px-3 py-1 text-[11px] font-medium text-foreground/80">
+							<HardDriveUpload class="size-3.5 text-primary" />
+							Bring your own bucket
+						</div>
+						<ul class="mt-6 space-y-3">
+							{#each [
+								"Hosted Recast player page for each upload",
+								"Basic watch analytics",
+								"Bring your own storage (Google Drive today)",
+								"Cloudinary and autorender.io planned",
+								"Up to 3 workspace members",
+								"Upgrade to Pro any time, your storage carries over",
+							] as point}
+								<li class="flex items-start gap-2.5 text-sm text-foreground/85">
+									<Check class="mt-0.5 size-4 shrink-0 text-primary" />
+									{point}
+								</li>
+							{/each}
+						</ul>
+						<div class="mt-8 pt-2">
+							<Button href="/waitlist" variant="secondary" size="lg" class="w-full gap-2">
+								<Cloud class="size-4" />
+								Join Cloud waitlist
+							</Button>
+						</div>
+					</article>
+				</Reveal>
+			</div>
+
+			<!-- Enterprise: its own row so it can breathe and doesn't pretend to
+			     be a self-serve checkout. -->
+			<Reveal variant="up" delay={240} class="mt-4">
+				<article class="glass-card flex flex-col gap-6 rounded-2xl p-7 sm:p-8 md:flex-row md:items-center md:gap-10">
+					<div class="md:flex-1">
+						<div class="flex items-center justify-between md:justify-start md:gap-4">
 							<span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
 								Enterprise
 							</span>
@@ -247,39 +344,41 @@
 								Talk to us
 							</span>
 						</div>
-						<div class="mt-3 flex items-baseline gap-2">
-							<span class="text-5xl font-semibold tracking-tight text-foreground">Custom</span>
-						</div>
-						<p class="mt-4 text-sm leading-relaxed text-muted-foreground">
-							For larger orgs that need SSO, audit trails, and seats without
-							a ceiling. Provisioned per agreement — no self-serve checkout.
+						<h3 class="mt-3 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+							SSO, audit, and seats without a ceiling.
+						</h3>
+						<p class="mt-3 text-sm leading-relaxed text-muted-foreground sm:text-base">
+							For larger orgs that need single sign-on, audit trails, data-residency guarantees, and a dedicated success manager. Provisioned per agreement, not self-serve.
 						</p>
-						<div class="mt-5 inline-flex items-center gap-2 self-start rounded-full border border-border-low/60 bg-foreground/3 px-3 py-1 text-[11px] font-medium text-foreground/80">
-							<Users class="size-3.5 text-primary" />
-							Unlimited members & teams
-						</div>
-						<ul class="mt-6 space-y-3">
-							{#each ["Everything in Cloud", "SSO / SAML & SCIM provisioning", "Audit log & access controls", "Dedicated success manager", "Priority support & SLAs", "Volume pricing"] as point}
-								<li class="flex items-start gap-2.5 text-sm text-foreground/85">
-									<Check class="mt-0.5 size-4 shrink-0 text-primary" />
-									{point}
-								</li>
-							{/each}
-						</ul>
-						<div class="mt-8 pt-2">
-							<Button
-								href="mailto:hello@recast.app?subject=Recast%20Enterprise"
-								variant="secondary"
-								size="lg"
-								class="w-full gap-2"
-							>
-								<Mail class="size-4" />
-								Contact sales
-							</Button>
-						</div>
-					</article>
-				</Reveal>
-			</div>
+					</div>
+					<ul class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:max-w-md md:flex-1">
+						{#each [
+							"Everything in Cloud Pro",
+							"SSO / SAML and SCIM provisioning",
+							"Audit log and access controls",
+							"Custom S3, R2, Azure, GCP buckets",
+							"Dedicated success manager and SLAs",
+							"Volume pricing",
+						] as point}
+							<li class="flex items-start gap-2 text-sm text-foreground/85">
+								<Check class="mt-0.5 size-4 shrink-0 text-primary" />
+								{point}
+							</li>
+						{/each}
+					</ul>
+					<div class="md:shrink-0">
+						<Button
+							href="mailto:hello@recast.app?subject=Recast%20Enterprise"
+							variant="secondary"
+							size="lg"
+							class="w-full gap-2 md:w-auto"
+						>
+							<Mail class="size-4" />
+							Contact sales
+						</Button>
+					</div>
+				</article>
+			</Reveal>
 		</Container>
 	</Section>
 
@@ -289,30 +388,35 @@
 			<SectionHeader
 				eyebrow="Side by side"
 				title="What you get, where."
-				description="The app does the work. Cloud carries it the last mile."
+				description="The desktop app does the work today. Cloud adds the sharing surface on top, with storage you can swap out."
 				align="center"
 			/>
 
 			<Reveal variant="blur" class="mt-14">
 				<div class="overflow-x-auto rounded-2xl border border-border-low/50">
-					<div class="min-w-160">
-						<div class="grid grid-cols-[1.4fr_1fr_1fr_1fr] border-b border-border-low/50 bg-foreground/2 text-[11px] font-semibold uppercase tracking-[0.16em]">
+					<div class="min-w-[760px]">
+						<div class="grid grid-cols-[1.6fr_1fr_1fr_1fr_1fr] border-b border-border-low/50 bg-foreground/2 text-[11px] font-semibold uppercase tracking-[0.16em]">
 							<div class="px-5 py-3.5 text-muted-foreground">Feature</div>
-							<div class="border-l border-border-low/50 px-5 py-3.5 text-center text-foreground">Free</div>
-							<div class="border-l border-border-low/50 px-5 py-3.5 text-center text-primary">Cloud</div>
-							<div class="border-l border-border-low/50 px-5 py-3.5 text-center text-foreground">Enterprise</div>
+							{#each columns as col}
+								<div
+									class="border-l border-border-low/50 px-5 py-3.5 text-center {col.tone === 'primary' ? 'text-primary' : col.tone === 'muted' ? 'text-muted-foreground' : 'text-foreground'}"
+								>
+									{col.label}
+								</div>
+							{/each}
 						</div>
 						{#each groups as group, gi}
-							<div class="grid grid-cols-[1.4fr_1fr_1fr_1fr] border-b border-border-low/50 bg-foreground/1.5">
-								<div class="col-span-4 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">
+							<div class="grid grid-cols-[1.6fr_1fr_1fr_1fr_1fr] border-b border-border-low/50 bg-foreground/1.5">
+								<div class="col-span-5 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">
 									{group.heading}
 								</div>
 							</div>
 							{#each group.rows as row, ri}
 								{@const isLast = gi === groups.length - 1 && ri === group.rows.length - 1}
-								<div class="grid grid-cols-[1.4fr_1fr_1fr_1fr] {isLast ? '' : 'border-b border-border-low/40'}">
+								<div class="grid grid-cols-[1.6fr_1fr_1fr_1fr_1fr] {isLast ? '' : 'border-b border-border-low/40'}">
 									<div class="px-5 py-3.5 text-sm text-foreground/85">{row.label}</div>
-									{#each [row.free, row.cloud, row.enterprise] as cell}
+									{#each columns as col}
+										{@const cell = row[col.key]}
 										<div class="flex items-center justify-center border-l border-border-low/40 px-5 py-3.5 text-center text-sm">
 											{#if cell === true}
 												<Check class="size-4 text-primary" />
@@ -331,10 +435,9 @@
 			</Reveal>
 
 			<Reveal variant="up" class="mt-8">
-				<p class="text-center text-xs text-muted-foreground">
-					Cloud pricing isn't final. The free tier — a team of 3, 10 active shareable
-					links — stays free forever, no card required. Need more seats?
-					<a href="mailto:hello@recast.app?subject=Recast%20Enterprise" class="text-foreground underline-offset-2 hover:underline">Talk to us.</a>
+				<p class="mx-auto max-w-2xl text-balance text-center text-xs leading-relaxed text-muted-foreground">
+					Cloud pricing isn't final. The desktop app stays free forever, no card required. Cloud Free will stay free for small teams that bring their own storage.
+					<a href="mailto:hello@recast.app?subject=Recast%20Enterprise" class="text-foreground underline-offset-2 hover:underline">Talk to us</a> for Enterprise.
 				</p>
 			</Reveal>
 		</Container>

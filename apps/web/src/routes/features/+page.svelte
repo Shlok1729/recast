@@ -9,104 +9,240 @@
 		SeoMeta,
 	} from "$lib/components";
 	import { Button } from "@recast/ui/button";
+	import { cn } from "@recast/ui/utils";
 	import { TextLoop } from "$lib/motion-core";
 	import {
+		Apple,
 		ArrowRight,
+		Camera,
+		Check,
 		Cpu,
 		Crop,
 		Download,
 		FileBox,
+		Github,
+		HardDrive,
+		HardDriveUpload,
+		Highlighter,
 		Keyboard,
+		Layers,
 		Layout,
+		Monitor,
 		MousePointer2,
-		Palette,
+		Pause,
 		Scissors,
 		ShieldCheck,
 		Sparkles,
+		Target,
+		Terminal,
+		VolumeX,
 		WifiOff,
 		Zap,
 	} from "@lucide/svelte";
 
+	// Three pillars chosen to lead with what makes Recast different, not
+	// generic "we have an editor too" copy. Each one is a feature that other
+	// recorders either don't have at all or paywall.
 	const pillars = [
 		{
-			icon: MousePointer2,
-			title: "Cursor engine",
+			icon: Sparkles,
+			title: "Auto-polish on the way in",
 			description:
-				"Velocity-based smoothing, snap targeting, and motion damping. Your cursor stops feeling like a tracked mouse and starts feeling like a director's hand.",
-			tags: ["Smoothing", "Snap targeting", "Trail decay"],
+				"Smart zoom, cursor smoothing, and silence cuts happen while you record. By the time you stop, the demo is mostly done. No keyframes. No AI gate.",
+			tags: ["Smart zoom", "Cursor smoothing", "Silence cuts"],
+		},
+		{
+			icon: Layers,
+			title: "Recording profiles + pause / resume",
+			description:
+				"Save capture presets (region, window, camera, mic) and switch with one shortcut. Pause mid-take when the door knocks. Paused spans are trimmed cleanly out.",
+			tags: ["Profiles", "Pause and resume", "Multi-source"],
+		},
+		{
+			icon: HardDriveUpload,
+			title: "Local-first, Drive-shareable",
+			description:
+				"Recordings live on your machine until you choose to share. Upload exports straight to your own Google Drive from the export dialog. You own the file, Recast servers never see it.",
+			tags: ["Local files", "Drive upload", "Own your data"],
+		},
+	];
+
+	// Per-platform shipping confidence. Mirrors the /download page so the
+	// marketing voice never over-promises macOS or Linux.
+	const platforms = [
+		{ icon: Monitor, label: "Windows", stability: "stable" as const, note: "Daily-driver stable" },
+		{ icon: Apple, label: "macOS", stability: "beta" as const, note: "Active beta (12.0+)" },
+		{ icon: Terminal, label: "Linux", stability: "beta" as const, note: "Active beta (Wayland + X11)" },
+	];
+
+	const stabilityChip: Record<"stable" | "beta", { label: string; cls: string }> = {
+		stable: {
+			label: "Stable",
+			cls: "bg-emerald-500/12 text-emerald-600 ring-emerald-500/25 dark:text-emerald-400",
+		},
+		beta: {
+			label: "Beta",
+			cls: "bg-amber-500/12 text-amber-600 ring-amber-500/25 dark:text-amber-400",
+		},
+	};
+
+	// "Free here, paid elsewhere." Real, named feature gaps against the two
+	// products we get compared to most. Conservative claims: only items that
+	// are publicly paywalled on the competitor or that the competitor doesn't
+	// ship at all. Tone is direct, not snide.
+	const gapRows = [
+		{
+			feature: "Recording profiles (capture presets)",
+			recast: "Built in",
+			loom: "Not available",
+			cap: "Limited",
+		},
+		{
+			feature: "Pause and resume mid-take",
+			recast: "Built in",
+			loom: "Paid",
+			cap: "Built in",
+		},
+		{
+			feature: "Hardware-accelerated export",
+			recast: "Built in",
+			loom: "Cloud render only",
+			cap: "Partial",
+		},
+		{
+			feature: "Files stay on your machine",
+			recast: "Default",
+			loom: "Cloud only",
+			cap: "Local first",
+		},
+		{
+			feature: "Share to your own storage (Drive today)",
+			recast: "Built in",
+			loom: "Not supported",
+			cap: "Not supported",
+		},
+		{
+			feature: "No account required to record",
+			recast: "Never asks",
+			loom: "Required",
+			cap: "Required",
+		},
+		{
+			feature: "Open source",
+			recast: "GPLv3",
+			loom: "Closed",
+			cap: "AGPL",
+		},
+		{
+			feature: "Per-seat pricing",
+			recast: "None",
+			loom: "Per editor",
+			cap: "Per editor",
+		},
+	];
+
+	// Built-in supports. Grid of small affordances and standards-level
+	// features. License row is GPLv3 + dual licensing (not MIT, which was
+	// the previous version's bug).
+	const supports = [
+		{
+			icon: Target,
+			title: "Smart auto-zoom",
+			description: "Reads clicks and dwell, zooms toward the action. Zero keyframes.",
+		},
+		{
+			icon: MousePointer2,
+			title: "Cursor smoothing",
+			description: "Velocity-aware easing, optional snap-to-target, motion damping.",
+		},
+		{
+			icon: VolumeX,
+			title: "Silence detection",
+			description: "Finds dead-air spans (quiet audio plus still cursor), offers one-click cuts.",
+		},
+		{
+			icon: Pause,
+			title: "Pause and resume",
+			description: "Pause mid-take and pick up where you left off. Paused spans trim out cleanly.",
+		},
+		{
+			icon: Layers,
+			title: "Recording profiles",
+			description: "Save capture presets for each context. One shortcut to switch between them.",
+		},
+		{
+			icon: Highlighter,
+			title: "Annotations and blur",
+			description: "Arrows, rectangles, text, privacy blur on the frame. Layers on the timeline.",
+		},
+		{
+			icon: Camera,
+			title: "Camera bubble",
+			description: "Draggable webcam with shape, border, and follow-the-cursor motion.",
 		},
 		{
 			icon: Layout,
 			title: "Smart layouts",
-			description:
-				"Auto padding, gradient backgrounds, and aspect framing applied as you record. Drop in a recording, get a polished frame.",
-			tags: ["Auto padding", "Backgrounds", "16:9 / 4:3 / 9:16"],
+			description: "Auto padding, gradient backgrounds, aspect framing applied as you record.",
 		},
 		{
 			icon: Scissors,
-			title: "Lightweight editor",
-			description:
-				"Trim, split, replace background. A focused editor that respects your time — no hidden timeline tax.",
-			tags: ["Trim & split", "Replace bg", "Speed ramps"],
+			title: "Trim, split, replace",
+			description: "Lightweight editor that respects your time. No hidden timeline tax.",
 		},
-	];
-
-	const supports = [
+		{
+			icon: HardDriveUpload,
+			title: "Drive uploads",
+			description: "OAuth scoped to files Recast creates. Your account, your storage bill.",
+		},
 		{
 			icon: Zap,
-			title: "GPU-accelerated export",
-			description: "Hardware-encoded H.264 / HEVC pipelines. Seconds, not minutes.",
-		},
-		{
-			icon: WifiOff,
-			title: "Offline first",
-			description:
-				"Recordings, projects, and exports never leave your machine. No accounts.",
-		},
-		{
-			icon: FileBox,
-			title: "Project files (.recast)",
-			description:
-				"Re-editable artifacts that travel with your repo. Time-travel through cuts.",
+			title: "Hardware-encoded export",
+			description: "NVENC, AMD, and Intel where available. Seconds, not minutes.",
 		},
 		{
 			icon: Cpu,
 			title: "Native capture",
-			description:
-				"Built on platform APIs. Negligible overhead, full framerate, no proxy layers.",
+			description: "Platform APIs end to end. ScreenCaptureKit on macOS, Wayland-native on Linux.",
 		},
 		{
 			icon: Crop,
-			title: "Region & window",
-			description:
-				"Capture a window, region, or full screen. Hot-swap mid-take.",
+			title: "Region and window",
+			description: "Capture a window, region, or full screen. Hot-swap mid-take.",
 		},
 		{
-			icon: Palette,
-			title: "Theme-aware",
-			description:
-				"Light and dark presets that match your OS, not someone else's brand.",
+			icon: FileBox,
+			title: ".recast project files",
+			description: "Re-editable artifacts that travel with your repo.",
+		},
+		{
+			icon: WifiOff,
+			title: "Offline first",
+			description: "Recordings and exports stay on your machine. No account required to record.",
+		},
+		{
+			icon: HardDrive,
+			title: "No telemetry",
+			description: "The app doesn't phone home. It only contacts servers when you explicitly opt in.",
 		},
 		{
 			icon: Keyboard,
 			title: "Shortcut-first",
-			description:
-				"Every essential action lives one keystroke away. Mouse optional.",
+			description: "Every essential action lives one keystroke away. Mouse optional.",
 		},
 		{
-			icon: ShieldCheck,
-			title: "Open source",
-			description:
-				"MIT-licensed. Audit it, fork it, ship it. Source on GitHub.",
+			icon: Github,
+			title: "GPLv3 open source",
+			description: "Source on GitHub. Dual licensing available for closed-source redistribution.",
 		},
 	];
 
-	const verbs = ["records.", "refines.", "ships.", "exports.", "delights."];
+	const verbs = ["records.", "polishes.", "shares.", "ships."];
 </script>
 
 <SeoMeta
 	title="Everything Recast does for you"
-	description="The cursor engine, smart layouts, and native capture that auto-polish raw screen captures into shareable demos — built for solo founders."
+	description="Recording profiles, pause and resume, smart auto-zoom, cursor smoothing, silence cuts, on-frame annotations, Drive sharing. The full feature catalog."
 	eyebrow="Features"
 />
 
@@ -124,12 +260,28 @@
 					</span>
 				</h1>
 				<p class="text-pretty max-w-2xl animate-fade-up text-base leading-relaxed text-muted-foreground sm:text-lg" style="animation-delay: 120ms">
-					Record, auto-polish, share. A focused recorder — not a kitchen-sink editor — that turns raw captures into demos worth shipping.
+					A focused recorder for solo founders, indie hackers, and product engineers who'd rather ship than fiddle. Auto-polish for the 80% case, a minimal timeline for the moments you want to control.
 				</p>
+
+				<!-- Platform chips: honest about per-platform maturity. -->
+				<ul class="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11.5px] font-semibold" style="animation-delay: 200ms">
+					{#each platforms as p (p.label)}
+						{@const Icon = p.icon}
+						{@const chip = stabilityChip[p.stability]}
+						<li class="inline-flex items-center gap-2 rounded-full border border-border-low/50 bg-card/40 px-3 py-1.5 text-foreground/85 ring-1 ring-inset ring-border-low/30">
+							<Icon class="size-3.5" />
+							{p.label}
+							<span class={cn("ml-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.14em] ring-1 ring-inset", chip.cls)}>
+								{chip.label}
+							</span>
+						</li>
+					{/each}
+				</ul>
 			</div>
 		</Container>
 	</Section>
 
+	<!-- Three pillars: lead with differentiators. -->
 	<Section spacing="tight" class="border-t border-border-low/60">
 		<Container>
 			<div class="grid gap-4 lg:grid-cols-3">
@@ -161,18 +313,70 @@
 		</Container>
 	</Section>
 
+	<!-- "Free here, paid elsewhere." Concrete value-gap table. Compares
+	     against the two products we get compared to most, with conservative
+	     claims and a direct tone. -->
+	<Section class="border-t border-border-low/60">
+		<Container>
+			<SectionHeader
+				eyebrow="Side by side"
+				title="Free here. Paid in the others."
+				description="Most of what Recast ships in the free desktop app is either paywalled or missing in the products we get compared to most. The honest version."
+				align="center"
+			/>
+
+			<Reveal variant="blur" class="mt-14">
+				<div class="overflow-x-auto rounded-2xl border border-border-low/50">
+					<div class="min-w-[640px]">
+						<div class="grid grid-cols-[1.6fr_1fr_1fr_1fr] border-b border-border-low/50 bg-foreground/2 text-[11px] font-semibold uppercase tracking-[0.16em]">
+							<div class="px-5 py-3.5 text-muted-foreground">Feature</div>
+							<div class="border-l border-border-low/50 px-5 py-3.5 text-center text-primary">Recast</div>
+							<div class="border-l border-border-low/50 px-5 py-3.5 text-center text-foreground/80">Loom</div>
+							<div class="border-l border-border-low/50 px-5 py-3.5 text-center text-foreground/80">Cap</div>
+						</div>
+						{#each gapRows as row, i}
+							<div class="grid grid-cols-[1.6fr_1fr_1fr_1fr] {i < gapRows.length - 1 ? 'border-b border-border-low/40' : ''}">
+								<div class="px-5 py-3.5 text-sm text-foreground/85">{row.feature}</div>
+								<div class="flex items-center justify-center border-l border-border-low/40 bg-primary/4 px-5 py-3.5 text-center">
+									<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+										<Check class="size-3.5 text-primary" />
+										{row.recast}
+									</span>
+								</div>
+								<div class="flex items-center justify-center border-l border-border-low/40 px-5 py-3.5 text-center text-xs text-muted-foreground">
+									{row.loom}
+								</div>
+								<div class="flex items-center justify-center border-l border-border-low/40 px-5 py-3.5 text-center text-xs text-muted-foreground">
+									{row.cap}
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			</Reveal>
+
+			<Reveal variant="up" class="mt-6">
+				<p class="mx-auto max-w-2xl text-balance text-center text-xs leading-relaxed text-muted-foreground">
+					Comparison is based on the publicly documented tiers of each product. Got a correction? Open an issue on
+					<a href="https://github.com/kanakkholwal/recast" class="text-foreground underline-offset-2 hover:underline">GitHub</a>.
+				</p>
+			</Reveal>
+		</Container>
+	</Section>
+
+	<!-- Built-in supports grid. All shipping in the free app today. -->
 	<Section class="border-t border-border-low/60">
 		<Container>
 			<SectionHeader
 				eyebrow="Built in"
-				title="The supporting cast."
-				description="The smaller details that make Recast feel like the right tool every time."
+				title="The full catalog."
+				description="Every affordance worth naming, in one grid. All shipping in the free desktop app today."
 			/>
 
-			<div class="mt-14 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+			<div class="mt-14 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{#each supports as item, i}
 					{@const Icon = item.icon}
-					<Reveal delay={i * 50}>
+					<Reveal delay={i * 35}>
 						<article class="glass-card group h-full rounded-xl p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-craft-sm">
 							<span class="glass-chip grid size-9 place-items-center rounded-lg text-foreground/70 transition-colors group-hover:text-primary">
 								<Icon class="size-4" />
@@ -190,6 +394,7 @@
 		</Container>
 	</Section>
 
+	<!-- Final CTA: platform-split downloads, same pattern as the landing page. -->
 	<Section id="cta" class="border-t border-border-low/60">
 		<Container>
 			<Reveal>
@@ -214,7 +419,7 @@
 								<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-70"></span>
 								<span class="relative inline-flex size-1.5 rounded-full bg-primary"></span>
 							</span>
-							v0.1 beta · ready when you are
+							v0.2 ready when you are
 						</div>
 
 						<h2 class="text-balance mt-8 text-4xl font-semibold leading-[1.02] tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-[4.25rem]">
@@ -223,19 +428,36 @@
 						</h2>
 
 						<p class="text-pretty mt-7 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-							Free forever. No account required. Three platforms. One opinionated tool.
+							Free forever. No account. Windows is daily-driver stable, macOS and Linux are in active beta.
 						</p>
 
-						<div class="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
-							<Button href="/download" size="lg" class="gap-2.5">
-								<Download class="size-4" />
-								Download Recast
-							</Button>
-							<Button href="/changelog" variant="outline" size="lg" class="group/cta gap-2">
-								See what's new
-								<ArrowRight class="size-4 transition-transform group-hover/cta:translate-x-0.5" />
-							</Button>
+						<div class="mt-10 flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
+							{#each platforms as p}
+								{@const Icon = p.icon}
+								{@const chip = stabilityChip[p.stability]}
+								{@const isPrimary = p.stability === "stable"}
+								<Button
+									href={`/download?os=${p.label.toLowerCase()}`}
+									size="lg"
+									variant={isPrimary ? "default" : "outline"}
+									class="gap-2.5"
+								>
+									<Icon class="size-4" />
+									Download for {p.label}
+									<span class={cn("ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ring-1 ring-inset", chip.cls)}>
+										{chip.label}
+									</span>
+								</Button>
+							{/each}
 						</div>
+
+						<a
+							href="/changelog"
+							class="group/cta mt-5 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+						>
+							See what's in v0.2
+							<ArrowRight class="size-3.5 transition-transform group-hover/cta:translate-x-0.5" />
+						</a>
 					</div>
 				</div>
 			</Reveal>
