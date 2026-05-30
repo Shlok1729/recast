@@ -33,6 +33,13 @@ use crate::commands::types::AppState;
 /// `refresh_tray(is_recording)` on every state transition.
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 
+/// Read the mirrored recording state. Used by the file-association path to
+/// refuse opening a `.recast` while capture is in flight (editor windows
+/// spawn FFmpeg thumbnail probes that compete with the recording pipeline).
+pub fn is_recording_active() -> bool {
+    IS_RECORDING.load(Ordering::Relaxed)
+}
+
 const TRAY_ID: &str = "recast.main";
 const MENU_ID_SHOW_HIDE: &str = "tray.show_hide";
 const MENU_ID_RECORD_TOGGLE: &str = "tray.record_toggle";

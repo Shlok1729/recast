@@ -7,8 +7,10 @@
   // up the branded media-chrome styling.
   import "@recast/player/styles.css";
 
-  import { goto, onNavigate } from "$app/navigation";
+  import { onNavigate } from "$app/navigation";
   import { page } from "$app/state";
+  import { launchRecordingPanel } from "$lib/ipc";
+  import { openProjectFromExternalPath } from "$lib/openProject";
   import { updater } from "$lib/stores/updater.svelte";
 
   let { children } = $props();
@@ -19,6 +21,7 @@
   import { getTauriTheme, isTauriApp } from "$lib/runtime/tauri";
   import { Toaster, toast } from "@recast/ui/sonner";
   import { ModeWatcher, setMode } from "@recast/ui/theme";
+  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, tick } from "svelte";
 
@@ -79,15 +82,20 @@
     if (isTransparentRoute) return;
     const offToggle = listen("tray:record-toggle", async () => {
       // If a recording panel is already open, it owns the toggle — its
-      // own listener will stop the recording. We only handle the
-      // "start from cold" path here.
+      // own listener will stop the in-flight recording, and we deliberately
+      // do nothing here so we don't steal focus mid-stop. We only handle
+      // the "start from cold" path: open /panel in its own window (or
+      // focus it if it's already there). The panel restores the last
+      // source on mount, so no source-picker detour is needed.
+      //
+      // Label must stay in sync with `launchRecordingPanel()` in ipc.ts.
       const { getAllWebviewWindows } = await import(
         "@tauri-apps/api/webviewWindow"
       );
       const all = await getAllWebviewWindows();
-      const hasPanel = all.some((w) => w.label === "panel");
+      const hasPanel = all.some((w) => w.label === "recording-panel");
       if (hasPanel) return;
-      void goto("/select");
+      void launchRecordingPanel();
     });
     const offCheckUpdates = listen("updater:check-from-tray", () => {
       void updater.checkNow();
@@ -95,6 +103,68 @@
     return () => {
       void offToggle.then((fn) => fn());
       void offCheckUpdates.then((fn) => fn());
+    };
+  });
+
+  // OS file-association bridge. Two paths in:
+  //
+  //   * Cold start — the user double-clicked a .recast while the app was
+  //     not running. Rust parses argv in setup() and stashes the path in
+  //     AppState; we drain it once on mount via `take_pending_open_file`.
+  //   * Warm start — the user double-clicked while the app was already
+  //     running. tauri-plugin-single-instance forwards the ghost process's
+  //     argv to the running instance, which emits `app://open-recast`.
+  //     Close-to-tray keeps this listener alive even when main is hidden.
+  //
+  // Both paths funnel through openProjectFromExternalPath, which validates
+  // the file (metadata.json must parse), refuses while recording, and
+  // always spawns a fresh editor window — never navigates main, so the
+  // user's library view and any unsaved editor state stay put.
+  //
+  // Gated on `!isTransparentRoute` so secondary windows (panel, pickers,
+  // camera-preview) don't double-subscribe and race to spawn the window.
+  // Editor secondary windows aren't in TRANSPARENT_ROUTES but they're
+  // labelled `editor-*` rather than `main` — see the label check below.
+  onMount(() => {
+    if (isTransparentRoute) return;
+    let cancelled = false;
+    let unlistenFn: (() => void) | undefined;
+
+    const setup = async () => {
+      const { getCurrentWebviewWindow } = await import(
+        "@tauri-apps/api/webviewWindow"
+      );
+      if (getCurrentWebviewWindow().label !== "main") return;
+
+      try {
+        const pending = await invoke<string | null>(
+          "take_pending_open_file",
+        );
+        if (!cancelled && pending) {
+          void openProjectFromExternalPath(pending);
+        }
+      } catch (e) {
+        console.warn("[open-recast] cold-start drain failed", e);
+      }
+
+      const unlistenPromise = listen<string>(
+        "app://open-recast",
+        ({ payload }) => {
+          if (!payload) return;
+          void openProjectFromExternalPath(payload);
+        },
+      );
+      unlistenPromise.then((fn) => {
+        if (cancelled) fn();
+        else unlistenFn = fn;
+      });
+    };
+
+    void setup();
+
+    return () => {
+      cancelled = true;
+      unlistenFn?.();
     };
   });
 

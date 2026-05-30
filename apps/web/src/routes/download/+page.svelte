@@ -6,6 +6,7 @@
 	  Reveal,
 	  Section,
 	  SectionHeader,
+	  SeoMeta,
 	} from "$lib/components";
 	import { Button } from "@recast/ui/button";
 	import * as Collapsible from "@recast/ui/collapsible";
@@ -322,13 +323,12 @@
 	};
 </script>
 
-<svelte:head>
-	<title>Download Recast — macOS, Windows, Linux</title>
-	<meta
-		name="description"
-		content="Download Recast for macOS, Windows, or Linux. Free during beta. The native screen recorder for makers shipping every week."
-	/>
-</svelte:head>
+<SeoMeta
+	title="Download Recast"
+	description="Download Recast for macOS, Windows, or Linux. Free during beta. The native screen recorder for makers shipping every week."
+	eyebrow="Download"
+	pageTitle="Download Recast — macOS, Windows, Linux"
+/>
 
 <main class="text-foreground">
 	<Section spacing="none" class="dl-atmosphere relative overflow-hidden pt-36 pb-16 md:pt-48 md:pb-24">

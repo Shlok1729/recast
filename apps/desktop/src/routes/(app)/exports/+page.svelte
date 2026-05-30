@@ -15,6 +15,7 @@
     Clock,
     CopyIcon,
     Download,
+    ExternalLink,
     FolderOpen,
     Grid3x3,
     HardDriveUpload,
@@ -26,12 +27,14 @@
     Play,
     RefreshCw,
     Search,
+    Share2,
     SortAsc,
     Trash2,
-    UploadCloud,
+    Unlink2,
     X,
   } from "@lucide/svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
+  import { isShareSupported, shareRecording } from "$lib/share";
   import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
@@ -67,7 +70,7 @@
   onMount(() => {
     fetchExports();
     // Hydrate Drive upload history so each row's dropdown can pick the
-    // right action ("Upload to Drive" vs. "Copy link / Re-upload")
+    // right action ("Upload to Drive" vs. "Copy link / Open / Forget")
     // without a per-row roundtrip. The store caches across mounts so
     // subsequent visits are instant.
     void gdrive.init();
@@ -201,6 +204,36 @@
     }
   }
 
+  // `navigator.share` exposure is static — sample once at module load so the
+  // dropdown can conditionally render the Share item without a reactive read.
+  const shareSupported = isShareSupported();
+
+  /**
+   * Open the OS share sheet for an export. Tries the file payload first
+   * (Web Share Level 2) and falls back to sharing the recorded Drive link
+   * if the runtime can't share files.
+   */
+  async function shareEntry(entry: RecordingEntry) {
+    const fallbackLink = gdrive.getRecordForPath(entry.path)?.webViewLink;
+    const result = await shareRecording({
+      path: entry.path,
+      fileName: entry.filename,
+      title: entry.filename,
+      text: "Made with Recast",
+      fallbackLink,
+    });
+    if (result.ok || result.reason === "cancelled") return;
+    if (result.reason === "unsupported") {
+      toast.error(
+        fallbackLink
+          ? "Sharing isn't available on this device."
+          : "Sharing files isn't available here. Upload to Drive first to share a link.",
+      );
+    } else {
+      toast.error(`Share failed: ${result.message ?? "unknown error"}`);
+    }
+  }
+
   /**
    * Copy the previously-recorded Drive link for this export to the
    * clipboard. The history map is hydrated from a local JSON manifest on
@@ -218,6 +251,32 @@
     } catch (e) {
       toast.error(`Could not copy link: ${e}`);
     }
+  }
+
+  // Open the stored Drive link in the user's default browser. Falls back
+  // to a plain window.open if the opener plugin isn't reachable (web build).
+  async function openDriveLink(entry: RecordingEntry) {
+    const record = gdrive.getRecordForPath(entry.path);
+    if (!record?.webViewLink) {
+      toast.error("No Drive link recorded for this file.");
+      return;
+    }
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(record.webViewLink);
+    } catch {
+      window.open(record.webViewLink, "_blank", "noopener");
+    }
+  }
+
+  // Forget the Drive-link association for a local file. Used as the
+  // recovery path when the Drive file was deleted in Drive's UI or the
+  // local file no longer matches the uploaded copy — after forgetting,
+  // the dropdown flips back to "Upload to Drive". The Drive object itself
+  // is left untouched: anyone with the previous shared link can still see it.
+  async function forgetDriveLink(entry: RecordingEntry) {
+    await gdrive.forgetUpload(entry.path);
+    toast.success(`Forgot Drive link for "${entry.filename}"`);
   }
 
   const filtered = $derived.by(() => {
@@ -676,21 +735,37 @@
                       <DropdownMenu.Item onSelect={() => copyPath(entry)}>
                         <CopyIcon /> Copy path
                       </DropdownMenu.Item>
+                      {#if shareSupported}
+                        <DropdownMenu.Item onSelect={() => shareEntry(entry)}>
+                          <Share2 /> Share…
+                        </DropdownMenu.Item>
+                      {/if}
                       <DropdownMenu.Separator />
                       {#if gdrive.uploadHistory[entry.path]}
-                        <!-- Already uploaded — surface the existing link
-                             and let the user push a fresh copy if they've
-                             edited the file. Re-upload overwrites the
-                             stored Drive link with the new one. -->
+                        <!-- Already uploaded — the saved webViewLink is the
+                             shareable artifact. We deliberately don't expose
+                             a "re-upload" action: it would create a NEW Drive
+                             file (different fileId) and silently abandon the
+                             URL the user already shared with others. If the
+                             Drive file was deleted in Drive's UI or the local
+                             file no longer matches the upload, "Forget Drive
+                             link" flips the row back to "Upload to Drive". -->
                         <DropdownMenu.Item
                           onSelect={() => copyDriveLink(entry)}
                         >
                           <Link2 /> Copy Drive link
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
-                          onSelect={() => uploadToDrive(entry)}
+                          onSelect={() => openDriveLink(entry)}
                         >
-                          <UploadCloud /> Re-upload to Drive
+                          <ExternalLink /> Open in Drive
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Separator />
+                        <DropdownMenu.Item
+                          onSelect={() => forgetDriveLink(entry)}
+                          class="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                        >
+                          <Unlink2 /> Forget Drive link
                         </DropdownMenu.Item>
                       {:else}
                         <DropdownMenu.Item

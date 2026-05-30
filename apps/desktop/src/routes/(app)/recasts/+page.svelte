@@ -25,10 +25,12 @@
     Play,
     RefreshCw,
     Search,
+    Share2,
     SortAsc,
     Trash2,
     X,
   } from "@lucide/svelte";
+  import { isShareSupported, shareRecording } from "$lib/share";
   import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
@@ -205,6 +207,30 @@
       toast.success("Path copied");
     } catch (e) {
       toast.error(`Copy failed: ${e}`);
+    }
+  }
+
+  // `navigator.share` exposure is static — sample once at module load so the
+  // dropdown can conditionally render the Share item without a reactive read.
+  const shareSupported = isShareSupported();
+
+  /**
+   * Open the OS share sheet for a recording. Raw recordings have no Drive
+   * link yet, so this just tries the file payload (Web Share Level 2) and
+   * surfaces a helpful toast when the runtime can't share files.
+   */
+  async function shareEntry(entry: RecordingEntry) {
+    const result = await shareRecording({
+      path: entry.path,
+      fileName: entry.filename,
+      title: entry.filename,
+      text: "Recorded with Recast",
+    });
+    if (result.ok || result.reason === "cancelled") return;
+    if (result.reason === "unsupported") {
+      toast.error("Sharing files isn't available on this device.");
+    } else {
+      toast.error(`Share failed: ${result.message ?? "unknown error"}`);
     }
   }
 
@@ -643,6 +669,11 @@
                     <DropdownMenu.Item onSelect={() => copyPath(entry)}>
                       <CopyIcon class="size-3" /> Copy path
                     </DropdownMenu.Item>
+                    {#if shareSupported}
+                      <DropdownMenu.Item onSelect={() => shareEntry(entry)}>
+                        <Share2 class="size-3" /> Share…
+                      </DropdownMenu.Item>
+                    {/if}
                     <DropdownMenu.Separator />
                     <DropdownMenu.Item
                       onSelect={() => (deleteTarget = entry)}

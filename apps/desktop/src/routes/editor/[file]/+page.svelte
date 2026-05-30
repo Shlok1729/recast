@@ -1,6 +1,10 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import EditorToolbar from "$components/editor/EditorToolbar.svelte";
+  import ExportDialog from "$components/editor/ExportDialog.svelte";
+  import ExportFlowDialog, {
+    type ExportFlowPhase,
+  } from "$components/editor/ExportFlowDialog.svelte";
   import PropertiesPanel from "$components/editor/properity-panel/PropertiesPanel.svelte";
   import Timeline from "$components/editor/Timeline.svelte";
   import VideoPlayerControls from "$components/editor/VideoPlayerControls.svelte";
@@ -23,6 +27,7 @@
     saveProjectEdits,
     suggestZoomRegions,
   } from "$lib/ipc";
+  import { isShareSupported, shareRecording } from "$lib/share";
   import {
     createEditorStore,
     framePaddingPixels,
@@ -34,14 +39,19 @@
   import {
     ArrowLeft,
     CheckCircle2,
+    ExternalLink,
     FlaskConical,
     FolderOpen,
     HardDriveUpload,
+    Link2,
+    RefreshCw,
+    Share2,
+    TriangleAlert,
+    Upload,
     VolumeX,
     X,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
-  import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { onDestroy, tick } from "svelte";
@@ -459,6 +469,7 @@
   let exportHasProgress = $state(false);
   let activeExportId = $state<string | null>(null);
 
+
   // Rotating, encode-themed status messages shown below the progress ring —
   // gives the wait some personality (à la an AI assistant's "thinking" line).
   const ENCODE_MESSAGES = [
@@ -754,6 +765,66 @@
     exportResult = null;
   }
 
+  // Options phase is purely UI — true while the user is in the format/quality
+  // picker, before they hit Export. Progress/result phases are derived from
+  // the export pipeline state above, so the flow dialog stays a single
+  // controlled surface that morphs as the pipeline advances.
+  let exportOptionsOpen = $state(false);
+  const exportPhase: ExportFlowPhase | null = $derived(
+    store.isExporting
+      ? "progress"
+      : exportResult?.kind === "success"
+        ? "success"
+        : exportResult?.kind === "cancelled"
+          ? "cancelled"
+          : exportResult?.kind === "error"
+            ? "error"
+            : exportOptionsOpen
+              ? "options"
+              : null,
+  );
+  const isExportFlowOpen = $derived(exportPhase !== null);
+
+  function openExportOptions() {
+    if (store.isExporting) return;
+    exportOptionsOpen = true;
+  }
+
+  function dismissExportOptions() {
+    exportOptionsOpen = false;
+  }
+
+  function confirmExportOptions() {
+    exportOptionsOpen = false;
+    void handleExport();
+  }
+
+  // Esc routes per phase: cancel a running export, dismiss a finished one,
+  // close the options picker. Backdrop click follows the same logic except
+  // it never cancels a running export (too easy to misclick mid-encode).
+  function handleExportEscape() {
+    if (store.isExporting) {
+      void handleCancelExport();
+      return;
+    }
+    if (exportResult) {
+      dismissExportResult();
+      return;
+    }
+    if (exportOptionsOpen) {
+      dismissExportOptions();
+    }
+  }
+
+  function handleExportBackdrop() {
+    if (store.isExporting) return;
+    if (exportResult) {
+      dismissExportResult();
+      return;
+    }
+    if (exportOptionsOpen) dismissExportOptions();
+  }
+
   async function revealExportInFolder() {
     if (exportResult?.kind !== "success") return;
     try {
@@ -779,11 +850,84 @@
     }
     try {
       await gdrive.upload(exportResult.path);
-      // Progress + completion surface through the corner-notifications
-      // store — the success card stays put so the user can also reveal
-      // in folder or dismiss.
+      // Progress + completion surface inline via successUpload (below) AND
+      // through the corner-notifications store, so the user can still track
+      // the upload if they dismiss the success card.
     } catch (e) {
       toast.error(`Drive upload failed: ${e}`);
+    }
+  }
+
+  // Mirror the export-success card's path so the upload state below can key
+  // off it reactively. Null whenever the dialog isn't in the success state.
+  const successPath = $derived(
+    exportResult?.kind === "success" ? exportResult.path : null,
+  );
+  // Most-recent upload (any status) targeting the freshly-exported file —
+  // drives the inline progress/result rendering inside the success card.
+  // Survives status transitions so we can show the completed state too.
+  const successUpload = $derived.by(() => {
+    if (!successPath) return undefined;
+    const list = gdrive.activeUploads.filter(
+      (u) => u.sourcePath === successPath,
+    );
+    list.sort((a, b) => b.uploadId.localeCompare(a.uploadId));
+    return list[0];
+  });
+  const successUploadPct = $derived(
+    successUpload && successUpload.totalBytes
+      ? Math.min(
+          100,
+          Math.round(
+            (successUpload.bytesSent / successUpload.totalBytes) * 100,
+          ),
+        )
+      : 0,
+  );
+
+  async function copyDriveLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Drive link copied.");
+    } catch (e) {
+      toast.error(`Could not copy link: ${e}`);
+    }
+  }
+
+  // `navigator.share` exposure is static — sample once at module load so the
+  // Share button can be conditionally rendered without a reactive read.
+  const shareSupported = isShareSupported();
+
+  async function shareExportedFile() {
+    if (exportResult?.kind !== "success") return;
+    const fileName = exportResult.path.split(/[\\/]/).pop() ?? "recording";
+    const fallbackLink =
+      successUpload?.status === "complete" ? successUpload.webViewLink : undefined;
+    const result = await shareRecording({
+      path: exportResult.path,
+      fileName,
+      title: fileName,
+      text: "Made with Recast",
+      fallbackLink,
+    });
+    if (result.ok || result.reason === "cancelled") return;
+    if (result.reason === "unsupported") {
+      toast.error(
+        fallbackLink
+          ? "Sharing isn't available on this device."
+          : "Sharing files isn't available here. Upload to Drive first to share a link.",
+      );
+    } else {
+      toast.error(`Share failed: ${result.message ?? "unknown error"}`);
+    }
+  }
+
+  async function openDriveLink(link: string) {
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(link);
+    } catch {
+      window.open(link, "_blank", "noopener");
     }
   }
 
@@ -813,9 +957,6 @@
     return `${formatTime(store.trimStart)} - ${formatTime(clipEnd)}`;
   }
 
-  function handleBack() {
-    goto("/");
-  }
 
   let isSaving = $state(false);
 
@@ -843,20 +984,9 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.defaultPrevented) return;
 
-    // Export overlay intercepts Esc before anything else: cancels a running
-    // export or dismisses a completed/cancelled/errored result.
-    if (e.key === "Escape") {
-      if (store.isExporting) {
-        e.preventDefault();
-        void handleCancelExport();
-        return;
-      }
-      if (exportResult) {
-        e.preventDefault();
-        dismissExportResult();
-        return;
-      }
-    }
+    // The flow dialog now owns Esc routing per phase; just bail if it's
+    // active so the global shortcuts below don't fire under it.
+    if (isExportFlowOpen) return;
 
     if (
       e.target instanceof HTMLInputElement ||
@@ -1013,8 +1143,7 @@
     <EditorToolbar
       {store}
       filename={data.filename}
-      onback={handleBack}
-      onexport={handleExport}
+      onexport={openExportOptions}
       onsave={handleSave}
       {isSaving}
     />
@@ -1065,7 +1194,7 @@
         <Button
           variant="outline"
           size="sm"
-          onclick={handleBack}
+          href="/recasts"
           class="gap-1.5"
         >
           <ArrowLeft size={13} />
@@ -1142,80 +1271,89 @@
     ></audio>
   {/if}
 
-  {#if store.isExporting || exportResult}
-    <div
-      class="animate-in fade-in fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm duration-150"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="export-dialog-title"
+  <ExportFlowDialog
+    open={isExportFlowOpen}
+    phase={exportPhase}
+    onEscape={handleExportEscape}
+    onBackdropClick={handleExportBackdrop}
+    {options}
+    {progress}
+    {success}
+    {cancelled}
+    error={errorPanel}
+  />
+</div>
+
+{#snippet options()}
+  <ExportDialog
+    {store}
+    onConfirm={confirmExportOptions}
+    onCancel={dismissExportOptions}
+  />
+{/snippet}
+
+{#snippet progress()}
+  {@const isPreparing =
+    prepSending !== "done" && !exportHasProgress && !exportFinalizing}
+  {@const eta = exportEtaMs()}
+  {@const exportDuration = getExportDuration()}
+  {@const exportRange = getExportRangeLabel()}
+  {@const ringPct = isPreparing
+    ? 0
+    : exportFinalizing
+      ? 100
+      : Math.min(100, Math.max(0, displayPct))}
+  {@const RING_R = 52}
+
+  <div class="flex flex-col" style="width: 420px;">
+    <!-- Header: title + live metadata -->
+    <header
+      class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
       <div
-        class="animate-in zoom-in-95 flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border/60 bg-popover/95 shadow-2xl ring-1 ring-border/40 backdrop-blur-xl duration-150"
+        class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary shadow-(--shadow-craft-inset)"
       >
-        <!--
-          Inner branch keys on `exportResult` (set by the `export-done` event
-          from Rust) rather than on `store.isExporting` (which tracks the
-          `exportVideo` Promise and can lag visibly while Tauri IPC rounds
-          back). This means the UI flips from "Finalizing…" to "Export
-          complete" the moment Rust emits `export-done`, even if the Promise
-          hasn't resolved yet.
-        -->
-        {#if !exportResult}
-          {@const isPreparing =
-            prepSending !== "done" && !exportHasProgress && !exportFinalizing}
-          {@const eta = exportEtaMs()}
-          {@const exportDuration = getExportDuration()}
-          {@const exportRange = getExportRangeLabel()}
-          {@const ringPct = isPreparing
-            ? 0
-            : exportFinalizing
-              ? 100
-              : Math.min(100, Math.max(0, displayPct))}
-          {@const RING_R = 52}
+        <Upload class="size-4" />
+      </div>
+      <div class="min-w-0 flex-1 pt-0.5">
+        <h3
+          id="export-flow-title"
+          class="text-[14px] font-semibold tracking-tight text-foreground"
+        >
+          {#if exportCancelling}
+            Cancelling export…
+          {:else if exportFinalizing}
+            Finalising file
+          {:else if isPreparing}
+            Preparing export
+          {:else}
+            Encoding video
+          {/if}
+        </h3>
+        <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
+          {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
+          · {formatTime(exportDuration)} clip · {exportRange}
+        </p>
+      </div>
+    </header>
 
-          <!-- Header: title + live metadata -->
-          <header
-            class="flex items-center gap-3 border-b border-border/60 px-4 py-3"
-          >
-            <div class="min-w-0 flex-1">
-              <h3
-                id="export-dialog-title"
-                class="text-[13px] font-semibold tracking-tight text-foreground"
-              >
-                {#if exportCancelling}
-                  Cancelling export…
-                {:else if exportFinalizing}
-                  Finalising file
-                {:else if isPreparing}
-                  Preparing export
-                {:else}
-                  Encoding video
-                {/if}
-              </h3>
-              <p class="truncate text-[11px] text-muted-foreground">
-                {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
-                · {formatTime(exportDuration)} clip · {exportRange}
-              </p>
-            </div>
-          </header>
-
-          <!-- Circular progress ring -->
-          <div class="flex flex-col items-center gap-3 px-6 pt-5 pb-2">
-            <div class="relative size-32" aria-live="polite">
-              <svg
-                viewBox="0 0 120 120"
-                class="size-full -rotate-90 overflow-visible"
-              >
-                <!-- Track -->
-                <circle
-                  cx="60"
-                  cy="60"
-                  r={RING_R}
-                  stroke="currentColor"
-                  stroke-width="6"
-                  class="fill-none text-muted"
-                />
-                {#if isPreparing}
+    <!-- Circular progress ring + stages -->
+    <div class="flex flex-col items-center gap-3 px-5 pt-5 pb-3">
+      <div class="relative size-32" aria-live="polite">
+        <svg
+          viewBox="0 0 120 120"
+          class="size-full -rotate-90 overflow-visible"
+        >
+          <!-- Track -->
+          <circle
+            cx="60"
+            cy="60"
+            r={RING_R}
+            stroke="currentColor"
+            stroke-width="6"
+            class="fill-none text-muted"
+          />
+          {#if isPreparing}
                   <!-- Indeterminate spinner: a 25-unit arc revolving on a
                        100-unit path. `pathLength="100"` decouples the
                        dash math from `2πr` so floating-point precision
@@ -1365,158 +1503,298 @@
             </ul>
           </div>
 
-          <!-- Footer: kbd hints + cancel -->
-          <footer
-            class="mt-3 flex h-10 items-center justify-between gap-2 border-t border-border/60 bg-muted/30 px-3 text-[11px] text-muted-foreground"
+    <!-- Footer: Cancel with shortcut Kbd per DESIGN -->
+    <footer
+      class="flex items-center justify-end gap-2 border-t border-border/40 bg-muted/30 px-3 py-2.5"
+    >
+      <Button
+        variant="destructive_soft"
+        size="xs"
+        class="gap-1.5"
+        onclick={handleCancelExport}
+        disabled={exportCancelling}
+      >
+        <X class="size-3" />
+        {exportCancelling ? "Cancelling…" : "Cancel export"}
+      </Button>
+    </footer>
+  </div>
+{/snippet}
+
+{#snippet success()}
+  <div class="flex flex-col" style="width: 500px;">
+    <!-- Header: success badge + title + file path as the secondary line.
+         Format/quality is implicit from the export the user just kicked off
+         and drops here in favor of the path the user actually needs to see. -->
+    <header class="flex items-start gap-3 px-5 py-4">
+      <div
+        class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-success/30 bg-success/10 text-success shadow-(--shadow-craft-inset)"
+      >
+        <CheckCircle2 class="size-4" />
+      </div>
+      <div class="min-w-0 flex-1 pt-0.5">
+        <h3
+          id="export-flow-title"
+          class="text-[14px] font-semibold tracking-tight text-foreground"
+        >
+          Export complete
+        </h3>
+        {#if exportResult?.kind === "success"}
+          <p
+            class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground"
+            title={exportResult.path}
           >
-            <span class="flex items-center gap-1">
-              <Kbd>Esc</Kbd>
-              <span>Cancel</span>
-            </span>
-            <Button
-              variant="destructive_soft"
-              size="xs"
-              class="gap-1.5"
-              onclick={handleCancelExport}
-              disabled={exportCancelling}
-            >
-              <X size={11} />
-              {exportCancelling ? "Cancelling…" : "Cancel export"}
-            </Button>
-          </footer>
-        {:else if exportResult?.kind === "success"}
-          <header
-            class="flex items-center gap-3 border-b border-border/60 px-4 py-3"
-          >
-            <div
-              class="flex size-8 shrink-0 items-center justify-center rounded-md border border-success/20 bg-success/10 text-success"
-            >
-              <CheckCircle2 size={16} />
-            </div>
-            <div class="min-w-0 flex-1">
-              <h3
-                id="export-dialog-title"
-                class="text-[13px] font-semibold tracking-tight text-foreground"
-              >
-                Export complete
-              </h3>
-              <p class="truncate text-[11px] text-muted-foreground">
-                {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
-              </p>
-            </div>
-          </header>
-          <div class="px-4 py-3">
-            <p
-              class="truncate font-mono text-[10px] text-muted-foreground"
-              title={exportResult.path}
-            >
-              {exportResult.path}
-            </p>
-          </div>
-          <footer
-            class="flex h-10 items-center justify-between gap-2 border-t border-border/60 bg-muted/30 px-3 text-[11px] text-muted-foreground"
-          >
-            <span class="flex items-center gap-1">
-              <Kbd>Esc</Kbd>
-              <span>Dismiss</span>
-            </span>
-            <div class="flex items-center gap-1.5">
-              <Button variant="ghost" size="xs" onclick={dismissExportResult}
-                >Dismiss</Button
-              >
-              <Button
-                variant="outline"
-                size="xs"
-                class="gap-1.5"
-                onclick={uploadExportToDrive}
-              >
-                <HardDriveUpload size={11} />
-                Upload to Drive
-              </Button>
-              <Button
-                variant="default"
-                size="xs"
-                class="gap-1.5"
-                onclick={revealExportInFolder}
-              >
-                <FolderOpen size={11} />
-                Show in Folder
-              </Button>
-            </div>
-          </footer>
-        {:else if exportResult?.kind === "cancelled"}
-          <header
-            class="flex items-center gap-3 border-b border-border/60 px-4 py-3"
-          >
-            <div
-              class="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground"
-            >
-              <X size={16} />
-            </div>
-            <div class="min-w-0 flex-1">
-              <h3
-                id="export-dialog-title"
-                class="text-[13px] font-semibold tracking-tight text-foreground"
-              >
-                Export cancelled
-              </h3>
-              <p class="truncate text-[11px] text-muted-foreground">
-                No file was written.
-              </p>
-            </div>
-          </header>
-          <footer
-            class="flex h-10 items-center justify-end gap-2 border-t border-border/60 bg-muted/30 px-3 text-[11px] text-muted-foreground"
-          >
-            <Button variant="ghost" size="xs" onclick={dismissExportResult}
-              >Dismiss</Button
-            >
-            <Button variant="default" size="xs" onclick={handleExport}
-              >Export again</Button
-            >
-          </footer>
-        {:else if exportResult?.kind === "error"}
-          <header
-            class="flex items-center gap-3 border-b border-border/60 px-4 py-3"
-          >
-            <div
-              class="flex size-8 shrink-0 items-center justify-center rounded-md border border-destructive/20 bg-destructive/10 text-destructive"
-            >
-              <X size={16} />
-            </div>
-            <div class="min-w-0 flex-1">
-              <h3
-                id="export-dialog-title"
-                class="text-[13px] font-semibold tracking-tight text-foreground"
-              >
-                Export failed
-              </h3>
-              <p class="truncate text-[11px] text-muted-foreground">
-                Something went wrong.
-              </p>
-            </div>
-          </header>
-          <div
-            class="max-h-40 overflow-y-auto border-b border-border/60 px-4 py-3"
-          >
-            <pre
-              class="whitespace-pre-wrap wrap-break-word font-mono text-[10px] text-destructive">{exportResult.message}</pre>
-          </div>
-          <footer
-            class="flex h-10 items-center justify-end gap-2 border-t border-border/60 bg-muted/30 px-3 text-[11px] text-muted-foreground"
-          >
-            <Button variant="ghost" size="xs" onclick={dismissExportResult}
-              >Dismiss</Button
-            >
-            <Button variant="default" size="xs" onclick={handleExport}
-              >Try again</Button
-            >
-          </footer>
+            {exportResult.path}
+          </p>
         {/if}
       </div>
+    </header>
+
+    {#if successUpload}
+      <!-- Drive row: single horizontal row with leading status icon, label,
+           inline progress (when uploading), and trailing inline action
+           ("Copy link" when complete, "Cancel" when uploading, "Retry"
+           after error/cancel). Sits on a faintly tinted strip so it reads
+           as the export's outbound destination, not a generic status card. -->
+      <div
+        class="flex items-center gap-3 border-t border-border/40 bg-muted/15 px-5 py-3"
+        aria-live="polite"
+      >
+        <div
+          class="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card/70 text-muted-foreground shadow-(--shadow-craft-inset)"
+        >
+          {#if successUpload.status === "uploading"}
+            <RefreshCw class="size-3.5 animate-spin text-primary" />
+          {:else if successUpload.status === "complete"}
+            <HardDriveUpload class="size-3.5 text-success" />
+          {:else if successUpload.status === "cancelled"}
+            <X class="size-3.5" />
+          {:else}
+            <TriangleAlert class="size-3.5 text-destructive" />
+          {/if}
+        </div>
+
+        <div class="min-w-0 flex-1">
+          <p class="text-[12px] font-medium text-foreground">
+            {#if successUpload.status === "uploading"}
+              Uploading to Drive
+            {:else if successUpload.status === "complete"}
+              Uploaded to Drive
+            {:else if successUpload.status === "cancelled"}
+              Upload cancelled
+            {:else}
+              Upload failed
+            {/if}
+          </p>
+          {#if successUpload.status === "uploading"}
+            <div class="mt-1 flex items-center gap-2">
+              <div class="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  class="h-full rounded-full bg-primary transition-[width] duration-200"
+                  style="width: {successUploadPct}%"
+                ></div>
+              </div>
+              <span
+                class="font-mono text-[10px] tabular-nums text-muted-foreground"
+              >
+                {successUploadPct}%
+              </span>
+            </div>
+          {:else if successUpload.status === "error" && successUpload.error}
+            <p
+              class="truncate text-[10.5px] leading-snug text-muted-foreground"
+              title={successUpload.error}
+            >
+              {successUpload.error}
+            </p>
+          {/if}
+        </div>
+
+        <!-- Inline trailing action. Mirrors the screenshot: completed
+             uploads expose "Copy link" as a primary-tinted chip right
+             next to the status, no detour through the footer. -->
+        {#if successUpload.status === "uploading"}
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-muted-foreground"
+            onclick={() => gdrive.cancelUpload(successUpload!.uploadId)}
+          >
+            <X class="size-3" />
+            Cancel
+          </Button>
+        {:else if successUpload.status === "complete" && successUpload.webViewLink}
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-primary hover:text-primary"
+            onclick={() => copyDriveLink(successUpload!.webViewLink!)}
+          >
+            <Link2 class="size-3" />
+            Copy link
+          </Button>
+        {:else}
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-muted-foreground"
+            onclick={uploadExportToDrive}
+          >
+            <RefreshCw class="size-3" />
+            Retry
+          </Button>
+        {/if}
+      </div>
+    {/if}
+
+    <footer
+      class="flex items-center justify-end gap-1.5 border-t border-border/40 bg-muted/30 px-3 py-2.5"
+    >
+      <Button variant="ghost" size="xs" onclick={dismissExportResult}
+        >Dismiss</Button
+      >
+
+      {#if shareSupported}
+        <Button
+          variant="outline"
+          size="xs"
+          class="gap-1.5"
+          onclick={shareExportedFile}
+          title="Open the system share sheet"
+        >
+          <Share2 class="size-3" />
+          Share
+        </Button>
+      {/if}
+
+      <!-- Footer keeps "Upload to Drive" only when no upload exists yet;
+           after that, the Drive row above owns the upload lifecycle and
+           the footer just complements with "Open in Drive" for completed
+           uploads (paired with the inline "Copy link" chip). -->
+      {#if !successUpload}
+        <Button
+          variant="outline"
+          size="xs"
+          class="gap-1.5"
+          onclick={uploadExportToDrive}
+        >
+          <HardDriveUpload class="size-3" />
+          Upload to Drive
+        </Button>
+      {:else if successUpload.status === "complete" && successUpload.webViewLink}
+        <Button
+          variant="outline"
+          size="xs"
+          class="gap-1.5"
+          onclick={() => openDriveLink(successUpload!.webViewLink!)}
+        >
+          <ExternalLink class="size-3" />
+          Open in Drive
+        </Button>
+      {/if}
+
+      <Button
+        variant="default"
+        size="xs"
+        class="gap-1.5"
+        onclick={revealExportInFolder}
+      >
+        <FolderOpen class="size-3" />
+        Show in folder
+      </Button>
+    </footer>
+  </div>
+{/snippet}
+
+{#snippet cancelled()}
+  <div class="flex flex-col" style="width: 420px;">
+    <header
+      class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
+    >
+      <div
+        class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted text-muted-foreground shadow-(--shadow-craft-inset)"
+      >
+        <X class="size-4" />
+      </div>
+      <div class="min-w-0 flex-1 pt-0.5">
+        <h3
+          id="export-flow-title"
+          class="text-[14px] font-semibold tracking-tight text-foreground"
+        >
+          Export cancelled
+        </h3>
+        <p class="mt-0.5 text-[11px] text-muted-foreground">
+          No file was written.
+        </p>
+      </div>
+    </header>
+    <footer
+      class="flex items-center justify-end gap-1.5 border-t border-border/40 bg-muted/30 px-3 py-2.5"
+    >
+      <Button variant="ghost" size="xs" onclick={dismissExportResult}
+        >Dismiss</Button
+      >
+      <Button
+        variant="default"
+        size="xs"
+        class="gap-1.5"
+        onclick={handleExport}
+      >
+        <Upload class="size-3" />
+        Export again
+      </Button>
+    </footer>
+  </div>
+{/snippet}
+
+{#snippet errorPanel()}
+  <div class="flex flex-col" style="width: 500px;">
+    <header
+      class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
+    >
+      <div
+        class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-destructive/30 bg-destructive/10 text-destructive shadow-(--shadow-craft-inset)"
+      >
+        <TriangleAlert class="size-4" />
+      </div>
+      <div class="min-w-0 flex-1 pt-0.5">
+        <h3
+          id="export-flow-title"
+          class="text-[14px] font-semibold tracking-tight text-foreground"
+        >
+          Export failed
+        </h3>
+        <p class="mt-0.5 text-[11px] text-muted-foreground">
+          Something went wrong while encoding.
+        </p>
+      </div>
+    </header>
+    <div
+      class="max-h-40 overflow-y-auto border-b border-border/40 px-5 py-3"
+    >
+      {#if exportResult?.kind === "error"}
+        <pre
+          class="whitespace-pre-wrap wrap-break-word font-mono text-[10px] leading-snug text-destructive">{exportResult.message}</pre>
+      {/if}
     </div>
-  {/if}
-</div>
+    <footer
+      class="flex items-center justify-end gap-1.5 border-t border-border/40 bg-muted/30 px-3 py-2.5"
+    >
+      <Button variant="ghost" size="xs" onclick={dismissExportResult}
+        >Dismiss</Button
+      >
+      <Button
+        variant="default"
+        size="xs"
+        class="gap-1.5"
+        onclick={handleExport}
+      >
+        <Upload class="size-3" />
+        Try again
+      </Button>
+    </footer>
+  </div>
+{/snippet}
 
 <style>
   /* Hand-off-to-encoder beam: three dots travel left → right with offset

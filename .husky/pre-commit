@@ -1,0 +1,13 @@
+# Run only when Rust sources in the desktop crate are staged. rustfmt is fast
+# (~1s, no compile) so blocking the commit is cheap. Clippy stays in CI — it
+# needs a full target build and would make every commit slow.
+staged_rust=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^apps/desktop/src-tauri/.*\.rs$' || true)
+
+if [ -n "$staged_rust" ]; then
+  echo "[pre-commit] checking Rust formatting..."
+  if ! pnpm --filter recast-desktop --silent fmt:check; then
+    echo ""
+    echo "[pre-commit] rustfmt drift detected. Run: pnpm --filter recast-desktop fmt"
+    exit 1
+  fi
+fi

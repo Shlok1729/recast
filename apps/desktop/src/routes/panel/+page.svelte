@@ -681,7 +681,7 @@
         "This recording has been paused for 5 minutes.\n\n" +
           "Resume now? (Use Stop on the panel to finish and save.)",
         {
-          title: "Recast — recording paused",
+          title: "Recast - recording paused",
           kind: "warning",
           okLabel: "Resume",
           cancelLabel: "Not now",

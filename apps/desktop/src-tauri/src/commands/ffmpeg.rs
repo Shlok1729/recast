@@ -51,11 +51,29 @@ pub fn resolve_export_profile(quality: &str) -> ExportProfile {
 }
 
 pub fn build_output_scale_filter(profile: ExportProfile) -> Option<String> {
+    // libx264 + yuv420p (the chroma subsampling for our MP4 output) requires
+    // even width AND even height. Without enforcement, fitting an arbitrary
+    // source (e.g. 1599×962) into a preset bound (1280×720) preserves the
+    // aspect ratio and produces 1195×720 — the encoder fails to open with
+    // "width not divisible by 2".
+    //
+    // FFmpeg 4.4+ exposes `force_divisible_by=2` on the scale filter, but
+    // the version of FFmpeg we bundle isn't pinned, so we use the
+    // version-agnostic trick: chain a second scale with `trunc(.../2)*2`.
+    // It's effectively a no-op when the previous stage produced even
+    // dimensions, and snaps down by one pixel when it didn't. `neighbor`
+    // sampling on the second pass keeps it cheap (no resample math) and
+    // avoids any smear on the ±1px adjustment.
     match (profile.max_width, profile.max_height) {
         (Some(max_width), Some(max_height)) => Some(format!(
-            "scale=w='min(iw,{max_width})':h='min(ih,{max_height})':force_original_aspect_ratio=decrease:flags=lanczos"
+            "scale=w='min(iw,{max_width})':h='min(ih,{max_height})':force_original_aspect_ratio=decrease:flags=lanczos,\
+             scale=w='trunc(iw/2)*2':h='trunc(ih/2)*2':flags=neighbor"
         )),
-        _ => None,
+        _ => Some(
+            // "source" quality has no resize, but window/region captures can
+            // still be odd-dimensioned. Apply only the even-dim snap.
+            "scale=w='trunc(iw/2)*2':h='trunc(ih/2)*2':flags=neighbor".to_string(),
+        ),
     }
 }
 

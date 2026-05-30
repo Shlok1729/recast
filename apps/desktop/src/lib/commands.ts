@@ -20,6 +20,25 @@ import {
 import { toast } from "@recast/ui/sonner";
 import { setMode } from "@recast/ui/theme";
 
+// Hand external URLs off to the OS via the Tauri opener plugin. Plain
+// `window.open` in WebView2 opens an in-app popup (often blocked) instead
+// of routing to the user's default browser — which is why palette
+// commands silently did nothing before this helper existed. We dynamic-
+// import so this module stays usable from the web build, which doesn't
+// have the plugin and falls back to a regular `window.open`.
+async function openExternal(url: string) {
+	try {
+		const { openUrl } = await import("@tauri-apps/plugin-opener");
+		await openUrl(url);
+	} catch (e) {
+		try {
+			window.open(url, "_blank", "noopener");
+		} catch {
+			toast.error(`Could not open link: ${e}`);
+		}
+	}
+}
+
 export function buildGlobalCommands(): PaletteCommand[] {
 	return [
 		// Navigation
@@ -150,9 +169,7 @@ export function buildGlobalCommands(): PaletteCommand[] {
 			category: "External",
 			icon: Github,
 			keywords: ["github", "source", "repo"],
-			action: () => {
-				window.open(config.github, "_blank");
-			},
+			action: () => openExternal(config.github),
 		},
 		{
 			id: "ext.website",
@@ -160,9 +177,7 @@ export function buildGlobalCommands(): PaletteCommand[] {
 			category: "External",
 			icon: ExternalLink,
 			keywords: ["website", "homepage", "web"],
-			action: () => {
-				window.open(config.website, "_blank");
-			},
+			action: () => openExternal(config.website),
 		},
 	];
 }

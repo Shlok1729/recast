@@ -30,7 +30,7 @@
   import { cn } from "@recast/ui/utils";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
-  import { fade, fly } from "svelte/transition";
+  import { fade, fly, scale } from "svelte/transition";
 
   import {
     enumerateCameras,
@@ -322,17 +322,18 @@
 <div class="h-full overflow-y-auto scrollbar-transparent no-scrollbar">
   <div class="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
     <!-- Hero (matches the home page rhythm) -->
-    <header
-      in:fly={{ y: 12, duration: 320, easing: cubicOut }}
-      class="flex flex-col gap-3"
-    >
+    <header class="flex flex-col gap-3">
       <span
-        class="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/50 bg-card/60 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground/80 backdrop-blur"
+        in:fly={{ y: 6, duration: 280, easing: cubicOut }}
+        class="inline-flex w-fit items-center gap-1.5 rounded-full border border-border/50 bg-card/60 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground/80 backdrop-blur transition-colors duration-200 hover:border-border hover:text-muted-foreground"
       >
         <SlidersIcon class="size-3 text-primary" />
         Profiles
       </span>
-      <div class="flex items-end justify-between gap-3">
+      <div
+        in:fly={{ y: 12, duration: 320, delay: 40, easing: cubicOut }}
+        class="flex items-end justify-between gap-3"
+      >
         <h1
           class="text-balance text-[28px] font-semibold leading-tight tracking-tight text-foreground md:text-[32px]"
         >
@@ -394,7 +395,10 @@
           </Tooltip.Content>
         </Tooltip.Root>
       </div>
-      <p class="text-[12.5px] leading-relaxed text-muted-foreground">
+      <p
+        in:fly={{ y: 8, duration: 280, delay: 100, easing: cubicOut }}
+        class="text-[12.5px] leading-relaxed text-muted-foreground"
+      >
         Save what to capture — system audio, mic, camera — and pick the default
         that loads on launch.
         {#if profilesStore.profiles.length > 0}
@@ -477,7 +481,7 @@
         class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/60 bg-card/40 p-12 text-center"
       >
         <div
-          class="flex size-12 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground"
+          class="flex size-12 animate-empty-float items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground ring-1 ring-inset ring-border/30"
         >
           <SlidersIcon class="size-5" />
         </div>
@@ -508,12 +512,25 @@
               easing: cubicOut,
             }}
             class={cn(
-              "group/card relative flex flex-col gap-3 rounded-xl border bg-card/70 p-4 shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:shadow-craft-sm",
+              "group/card relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-card/70 p-4 shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:shadow-craft-sm",
               profile.isDefault
-                ? "border-warning/30 ring-1 ring-warning/15"
+                ? "border-border/60 ring-1 ring-primary/20"
                 : "border-border/50 hover:border-border",
             )}
           >
+            <!-- Default cards get a single hairline of primary along the top edge —
+                 the cue is the accent, not a full warning-tinted surface. -->
+            {#if profile.isDefault}
+              <span
+                aria-hidden="true"
+                class="pointer-events-none absolute inset-x-3 top-0 h-px bg-linear-to-r from-transparent via-primary/60 to-transparent"
+              ></span>
+            {/if}
+            <!-- Hover sheen: a soft top-edge highlight that fades in on hover -->
+            <span
+              aria-hidden="true"
+              class="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-foreground/15 to-transparent opacity-0 transition-opacity duration-200 group-hover/card:opacity-100"
+            ></span>
             <!-- Top row: name + default badge + actions -->
             <div class="flex items-start gap-2">
               <button
@@ -523,14 +540,16 @@
               >
                 <span
                   class={cn(
-                    "flex size-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset transition-colors",
+                    "flex size-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset transition-all duration-200 group-hover/card:scale-[1.04]",
                     profile.isDefault
-                      ? "bg-warning/10 text-warning ring-warning/30"
-                      : "bg-foreground/5 text-foreground ring-border/40",
+                      ? "bg-[color-mix(in_srgb,var(--color-primary)_8%,transparent)] text-primary ring-primary/25"
+                      : "bg-foreground/5 text-foreground ring-border/40 group-hover/card:bg-foreground/8",
                   )}
                 >
                   {#if profile.isDefault}
-                    <Star class="size-4" />
+                    <span in:scale={{ start: 0.7, duration: 220, easing: cubicOut }}>
+                      <Star class="size-4" />
+                    </span>
                   {:else}
                     <SlidersIcon class="size-4" />
                   {/if}
@@ -605,12 +624,12 @@
                 <Badge
                   variant={on ? "secondary" : "outline"}
                   class={cn(
-                    "gap-1.5 px-2 text-[10px]",
+                    "gap-1.5 px-2 text-[10px] transition-colors duration-200",
                     on && "bg-primary/10 text-primary border-primary/25",
                     !on && "text-muted-foreground/70",
                   )}
                 >
-                  <Icon class="size-3" />
+                  <Icon class="size-3 transition-transform duration-200" />
                   {cap.label}
                 </Badge>
               {/each}
@@ -619,20 +638,26 @@
             <!-- Footer: default toggle pill -->
             <div class="flex items-center justify-between pt-1">
               {#if profile.isDefault}
-                <Badge
-                  variant="outline"
-                  class="gap-1 border-warning/25 bg-warning/10 text-warning"
-                >
-                  <Sparkles class="size-3" />
-                  Default
-                </Badge>
+                <span in:scale={{ start: 0.85, duration: 220, easing: cubicOut }}>
+                  <Badge
+                    variant="outline"
+                    class="gap-1 border-warning/25 bg-warning/10 text-warning"
+                  >
+                    <Sparkles class="size-3" />
+                    Default
+                  </Badge>
+                </span>
               {:else}
                 <button
                   type="button"
                   onclick={() => setDefault(profile.id)}
-                  class="text-[10.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  class="group/setdef relative text-[10.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Set as default
+                  <span
+                    aria-hidden="true"
+                    class="absolute -bottom-0.5 left-0 h-px w-full origin-left scale-x-0 bg-foreground/30 transition-transform duration-200 group-hover/setdef:scale-x-100"
+                  ></span>
                 </button>
               {/if}
               <Button
@@ -662,9 +687,9 @@
             class="group/add flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 bg-card/30 p-6 text-center text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <span
-              class="flex size-9 items-center justify-center rounded-lg bg-foreground/5 text-foreground transition-colors group-hover/add:bg-primary/10 group-hover/add:text-primary"
+              class="flex size-9 items-center justify-center rounded-lg bg-foreground/5 text-foreground transition-all duration-200 group-hover/add:scale-110 group-hover/add:bg-primary/10 group-hover/add:text-primary group-hover/add:shadow-[0_0_0_4px_color-mix(in_srgb,var(--color-primary)_12%,transparent)]"
             >
-              <Plus class="size-4" />
+              <Plus class="size-4 transition-transform duration-300 group-hover/add:rotate-90" />
             </span>
             <div>
               <div class="text-[12.5px] font-semibold text-foreground">
@@ -943,3 +968,25 @@
     </Dialog.Content>
   </Dialog.Root>
 {/if}
+
+<style>
+  /* Gentle vertical float for empty-state iconography. */
+  @keyframes empty-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-3px);
+    }
+  }
+  :global(.animate-empty-float) {
+    animation: empty-float 4.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.animate-empty-float) {
+      animation: none;
+    }
+  }
+</style>

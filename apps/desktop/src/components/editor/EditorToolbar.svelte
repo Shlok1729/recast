@@ -17,13 +17,11 @@
   import { Separator } from "@recast/ui/separator";
   import * as Tooltip from "@recast/ui/tooltip";
   import { cn } from "@recast/ui/utils";
-  import ExportDialog from "./ExportDialog.svelte";
   import PresetPicker, { PRESETS, type Preset } from "./PresetPicker.svelte";
 
   interface Props {
     store: EditorStore;
     filename?: string;
-    onback?: () => void;
     onexport?: () => void;
     onsave?: () => void | Promise<void>;
     isSaving?: boolean;
@@ -32,13 +30,11 @@
   let {
     store,
     filename = "Recording",
-    onback,
     onexport,
     onsave,
     isSaving = false,
   }: Props = $props();
   let showPresetsPicker = $state(false);
-  let exportDialogOpen = $state(false);
 
   const layoutModes: { value: "auto" | "crop"; label: string; icon: typeof LayoutGrid }[] = [
     { value: "auto", label: "Auto", icon: LayoutGrid },
@@ -100,7 +96,7 @@
 
   function openExport() {
     if (store.isExporting) return;
-    exportDialogOpen = true;
+    onexport?.();
   }
 </script>
 
@@ -112,7 +108,7 @@
   <div class="flex items-center gap-0.5">
     <Tooltip.Root>
       <Tooltip.Trigger>
-        <Button variant="ghost" size="icon-sm" onclick={() => onback?.()} aria-label="Back">
+        <Button variant="ghost" size="icon-sm" href="/recasts" aria-label="Back">
           <ArrowLeft size={12} />
         </Button>
       </Tooltip.Trigger>
@@ -325,13 +321,6 @@
     </Button>
   </div>
 </div>
-
-<ExportDialog
-  {store}
-  bind:open={exportDialogOpen}
-  onOpenChange={(v) => (exportDialogOpen = v)}
-  onConfirm={() => onexport?.()}
-/>
 
 <PresetPicker
   open={showPresetsPicker}

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 mod audio;
 mod camera;
@@ -17,7 +18,34 @@ use commands::system::load_config;
 use commands::types::AppState;
 use parking_lot::Mutex;
 use recording::RecordingManager;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+/// Pull a `.recast` file path out of process argv if the OS launched us
+/// with one via the file association (Windows registry shell-open, macOS
+/// LaunchServices, Linux xdg-open). Returns `None` for normal launches.
+///
+/// Defensive rules:
+/// * Skip `argv[0]` (executable path).
+/// * Skip any arg starting with `-` — covers dev-mode flags (`--port`,
+///   etc.) and the macOS `-psn_NNNN_NNNN` process serial number that
+///   LaunchServices sometimes prepends.
+/// * Match the extension case-insensitively — Windows is case-insensitive
+///   and APFS *can* be case-sensitive, so users may have `.Recast` files.
+/// * Verify the path exists. If a user double-clicks then deletes the file
+///   before we boot, we want to report "no longer exists" instead of
+///   navigating to an editor window that immediately errors.
+fn parse_open_arg(argv: &[String]) -> Option<PathBuf> {
+    argv.iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .map(PathBuf::from)
+        .find(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("recast"))
+                && p.exists()
+        })
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,17 +63,30 @@ pub fn run() {
         // any later plugin would have already initialized in that ghost
         // process. The plugin shuts the ghost down after the handler returns,
         // so we just refocus the existing window and exit.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
+            }
+            // Warm-start file-association path: the ghost process's argv is
+            // forwarded here. Emit to the main window which always-new-windows
+            // it via openProjectFromExternalPath. Close-to-tray keeps main's
+            // JS alive even when hidden, so the listener catches this.
+            if let Some(path) = parse_open_arg(&argv) {
+                let payload = path.to_string_lossy().to_string();
+                if let Err(e) = app.emit("app://open-recast", payload) {
+                    log::warn!("emit app://open-recast failed: {e}");
+                }
             }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // JS-injecting plugin — must be on the Builder before any window,
+        // same constraint as dialog/os (see the comment block below).
+        .plugin(tauri_plugin_sharekit::init())
         .plugin(tauri_plugin_os::init());
 
     // JS-injecting plugins (dialog, os) MUST be added on the Builder before
@@ -81,12 +122,19 @@ pub fn run() {
             let handle = app.handle();
             let config = load_config(handle);
 
+            // Cold-start file-association path: stash any `.recast` arg the
+            // OS handed us so the main window can drain it on mount via
+            // `take_pending_open_file`. None for a normal launch.
+            let cold_open_file: Vec<String> = std::env::args().collect();
+            let pending_open_file = parse_open_arg(&cold_open_file);
+
             app.manage(AppState {
                 recording_manager: RecordingManager::default(),
                 last_file_path: Mutex::new(None),
                 config: Mutex::new(config),
                 export_cancel: Mutex::new(HashMap::new()),
                 auth_poller: Mutex::new(None),
+                pending_open_file: Mutex::new(pending_open_file),
             });
 
             // System tray. Init failure is non-fatal — the app still works
@@ -212,6 +260,9 @@ pub fn run() {
             commands::gdrive_cancel_upload,
             commands::gdrive_list_uploads,
             commands::gdrive_forget_upload,
+            commands::take_pending_open_file,
+            commands::peek_recast_project,
+            commands::is_recording_active,
             tray::refresh_tray
         ])
         .build(tauri::generate_context!())

@@ -5,6 +5,7 @@ export { default as Hero } from "./Hero.svelte";
 export { default as Navbar } from "./Navbar.svelte";
 export { default as ScreenshotSlideshow } from "./ScreenshotSlideshow.svelte";
 export { default as Section } from "./Section.svelte";
+export { default as SeoMeta } from "./SeoMeta.svelte";
 
 export { Eyebrow } from "@recast/ui/eyebrow";
 export { Reveal } from "@recast/ui/reveal";

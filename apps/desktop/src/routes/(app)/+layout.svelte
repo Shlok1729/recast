@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import AppSidebar from "$components/layout/app-sidebar.svelte";
   import CornerNotifications from "$components/corner-notifications.svelte";
+  import AppSidebar from "$components/layout/app-sidebar.svelte";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import WhatsNewDialog from "$components/whats-new-dialog.svelte";
   import { config } from "$constants/app";
@@ -58,7 +58,7 @@
           ·
         </span>
         <span
-          class="pointer-events-none select-none truncate text-[11px] font-medium text-muted-foreground/80"
+          class="pointer-events-none select-none truncate capitalize text-[11px] font-medium text-muted-foreground/80"
           data-tauri-drag-region
         >
           {routeKey === "/"

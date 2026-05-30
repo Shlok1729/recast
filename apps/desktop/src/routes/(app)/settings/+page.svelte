@@ -342,7 +342,7 @@
                       aria-checked={profilesStore.enabled}
                       onclick={toggleProfilesEnabled}
                       class={cn(
-                        "flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                        "flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors",
                         profilesStore.enabled
                           ? "bg-primary"
                           : "bg-input ring-1 ring-inset ring-border/50",
@@ -388,19 +388,23 @@
         </Tabs.Content>
 
         <Tabs.Content value="cloud" class="flex min-w-0 flex-col gap-8">
-              <!-- Cloud sign-in. Only section in the Cloud tab today; future
-                   additions (devices list, sync status) belong here. -->
+              <!-- Recast Cloud sign-in. The desktop app is fully usable without
+                   it; Cloud unlocks the Loom-style sharing layer (instant
+                   share links, viewer analytics, password protection,
+                   custom branding). Free tier ships 10 active links with a
+                   watermark; paid tier removes both. See [[positioning_plan]]. -->
               <section id="settings-cloud" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2
                     class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
                   >
                     <Cloud class="size-3 text-primary" />
-                    Account
+                    Recast Cloud
                   </h2>
                   <p class="mt-0.5 text-[11px] text-muted-foreground/80">
-                    Sign in to sync recordings across devices and share from the
-                    cloud.
+                    Share recordings as Loom-style links with viewer analytics,
+                    password protection, and custom branding — layered on top of
+                    your local recordings.
                   </p>
                 </div>
                 <div
@@ -477,7 +481,7 @@
                           aria-checked={active}
                           onclick={() => updateTheme(t.value)}
                           class={cn(
-                            "flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-all duration-200",
+                            "flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-all duration-200",
                             active
                               ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
                               : "text-muted-foreground hover:text-foreground",
@@ -525,7 +529,7 @@
                       aria-checked={closeToTray}
                       onclick={toggleCloseToTray}
                       class={cn(
-                        "flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                        "flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors",
                         closeToTray
                           ? "bg-primary"
                           : "bg-input ring-1 ring-inset ring-border/50",
@@ -582,7 +586,7 @@
                         aria-checked={on}
                         onclick={() => toggleExperimental(flag.key, flag.label)}
                         class={cn(
-                          "flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                          "flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors",
                           on
                             ? "bg-primary"
                             : "bg-input ring-1 ring-inset ring-border/50",

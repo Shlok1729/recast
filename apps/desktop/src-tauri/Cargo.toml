@@ -35,6 +35,12 @@ zip = { version = "2.2.0", default-features = false, features = ["deflate"] }
 tauri-plugin-os = "2.3.2"
 trash = "5.2"
 tauri-plugin-opener = "2"
+# Native OS share sheet (Windows DataTransferManager, macOS
+# NSSharingServicePicker, mobile share panes). Replaces the
+# `navigator.share` path — WebView2's Web Share API rejects video/* file
+# payloads via `canShare`, which made the web approach useless for
+# sharing recordings.
+tauri-plugin-sharekit = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "json"] }
 sha2 = "0.10"
 futures-util = "0.3"

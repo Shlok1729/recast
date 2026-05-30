@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -235,4 +236,9 @@ pub struct AppState {
     /// enough. Only one poller can be live at a time: `auth_start` rejects
     /// when this is `Some`.
     pub auth_poller: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// `.recast` file path the OS handed us via argv on cold start. The
+    /// frontend drains this on main-window mount with `take_pending_open_file`
+    /// and routes to a new editor window. `None` after drain — warm-start
+    /// opens go through the `app://open-recast` event instead.
+    pub pending_open_file: Mutex<Option<PathBuf>>,
 }

@@ -18,11 +18,14 @@
 	import { onDestroy, onMount } from "svelte";
 
 	/**
-	 * "Sign in to Cloud" row. Drives the device-authorization flow via the
-	 * Rust `auth_*` commands. State machine:
+	 * "Sign in to Recast Cloud" row. Recast Cloud is the Loom-style sharing
+	 * layer (instant share links, viewer analytics, password protection,
+	 * branding) on top of the free local app — the app itself never needs
+	 * an account. Drives the device-authorization flow via the Rust
+	 * `auth_*` commands. State machine:
 	 *
 	 *   loading    → initial auth_status check
-	 *   signed-out → button: "Sign in to Cloud" (triggers auth_start)
+	 *   signed-out → button: "Sign in to Recast Cloud" (triggers auth_start)
 	 *   waiting    → browser open, code on screen, button: "Cancel"
 	 *   signed-in  → rich profile card (avatar, plan, usage, manage)
 	 *   denied     → error msg + retry button
@@ -193,7 +196,7 @@
 		inFlight = "sign-out";
 		try {
 			await invoke("auth_sign_out");
-			toast.success("Signed out of Cloud.");
+			toast.success("Signed out of Recast Cloud.");
 			view = { kind: "signed-out" };
 		} catch (e) {
 			toast.error(`Couldn't sign out: ${e}`);
@@ -243,7 +246,7 @@
 					// /api/desktop/profile after /device/token returns), so the
 					// payload carries plan + usage — no refetch needed here.
 					view = { kind: "signed-in", ...toProfile(s ?? ({} as AuthStatus)) };
-					toast.success("Signed in to Cloud.");
+					toast.success("Signed in to Recast Cloud.");
 				}),
 				listen("auth:denied", () => {
 					if (view.kind !== "waiting") return;
@@ -523,11 +526,12 @@
 		<div class="flex items-center justify-between gap-3">
 			<div class="min-w-0">
 				<div class="text-[12px] font-semibold text-foreground">
-					Not signed in
+					Connect Recast Cloud
 				</div>
 				<div class="text-[11px] text-muted-foreground">
-					Sign in to sync recordings across devices and share from the
-					cloud.
+					Send a Loom-style share link with viewer analytics, comments, and
+					password protection. The app itself never needs an account —
+					Cloud is opt-in.
 				</div>
 			</div>
 			<Button
@@ -541,7 +545,7 @@
 					<span class="text-[11.5px]">Signing in…</span>
 				{:else}
 					<Cloud class="size-3.5" />
-					<span class="text-[11.5px]">Sign in to Cloud</span>
+					<span class="text-[11.5px]">Sign in to Recast Cloud</span>
 				{/if}
 			</Button>
 		</div>
