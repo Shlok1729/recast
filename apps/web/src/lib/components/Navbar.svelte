@@ -10,7 +10,7 @@
 			links: [
 				{ label: "Features", href: "/features" },
 				{ label: "Pricing", href: "/pricing" },
-				{ label: "Join Waitlist", href: "/waitlist" },
+				{ label: "Cloud Waitlist", href: "/waitlist" },
 			],
 		},
 		{
@@ -38,7 +38,7 @@
 		portalTarget={menuContainer}
 		{menuGroups}
 		primaryButton={{ label: "Download", href: "/download" }}
-		secondaryButton={{ label: "Join Waitlist", href: "/waitlist" }}
+		secondaryButton={{ label: "Cloud Waitlist", href: "/waitlist" }}
 		tertiaryButton={{
 			label: "GitHub",
 			href: "https://github.com/kanakkholwal/recast",

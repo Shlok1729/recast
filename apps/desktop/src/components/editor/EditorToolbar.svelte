@@ -2,8 +2,6 @@
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
     ArrowLeft,
-    Crop,
-    LayoutGrid,
     LoaderCircle,
     Redo2,
     Save,
@@ -16,7 +14,6 @@
   import { Kbd } from "@recast/ui/kbd";
   import { Separator } from "@recast/ui/separator";
   import * as Tooltip from "@recast/ui/tooltip";
-  import { cn } from "@recast/ui/utils";
   import PresetPicker, { PRESETS, type Preset } from "./PresetPicker.svelte";
 
   interface Props {
@@ -35,11 +32,6 @@
     isSaving = false,
   }: Props = $props();
   let showPresetsPicker = $state(false);
-
-  const layoutModes: { value: "auto" | "crop"; label: string; icon: typeof LayoutGrid }[] = [
-    { value: "auto", label: "Auto", icon: LayoutGrid },
-    { value: "crop", label: "Crop", icon: Crop },
-  ];
 
   function applyPreset(preset: Preset) {
     store.pushUndoState();
@@ -133,34 +125,8 @@
     ></span>
   {/if}
 
-  <!-- Center: layout segmented + presets + undo/redo -->
+  <!-- Center: presets + undo/redo -->
   <div class="mx-auto flex items-center gap-1.5" data-tauri-drag-region>
-    <div
-      class="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-inset ring-border/40"
-      role="radiogroup"
-      aria-label="Layout mode"
-    >
-      {#each layoutModes as m (m.value)}
-        {@const Icon = m.icon}
-        {@const active = store.layoutMode === m.value}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={active}
-          onclick={() => (store.layoutMode = m.value)}
-          class={cn(
-            "flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold transition-all duration-150",
-            active
-              ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <Icon class="size-3" />
-          <span>{m.label}</span>
-        </button>
-      {/each}
-    </div>
-
     <Tooltip.Root>
       <Tooltip.Trigger>
         <Button

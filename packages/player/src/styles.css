@@ -42,7 +42,7 @@
    ────────────────────────────────────────────────────────────────── */
 
 .recast-player {
-	--media-primary-color: var(--color-primary);
+	--media-primary-color: var(--primary, #cdec3a);
 	--media-secondary-color: rgba(255, 255, 255, 0.92);
 	--media-icon-color: rgba(255, 255, 255, 0.92);
 
@@ -51,15 +51,15 @@
 	   displays never pick up a white-overlay rectangle on hover. */
 	--media-control-background: transparent;
 	--media-control-hover-background: transparent;
-	--media-menu-background: rgba(15, 15, 14, 0.96);
-	--media-menu-color: rgba(255, 255, 255, 0.92);
+	--media-menu-background: var(--popover, #1f1f1f);
+	--media-menu-color: var(--popover-foreground, #f5f5f5);
 
 	--media-control-padding: 0;
 	--media-control-height: 36px;
 	--media-button-icon-height: 16px;
 	--media-button-icon-width: 16px;
 	--media-button-padding: 0;
-	--media-focus-ring-color: var(--color-primary);
+	--media-focus-ring-color: var(--primary, #cdec3a);
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -70,10 +70,10 @@
 	--media-range-track-background: rgba(255, 255, 255, 0.18);
 	--media-range-track-pointer-background: rgba(255, 255, 255, 0.32);
 	--media-range-track-translucent-background: rgba(255, 255, 255, 0.28);
-	--media-range-bar-color: var(--color-primary);
+	--media-range-bar-color: var(--primary, #cdec3a);
 	--media-range-track-height: 3px;
 	--media-range-track-border-radius: 9999px;
-	--media-range-thumb-background: var(--color-primary);
+	--media-range-thumb-background: var(--primary, #cdec3a);
 	--media-range-thumb-width: 12px;
 	--media-range-thumb-height: 12px;
 	--media-range-thumb-border-radius: 9999px;
@@ -89,21 +89,24 @@
    ────────────────────────────────────────────────────────────────── */
 
 .recast-player {
-	--media-tooltip-background: var(--color-foreground);
-	--media-tooltip-color: var(--color-background);
+	--media-tooltip-background: var(--foreground, #111111);
 	--media-tooltip-padding: 6px 12px;
 	--media-tooltip-border-radius: 6px;
 	--media-tooltip-font-size: 12px;
-	--media-tooltip-arrow-color: var(--color-foreground);
+	--media-tooltip-arrow-color: var(--foreground, #111111);
+	--media-tooltip-border: none;
+	--media-tooltip-filter: none;
 
-	--media-preview-thumbnail-border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+	--media-preview-thumbnail-border: 1px solid color-mix(in srgb, var(--border, #d9d9d9) 85%, transparent);
 	--media-preview-thumbnail-border-radius: 8px;
-	--media-preview-thumbnail-background: color-mix(in srgb, var(--color-popover) 78%, transparent);
-	--media-preview-thumbnail-box-shadow: var(--shadow-craft-floating);
+	--media-preview-thumbnail-background: var(--popover, #ffffff);
+	--media-preview-thumbnail-box-shadow:
+		0 12px 24px -4px rgba(0, 0, 0, 0.18),
+		0 4px 8px -4px rgba(0, 0, 0, 0.14);
 
-	--media-preview-time-background: var(--color-foreground);
-	--media-preview-time-color: var(--color-background);
-	--media-preview-time-padding: 6px 12px;
+	--media-preview-time-background: var(--foreground, #111111);
+	--media-preview-time-color: var(--background, #ffffff);
+	--media-preview-time-padding: 3px 8px;
 	--media-preview-time-border-radius: 6px;
 	--media-preview-time-margin: 6px 0 0;
 }
@@ -117,20 +120,12 @@
 	--media-font-size: 12px;
 
 	/* Loading indicator uses the brand accent. */
-	--media-loading-indicator-icon-color: var(--color-primary);
+	--media-loading-indicator-icon-color: var(--primary, #cdec3a);
 }
 
 /* ──────────────────────────────────────────────────────────────────
-   6. Top + bottom chrome gradient fades — readability over any frame
+   6. Bottom chrome gradient fade — readability over any frame
    ────────────────────────────────────────────────────────────────── */
-
-.recast-player::part(top-chrome) {
-	background: linear-gradient(
-		to bottom,
-		rgba(0, 0, 0, 0.5),
-		rgba(0, 0, 0, 0)
-	);
-}
 
 .recast-control-bar {
 	background: linear-gradient(
@@ -141,40 +136,6 @@
 	padding: 8px 10px 6px;
 	gap: 2px;
 	align-items: center;
-}
-
-.recast-topbar {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	padding: 10px 12px;
-	background: linear-gradient(
-		to bottom,
-		rgba(0, 0, 0, 0.66),
-		rgba(0, 0, 0, 0.08)
-	);
-	pointer-events: none;
-}
-
-.recast-titleblock {
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-}
-
-.recast-title {
-	font-size: 13px;
-	font-weight: 600;
-	line-height: 1.2;
-	color: rgba(255, 255, 255, 0.96);
-	text-wrap: balance;
-}
-
-.recast-shortcuts {
-	font-size: 10px;
-	line-height: 1.2;
-	color: rgba(255, 255, 255, 0.62);
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -194,12 +155,12 @@
 }
 
 .recast-btn:focus-visible {
-	outline: 2px solid var(--color-primary);
+	outline: 2px solid var(--primary, #cdec3a);
 	outline-offset: 1px;
 }
 
 .recast-player:focus-visible {
-	outline: 2px solid var(--color-primary);
+	outline: 2px solid var(--primary, #cdec3a);
 	outline-offset: 2px;
 }
 
@@ -224,6 +185,45 @@
 
 .recast-icon-muted :global(svg) {
 	opacity: 0.55;
+}
+
+.recast-player :is(
+	media-play-button,
+	media-seek-backward-button,
+	media-seek-forward-button,
+	media-mute-button,
+	media-playback-rate-button,
+	media-captions-button,
+	media-pip-button,
+	media-fullscreen-button
+)::part(tooltip) {
+	background: var(--foreground, #111111);
+	color: var(--background, #ffffff);
+	padding: 6px 12px;
+	border-radius: 6px;
+	border: none;
+	box-shadow: var(--shadow-craft-sm);
+	filter: none;
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.2;
+	letter-spacing: 0;
+}
+
+.recast-player :is(
+	media-play-button,
+	media-seek-backward-button,
+	media-seek-forward-button,
+	media-mute-button,
+	media-playback-rate-button,
+	media-captions-button,
+	media-pip-button,
+	media-fullscreen-button
+) {
+	--media-tooltip-arrow-color: var(--foreground, #111111);
+	--media-tooltip-arrow-width: 10px;
+	--media-tooltip-arrow-height: 6px;
+	--media-tooltip-filter: none;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -349,6 +349,10 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 }
 
 .recast-preview-time {
+	--media-text-color: var(--background, #ffffff);
+	--media-font-size: 12px;
+	--media-font-weight: 500;
+	--media-text-content-height: 1.2;
 	margin-top: 6px;
 	font-size: 12px;
 	font-weight: 500;
@@ -362,10 +366,6 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 	}
 
 	.recast-volume {
-		display: none;
-	}
-
-	.recast-shortcuts {
 		display: none;
 	}
 

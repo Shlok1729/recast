@@ -7,7 +7,7 @@
 	type="button"
 	onclick={toggleMode}
 	aria-label="Toggle dark mode (dev)"
-	title="Toggle theme · dev only"
+	title="Toggle theme · dev only · ⌘/Ctrl + Shift + L"
 	class="glass-chip group fixed bottom-5 right-5 z-[60] grid size-11 place-items-center rounded-full text-foreground/80 shadow-craft-floating transition-all hover:-translate-y-0.5 hover:text-foreground"
 >
 	{#if mode.current === "dark"}

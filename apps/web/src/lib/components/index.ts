@@ -6,6 +6,7 @@ export { default as Navbar } from "./Navbar.svelte";
 export { default as ScreenshotSlideshow } from "./ScreenshotSlideshow.svelte";
 export { default as Section } from "./Section.svelte";
 export { default as SeoMeta } from "./SeoMeta.svelte";
+export { default as ThemeShortcut } from "./ThemeShortcut.svelte";
 
 export { Eyebrow } from "@recast/ui/eyebrow";
 export { Reveal } from "@recast/ui/reveal";

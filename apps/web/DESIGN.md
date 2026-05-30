@@ -134,7 +134,7 @@ depth, plus `rounded-2xl` (cards) or `rounded-[2rem]` (CTA hero card).
 ### Eyebrows
 
 ```svelte
-<Eyebrow icon={Sparkles} variant="primary">v0.1 beta · what's new</Eyebrow>
+<Eyebrow icon={Sparkles} variant="primary">v0.2 beta · what's new</Eyebrow>
 ```
 
 Always lead a section with an eyebrow chip when the section has a header.
@@ -247,7 +247,7 @@ Hero sections layer: aurora + clouds + grid (in that z-order) for depth.
 The "Skip the editor. Ship the demo." CTA is the canonical end-of-page card.
 Reuse this exact structure on every page that needs a closing CTA:
 
-- Pulsing beta chip ("v0.1 beta · ready when you are")
+- Pulsing beta chip ("v0.2 beta · ready when you are")
 - Hero-scale h2 with italic emphasis on the second line
 - One-line supporting copy ("Free during beta. No account required. Three platforms. One opinionated tool.")
 - Solid primary CTA (`Download Recast`) + outline CTA (`See what's new` / `Explore features`)

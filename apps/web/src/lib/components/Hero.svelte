@@ -58,9 +58,8 @@
 				class="text-pretty mt-7 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg md:text-xl"
 				in:fly={rise(200)}
 			>
-				Smart zoom, cursor smoothing, and silence cuts happen while you
-				record. By the time you stop, the demo is mostly done. The timeline
-				is there when you want it. Most of the time, you won't need it.
+				Smart zoom, cursor smoothing, and silence cuts happen while you record.
+				By the time you stop, the demo is mostly done.
 			</p>
 
 			<!-- Record → Auto-polish → Share -->
@@ -88,8 +87,8 @@
 					<Download class="size-4" />
 					Download free
 				</Button>
-				<Button href="/features" variant="outline" size="lg" class="group/cta gap-2">
-					See how it works
+				<Button href="#proof" variant="outline" size="lg" class="group/cta gap-2">
+					Watch it work
 					<ArrowRight class="size-4 transition-transform group-hover/cta:translate-x-0.5" />
 				</Button>
 			</div>

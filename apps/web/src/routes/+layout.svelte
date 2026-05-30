@@ -2,7 +2,12 @@
 	import { dev } from "$app/environment";
 	import { page } from "$app/state";
 	import ImpersonationBanner from "$lib/auth/components/ImpersonationBanner.svelte";
-	import { DevThemeToggle, Navbar, SeoMeta } from "$lib/components";
+	import {
+		DevThemeToggle,
+		Navbar,
+		SeoMeta,
+		ThemeShortcut,
+	} from "$lib/components";
 	import { Toaster } from "@recast/ui/sonner";
 	import { ModeWatcher } from "@recast/ui/theme";
 	import "../app.css";
@@ -40,6 +45,9 @@
 />
 
 <ModeWatcher />
+<!-- Cmd/Ctrl+Shift+L from any route toggles light↔dark. Runs in prod
+	 (DevThemeToggle's floating chip is still dev-only). -->
+<ThemeShortcut />
 
 <!-- Global impersonation indicator. Self-renders only when an admin is
 	 acting as another user; invisible otherwise. -->
