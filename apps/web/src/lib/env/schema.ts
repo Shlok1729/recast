@@ -88,6 +88,13 @@ export const serverEnvSchema = z
 			.pipe(z.string().min(1).optional())
 			.transform((v) => v ?? "Recast <hello@recast.nexonauts.com>"),
 
+		// ── Cloudflare R2 (all-or-nothing quartet, see superRefine below) ───
+		R2_ACCOUNT_ID: optionalSecret,
+		R2_ACCESS_KEY_ID: optionalSecret,
+		R2_SECRET_ACCESS_KEY: optionalSecret,
+		R2_BUCKET: optionalSecret,
+		R2_PUBLIC_URL: optionalUrl,
+
 		// ── Runtime mode (set by hosts like Vercel/Node) ─────────────────────
 		NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 	})
@@ -131,6 +138,22 @@ export const serverEnvSchema = z
 				path: ["POLAR_ACCESS_TOKEN"],
 				message:
 					"POLAR_ACCESS_TOKEN, POLAR_WEBHOOK_SECRET, and POLAR_PRODUCT_ID_PRO must all be set together (or all left blank to disable billing).",
+			});
+		}
+
+		const r2Vars = [
+			env.R2_ACCOUNT_ID,
+			env.R2_ACCESS_KEY_ID,
+			env.R2_SECRET_ACCESS_KEY,
+			env.R2_BUCKET,
+		];
+		const r2Set = r2Vars.filter(Boolean).length;
+		if (r2Set !== 0 && r2Set !== r2Vars.length) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["R2_ACCOUNT_ID"],
+				message:
+					"R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET must all be set together (or all left blank to disable Cloud uploads).",
 			});
 		}
 	});

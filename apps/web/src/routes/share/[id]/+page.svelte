@@ -62,12 +62,26 @@
 	const recast = $derived(okAccess?.recast);
 	const shareMeta = $derived(okAccess?.share);
 	const canManage = $derived(okAccess?.canManage ?? false);
-	let visibility = $state<"public" | "team" | "private">(
-		untrack(() => (data.access.ok ? data.access.share.visibility : "public")),
+	// This dropdown only writes the legacy {public, team, private} triplet
+	// — the new {workspace, selected} scopes come from a richer share modal
+	// that isn't on this page yet. Coerce incoming server values into the
+	// triplet so old + new shares both render: `workspace` folds to `team`
+	// (functionally identical, just the canonical name), `selected` to
+	// `private` so it visibly reads as "restricted" rather than misleading.
+	type LegacyVisibility = "public" | "team" | "private";
+	const toLegacyVisibility = (v: string): LegacyVisibility => {
+		if (v === "public") return "public";
+		if (v === "team" || v === "workspace") return "team";
+		return "private";
+	};
+	let visibility = $state<LegacyVisibility>(
+		untrack(() =>
+			data.access.ok ? toLegacyVisibility(data.access.share.visibility) : "public",
+		),
 	);
 	let updatingVisibility = $state(false);
 	$effect(() => {
-		if (access.ok) visibility = access.share.visibility;
+		if (access.ok) visibility = toLegacyVisibility(access.share.visibility);
 	});
 
 	async function updateVisibility(next: "public" | "team" | "private") {
