@@ -433,15 +433,6 @@
 		</media-play-button>
 	{/if}
 
-	<div slot="top-chrome" class="recast-topbar">
-		<div class="recast-titleblock">
-			{#if title}
-				<span class="recast-title">{title}</span>
-			{/if}
-			<span class="recast-shortcuts">Space/K play, arrows/J/L seek, M mute, F fullscreen</span>
-		</div>
-	</div>
-
 	<media-control-bar class="recast-control-bar">
 		<media-play-button class="recast-btn" aria-label="Play or pause">
 			<span slot="play" class="recast-icon"><Play class="size-4 translate-x-[0.5px]" /></span>

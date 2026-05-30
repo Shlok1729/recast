@@ -1,8 +1,11 @@
 <script lang="ts">
   import {
+    Circle,
     LoaderCircle,
     Maximize2,
     RotateCcw,
+    Square,
+    Squircle,
     X,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
@@ -21,6 +24,7 @@
   } from "$lib/ipc";
 
   type AspectKey = "1:1" | "4:3" | "16:9";
+  type ShapeKey = "square" | "rounded" | "circle";
   type CameraStatus = "loading" | "live" | "warning" | "failed";
 
   const ASPECTS: AspectKey[] = ["1:1", "4:3", "16:9"];
@@ -30,7 +34,18 @@
     "16:9": 16 / 9,
   };
 
-  // Window radius in CSS pixels — matches the rounded-3xl token visually.
+  // Shape options offered per aspect. Circle is 1:1-only — applying it to
+  // a non-square aspect produces an ellipse, which is rarely what the user
+  // wants and which the composited bubble in the editor doesn't render.
+  function allowedShapesFor(a: AspectKey): ShapeKey[] {
+    return a === "1:1"
+      ? ["square", "rounded", "circle"]
+      : ["square", "rounded"];
+  }
+
+  // Window radius in CSS pixels for the "rounded" shape — matches the
+  // rounded-3xl token visually. "square" uses 0; "circle" uses a half-side
+  // radius and is only allowed on 1:1 aspect.
   const WINDOW_RADIUS = 20;
 
   // Resize bounds, expressed as fractions of the primary screen's available
@@ -58,6 +73,7 @@
   let status = $state<CameraStatus>("loading");
   let isMirrored = $state(true);
   let aspect = $state<AspectKey>("1:1");
+  let shape = $state<ShapeKey>("rounded");
   let liveProbeTimer: number | null = $state(null);
   let videoFrameSeen = $state(false);
   let isSnapping = false;
@@ -310,13 +326,55 @@
 
   function cycleAspect() {
     const nextIndex = (ASPECTS.indexOf(aspect) + 1) % ASPECTS.length;
-    void applyAspect(ASPECTS[nextIndex], { snap: true });
+    const next = ASPECTS[nextIndex];
+    // Coerce circle → rounded when moving off 1:1. A circular border on a
+    // non-square box renders as an ellipse, which is rarely desired and
+    // isn't supported by the composited bubble in the editor either.
+    if (next !== "1:1" && shape === "circle") {
+      shape = "rounded";
+    }
+    void applyAspect(next, { snap: true });
+  }
+
+  function cycleShape() {
+    const allowed = allowedShapesFor(aspect);
+    const idx = allowed.indexOf(shape);
+    // If current shape isn't in the allowed set (shouldn't happen, but
+    // defensively), start from the first allowed option.
+    shape = allowed[(idx === -1 ? 0 : idx + 1) % allowed.length];
+    void reportPreviewState();
   }
 
   function toggleMirror() {
     isMirrored = !isMirrored;
     void reportPreviewState();
   }
+
+  // CSS border-radius for the window's outer surface. `circle` uses 50%
+  // (the box is always 1:1 in that case, so it's a true circle). `rounded`
+  // matches the rounded-3xl design token; `square` is a hard cut.
+  const cssRadius = $derived.by(() => {
+    switch (shape) {
+      case "circle":
+        return "50%";
+      case "square":
+        return "0px";
+      default:
+        return `${WINDOW_RADIUS}px`;
+    }
+  });
+
+  // Icon + tooltip for the current shape — drives the cycle button's label.
+  const shapeMeta = $derived.by(() => {
+    switch (shape) {
+      case "circle":
+        return { icon: Circle, label: "Circle" };
+      case "square":
+        return { icon: Square, label: "Square" };
+      default:
+        return { icon: Squircle, label: "Rounded" };
+    }
+  });
 
   async function reportPreviewState() {
     const win = getCurrentWindow();
@@ -327,13 +385,20 @@
 
     const factor = window.devicePixelRatio || 1;
     const widthLogical = size.width / factor;
-    // Relative corner radius proportional to shorter side, capped sensibly.
+    // Relative corner radius proportional to shorter side, capped at 0.5
+    // (which paints as a full circle on a 1:1 box). Square → 0, circle →
+    // 0.5, rounded → WINDOW_RADIUS scaled to fraction-of-shorter-side.
     const shortLogical = Math.min(widthLogical, size.height / factor);
-    const cornerRadius = Math.min(0.5, WINDOW_RADIUS / Math.max(shortLogical, 1));
+    const cornerRadius =
+      shape === "square"
+        ? 0
+        : shape === "circle"
+          ? 0.5
+          : Math.min(0.5, WINDOW_RADIUS / Math.max(shortLogical, 1));
 
     const state: CameraPreviewState = {
       mirror: isMirrored,
-      shape: "rounded",
+      shape,
       cornerRadius,
       animationPreset: status === "warning" ? "lively" : "soft",
       windowX: Math.max(0, Math.min(1, position.x / screenWidth)),
@@ -356,9 +421,9 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-  class="group/root relative h-screen w-full min-w-dvw select-none overflow-hidden bg-card scroll-m-0 scrollbar-none"
+  class="group/root relative h-screen w-full min-w-dvw select-none overflow-hidden bg-card scroll-m-0 scrollbar-none transition-[border-radius] duration-150 ease-out motion-reduce:transition-none"
   data-tauri-drag-region
-  style="border-radius: {WINDOW_RADIUS}px"
+  style="border-radius: {cssRadius}"
 >
   <!-- svelte-ignore a11y_media_has_caption -->
   <video
@@ -401,6 +466,23 @@
     >
       <Maximize2 size={10} strokeWidth={2} />
       <span>{aspect}</span>
+    </Button>
+
+    {#snippet shapeIcon()}
+      {@const SIcon = shapeMeta.icon}
+      <SIcon size={11} strokeWidth={2} />
+    {/snippet}
+    <Button
+      onclick={cycleShape}
+      onmousedown={(e: MouseEvent) => e.stopPropagation()}
+      variant="ghost"
+      size="icon-sm"
+      class="size-6 rounded-full"
+      title={aspect === "1:1"
+        ? `Cycle shape: square → rounded → circle (now ${shapeMeta.label})`
+        : `Cycle shape: square ↔ rounded (now ${shapeMeta.label})`}
+    >
+      {@render shapeIcon()}
     </Button>
 
     <Button

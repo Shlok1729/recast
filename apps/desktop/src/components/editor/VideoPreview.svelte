@@ -830,7 +830,7 @@ void main() {
 		return [a, b];
 	}
 
-	//  Sizing 
+	//  Sizing
 	function resizeCanvas() {
 		if (!canvasEl || !containerEl || !store.metadata) return false;
 		const meta = store.metadata;
