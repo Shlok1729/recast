@@ -13,16 +13,24 @@ const GEIST_CDN = "https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.2.8
 // @vercel/nft), so takumi throws at startup and `/api/og` returns a 500.
 //
 // For production we force takumi's bundled WebAssembly renderer via the `module`
-// option. `@takumi-rs/wasm/vite` exposes the wasm bytes through Vite's `?url`
-// asset pipeline: the asset is emitted at build time and read from disk at
-// runtime (so it bundles reliably, unlike the native addon). The import is
-// dynamic + prod-gated because that `?url` loader only resolves against the
-// built output layout and throws under the dev server. `@takumi-rs/wasm` is
-// marked `ssr.noExternal` in vite.config so Vite actually processes the `?url`.
-let wasmModule: Promise<unknown> | undefined;
+// option, feeding it the wasm bytes directly. We deliberately DON'T use takumi's
+// `@takumi-rs/wasm/vite` loader: it reads the wasm from a sibling `client/`
+// assets dir, which exists under adapter-node but NOT inside a Vercel serverless
+// function (client assets are served separately by the CDN) — so it 500s with
+// "Unable to locate Takumi WASM asset for SSR". Vercel Edge isn't an option
+// either: the 5 MB wasm exceeds the Edge bundle size limit.
+//
+// Instead we base64-inline the wasm into this server bundle via Vite's
+// `build.assetsInlineLimit` (see vite.config). The bytes then travel *inside*
+// the function — no filesystem, no CDN asset, no native addon. The import is
+// dynamic + prod-gated so the dev server never evaluates the inlined data URI.
+let wasmModule: Promise<Uint8Array> | undefined;
 const resolveTakumiModule = () => {
 	if (import.meta.env.DEV) return undefined;
-	wasmModule ??= import("@takumi-rs/wasm/vite").then((m) => m.default);
+	wasmModule ??= import("@takumi-rs/wasm/takumi_wasm_bg.wasm?url").then((m) => {
+		const dataUri = m.default;
+		return Buffer.from(dataUri.slice(dataUri.indexOf(",") + 1), "base64");
+	});
 	return wasmModule;
 };
 

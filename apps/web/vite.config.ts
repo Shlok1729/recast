@@ -8,14 +8,22 @@ export default defineConfig({
 		sveltekit()
 	],
 	clearScreen: false,
-	// `@takumi-rs/wasm` (used by /api/og) ships its WebAssembly binary through a
-	// Vite `?url` import. Externalised SSR deps skip Vite transforms, so Node
-	// would receive the raw `?url` specifier and crash. Bundling the package lets
-	// Vite resolve the `?url`, emit the .wasm asset, and trace it into the
-	// serverless function — the native `@takumi-rs/core` addon doesn't bundle on
-	// Vercel, so we run the wasm renderer instead.
+	// `@takumi-rs/wasm` (used by /api/og) ships its WebAssembly binary as an
+	// asset. Externalised SSR deps skip Vite transforms, so Node would receive a
+	// raw `?url` specifier and crash — bundling the package lets Vite resolve and
+	// inline it (see assetsInlineLimit). The native `@takumi-rs/core` addon
+	// doesn't bundle on Vercel, so /api/og runs the wasm renderer instead.
 	ssr: {
 		noExternal: ['@takumi-rs/wasm'],
+	},
+	build: {
+		// Base64-inline the takumi wasm so its bytes ship *inside* the /api/og
+		// server bundle. On Vercel the serverless function can't read the client/
+		// static assets dir takumi's stock loader expects, and the 5 MB binary is
+		// too large for an Edge function — inlining sidesteps both. Everything
+		// else keeps Vite's default size threshold (return undefined).
+		assetsInlineLimit: (filePath) =>
+			filePath.includes('takumi_wasm_bg') ? true : undefined,
 	},
 	// Surfaced as a global so analytics can tag every event with the running
 	// build. npm_package_version is set by the pnpm/npm script runner.
