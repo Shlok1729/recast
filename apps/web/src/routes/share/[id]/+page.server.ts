@@ -1,27 +1,38 @@
-import { getAuth } from "$lib/auth/server";
-import { loadViewer, resolveShareAccess, type ResolvedShare } from "$lib/share/access";
 import { error } from "@sveltejs/kit";
+import { eq } from "drizzle-orm";
+import { getAuth } from "$lib/auth/server";
+import { getDb } from "$lib/db";
+import { share } from "$lib/db/schema";
+import { loadViewer, resolveShareAccess, type ResolvedShare } from "$lib/share/access";
+import {
+	constantTimeEquals,
+	unlockCookieName,
+	unlockToken,
+} from "$lib/share/password";
+import { isStorageConfigured, signDownloadUrl } from "$lib/storage";
 import type { PageServerLoad } from "./$types";
 
 /**
  * Share page loader.
  *
- * Real shares live in `share` keyed by slug; the loader pulls the recast
- * row, evaluates viewer permissions, and returns either the player
- * payload OR a structured denial so the page can render a "no access"
- * fallback (vs. SvelteKit's bare error page).
+ * Two paths:
+ *   - `params.id === "demo"` → hardcoded Big Buck Bunny payload so the
+ *     design surface stays reachable without seeding a row. Always
+ *     public, never manageable.
+ *   - Real shares → resolve permissions via `resolveShareAccess`, then
+ *     decide whether to ship the signed video URL in the SSR payload or
+ *     defer it pending a password unlock.
  *
- * `params.id === "demo"` short-circuits to the hardcoded Big Buck Bunny
- * stream so the design surface stays reachable without seeding a row.
- * Demo is always public and never manageable.
+ * `requiresPassword` is true when the share has a passwordHash AND the
+ * caller doesn't already carry a valid unlock cookie. In that case
+ * `recast.src` is left empty and the page renders the password prompt
+ * instead of the player; the client POSTs to /api/share/[id]/unlock to
+ * mint the cookie, then refetches /api/share/[id]/video for the URL.
  */
 
-// Typed as the full ResolvedShare union (not the narrow ok:true
-// extract) so the loader's inferred return propagates a `data.access`
-// of `ResolvedShare` to the page. Otherwise the early-return below
-// pins `data.access` to the ok:true branch and the denial UI's type
-// references (visibility, ownerEmail, sameTeam) stop resolving.
-const DEMO: ResolvedShare = {
+type DemoOrResolved = ResolvedShare & { requiresPassword?: boolean };
+
+const DEMO: DemoOrResolved = {
 	ok: true,
 	recast: {
 		id: "demo",
@@ -45,35 +56,66 @@ const DEMO: ResolvedShare = {
 
 type SessionShape = { user: { id: string } };
 
-export const load: PageServerLoad = async ({ params, request }) => {
-	// Temporarily force every share id to the DEMO payload while the
-	// recast table is being populated end-to-end. Restore the gate
-	// below when real recasts are seedable. The unreachable block is
-	// kept as a comment so the wiring (auth session → viewer → access
-	// → 404 vs structured denial) doesn't drift from the API contract.
-	// The explicit cast widens the return type so `data.access` reaches
-	// the page as the full `ResolvedShare` union. Without it, TypeScript
-	// narrows `data.access` to the ok:true variant (based on DEMO's
-	// shape) and the denial-branch JSX (visibility/ownerEmail/sameTeam)
-	// stops typechecking.
-	return { access: DEMO as ResolvedShare };
+export const load: PageServerLoad = async ({ params, request, cookies }) => {
+	if (params.id === "demo") {
+		return { access: DEMO };
+	}
 
-	// const session = (await getAuth()
-	// 	.api.getSession({ headers: request.headers })
-	// 	.catch(() => null)) as SessionShape | null;
-	//
-	// const viewer = await loadViewer(session?.user.id ?? null);
-	// const access: ResolvedShare = await resolveShareAccess(params.id, viewer);
-	//
-	// if ("reason" in access && access.reason === "not-found") {
-	// 	error(404, "Share link not found");
-	// }
-	//
-	// return { access };
+	const session = (await getAuth()
+		.api.getSession({ headers: request.headers })
+		.catch(() => null)) as SessionShape | null;
+
+	const viewer = await loadViewer(session?.user.id ?? null);
+	const access: DemoOrResolved = await resolveShareAccess(params.id, viewer);
+
+	if ("reason" in access && access.reason === "not-found") {
+		error(404, "Share link not found");
+	}
+
+	// Deny branch — page renders the denial card, no need to sign anything.
+	if (!access.ok) return { access };
+
+	// Look up the share's passwordHash separately so `resolveShareAccess`
+	// stays focused on visibility. One extra round-trip is fine here —
+	// this loader only runs on cold navigations.
+	const db = getDb();
+	const [s] = await db
+		.select({ passwordHash: share.passwordHash })
+		.from(share)
+		.where(eq(share.slug, params.id))
+		.limit(1);
+
+	if (s?.passwordHash) {
+		const got = cookies.get(unlockCookieName(params.id));
+		const expected = await unlockToken(params.id);
+		const unlocked = got != null && constantTimeEquals(got, expected);
+		if (!unlocked) {
+			return {
+				access: {
+					...access,
+					requiresPassword: true,
+					recast: { ...access.recast, src: "" },
+				},
+			};
+		}
+	}
+
+	// Sign the R2 key into a playable URL. Stored value is the bare key
+	// (e.g. "workspace/abc/def.mp4") — anything starting with http(s) is
+	// either a legacy row or an external URL and passes through.
+	if (isStorageConfigured() && !/^https?:\/\//.test(access.recast.src)) {
+		try {
+			access.recast.src = await signDownloadUrl({
+				key: access.recast.src,
+				expiresInSeconds: 60 * 60,
+			});
+		} catch (err) {
+			console.error("[share] signDownloadUrl failed", err);
+			// Fall through with empty src — the page will render a
+			// "playback unavailable" state rather than a broken player.
+			access.recast.src = "";
+		}
+	}
+
+	return { access };
 };
-
-// Silence "imported but unused" warnings — these symbols are referenced
-// by the commented-out branch above and will be re-enabled together.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _refs = { getAuth, loadViewer, resolveShareAccess, error };
-type _T = ResolvedShare | SessionShape;

@@ -32,7 +32,7 @@
 </script>
 
 <svelte:head>
-	<title>Admin — Recast</title>
+	<title>Admin - Recast</title>
 	<meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 

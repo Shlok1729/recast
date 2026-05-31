@@ -18,4 +18,10 @@ export type {
 	RecastPlayerProps,
 	RecastPlayerEngagement,
 	RecastPlayerApi,
+	RecastPlayerActionEvent,
+	RecastPlayerBranding,
+	RecastPlayerChapter,
+	RecastPlayerFeatures,
+	RecastPlayerMarker,
+	RecastPlayerUtilityAction,
 } from "./types";

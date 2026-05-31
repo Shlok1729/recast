@@ -3,7 +3,7 @@ import { redirect } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
 
 /**
- * Sign-up is locked down in production — Recast Cloud is invite-only while
+ * Sign-up is locked down in production - Recast Cloud is invite-only while
  * the first wave onboards. Send people to /waitlist instead. The dev server
  * still serves the form so we can keep iterating on the UI.
  */

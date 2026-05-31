@@ -190,7 +190,7 @@
 </script>
 
 <svelte:head>
-	<title>Privacy Policy — Recast</title>
+	<title>Privacy Policy - Recast</title>
 	<meta
 		name="description"
 		content="How Recast collects, uses, and protects your information. Local-first by default; Cloud is opt-in."

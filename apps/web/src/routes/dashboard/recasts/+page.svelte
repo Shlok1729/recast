@@ -18,6 +18,26 @@
 	import { cubicOut } from "svelte/easing";
 	import { fly, scale } from "svelte/transition";
 
+	let { data } = $props();
+
+	// Hydrate from the server. Same shape mapping as the home page.
+	$effect(() => {
+		recastsStore.hydrate(
+			data.recasts.map((r) => ({
+				id: r.id,
+				title: r.title,
+				durationSec: r.durationSec,
+				createdAt: r.createdAt,
+				sizeBytes: r.sizeBytes,
+				source: r.source as Recast["source"],
+				provider: r.provider,
+				views: r.views,
+				videoUrl: r.videoUrl,
+				posterUrl: r.posterUrl ?? "",
+			})),
+		);
+	});
+
 	type SortKey = "recent" | "oldest" | "name" | "largest";
 
 	let query = $state("");
@@ -155,7 +175,7 @@
 </script>
 
 <svelte:head>
-	<title>Recasts — Recast Dashboard</title>
+	<title>Recasts - Recast Dashboard</title>
 </svelte:head>
 
 <input

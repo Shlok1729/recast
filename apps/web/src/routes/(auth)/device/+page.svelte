@@ -118,7 +118,7 @@
 </script>
 
 <svelte:head>
-	<title>Authorize device — Recast</title>
+	<title>Authorize device - Recast</title>
 	<meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 

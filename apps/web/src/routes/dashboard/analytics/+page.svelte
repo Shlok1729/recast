@@ -54,7 +54,7 @@
 </script>
 
 <svelte:head>
-	<title>Analytics — Recast Dashboard</title>
+	<title>Analytics - Recast Dashboard</title>
 </svelte:head>
 
 <header

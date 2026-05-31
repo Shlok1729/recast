@@ -90,7 +90,7 @@
 </script>
 
 <svelte:head>
-	<title>Set up your team — Recast</title>
+	<title>Set up your team - Recast</title>
 	<meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 

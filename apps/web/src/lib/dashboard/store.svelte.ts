@@ -3,9 +3,11 @@ import { browser } from "$app/environment";
 /**
  * Dashboard data layer.
  *
- * No backend exists yet — this models how the web dashboard will behave once
- * the desktop app gains a backend + OAuth. State is fully reactive and
- * persisted to localStorage so the UI is genuinely functional on dummy data.
+ * Now backed by the real /api endpoints. `hydrate()` accepts server-loaded
+ * recasts from the page loader and replaces the in-memory list. The
+ * localStorage layer is retained only as an offline fallback — if a
+ * reload happens while disconnected, the last cache shows instead of an
+ * empty shell.
  */
 
 export type RecordingSource = "cloud" | "local";
@@ -74,10 +76,25 @@ function reconcile(r: Recast): Recast {
 
 class RecordingsStore {
 	items = $state<Recast[]>([]);
+	hydrated = $state(false);
 
 	constructor() {
 		const stored = readJSON<Recast[] | null>(REC_KEY, null);
+		// Until `hydrate()` is called we show the last cached server list,
+		// or — if we've never seen one — the dummy seed so the design
+		// surface stays explorable on logged-out previews.
 		this.items = (stored ?? seedRecordings()).map(reconcile);
+	}
+
+	/**
+	 * Replace the in-memory list with server-loaded rows. Persisted to
+	 * localStorage so the next cold load shows the same content instantly
+	 * (then immediately revalidated by the next `hydrate()` call).
+	 */
+	hydrate(server: Recast[]) {
+		this.items = server;
+		this.hydrated = true;
+		this.persist();
 	}
 
 	private persist() {
@@ -192,5 +209,42 @@ class SettingsStore {
 	}
 }
 
+/**
+ * Workspace quota snapshot — usage vs plan caps. Hydrated by the
+ * dashboard layout from `getQuotaSnapshot` on the server side. Reads
+ * Infinity-coerced-to-null for unlimited caps (Enterprise tier).
+ */
+export type QuotaSnapshot = {
+	plan: "free" | "pro" | "enterprise";
+	usage: {
+		storageBytes: number;
+		activeRecastsCount: number;
+		archivedRecastsCount: number;
+		membersCount: number;
+	};
+	limits: {
+		storageBytes: number | null;
+		activeRecasts: number | null;
+		members: number | null;
+		maxDurationSec: number | null;
+		playbackMaxHeight: number;
+	};
+	storagePctUsed: number;
+};
+
+class QuotaStore {
+	value = $state<QuotaSnapshot | null>(null);
+
+	hydrate(snap: QuotaSnapshot | null) {
+		this.value = snap;
+	}
+
+	/** % of storage cap used; 0 when the workspace is unlimited. */
+	get storagePct(): number {
+		return this.value?.storagePctUsed ?? 0;
+	}
+}
+
 export const recastsStore = new RecordingsStore();
 export const settingsStore = new SettingsStore();
+export const quotaStore = new QuotaStore();

@@ -391,7 +391,7 @@ fn render_callback_page(error: Option<&str>) -> (String, &'static str) {
     </svg>"#;
     let (title, heading, sub, icon_path, accent_class, http_status) = match error {
         Some(err) => (
-            "Sign-in failed — Recast",
+            "Sign-in failed - Recast",
             "Google Drive sign-in failed".to_string(),
             format!(
                 "Google reported <code>{}</code>. You can close this tab and try again from Recast.",
@@ -402,7 +402,7 @@ fn render_callback_page(error: Option<&str>) -> (String, &'static str) {
             "400 Bad Request",
         ),
         None => (
-            "Connected — Recast",
+            "Connected - Recast",
             "Recast is connected to Google Drive".to_string(),
             "You can close this tab and return to the app. New exports will be \
              uploadable straight to your private <strong>Recast</strong> folder."

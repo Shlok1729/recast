@@ -5,11 +5,39 @@
 	import TopRecasts from "$lib/dashboard/components/TopRecasts.svelte";
 	import UsageMeter from "$lib/dashboard/components/UsageMeter.svelte";
 	import { formatBytes, formatCount } from "$lib/dashboard/format";
-	import { recastsStore, settingsStore } from "$lib/dashboard/store.svelte";
+	import {
+		quotaStore,
+		recastsStore,
+		settingsStore,
+		type Recast,
+	} from "$lib/dashboard/store.svelte";
 	import { ArrowRight, BarChart3, Cloud, Eye, Film, Video } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
 	import { cubicOut } from "svelte/easing";
 	import { fly } from "svelte/transition";
+
+	let { data } = $props();
+
+	// Hydrate the local store with the server-loaded list. Re-runs when
+	// the loader returns a new array (e.g. after invalidateAll()).
+	$effect(() => {
+		const mapped: Recast[] = data.recasts.map((r) => ({
+			id: r.id,
+			title: r.title,
+			durationSec: r.durationSec,
+			createdAt: r.createdAt,
+			sizeBytes: r.sizeBytes,
+			source: r.source as Recast["source"],
+			provider: r.provider,
+			views: r.views,
+			// `videoUrl` here is the R2 key (or external URL). The share
+			// page signs it before playback; the dashboard card just uses
+			// the poster + title, so leaving it un-signed is fine.
+			videoUrl: r.videoUrl,
+			posterUrl: r.posterUrl ?? "",
+		}));
+		recastsStore.hydrate(mapped);
+	});
 
 	const firstName = $derived(
 		settingsStore.value.profile.name.split(/\s+/)[0] ?? "there",
@@ -21,6 +49,10 @@
 
 	const activity = $derived(generateActivity(recastsStore.items));
 
+	const usedBytes = $derived(
+		quotaStore.value?.usage.storageBytes ?? recastsStore.usedBytes,
+	);
+
 	const stats = $derived([
 		{ icon: Video, label: "Recasts", value: String(recastsStore.items.length) },
 		{ icon: Eye, label: "Total views", value: formatCount(totalViews) },
@@ -28,7 +60,7 @@
 		{
 			icon: Film,
 			label: "Storage used",
-			value: formatBytes(recastsStore.usedBytes),
+			value: formatBytes(usedBytes),
 		},
 	]);
 </script>

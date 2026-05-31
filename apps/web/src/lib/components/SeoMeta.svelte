@@ -6,7 +6,7 @@
 		description: string;
 		/** Eyebrow shown above the title in the generated OG image (e.g. "Pricing"). */
 		eyebrow?: string;
-		/** Full title for the browser tab. Defaults to `${title} — Recast`. */
+		/** Full title for the browser tab. Defaults to `${title} - Recast`. */
 		pageTitle?: string;
 		/** Override the rendered OG image URL (absolute). Skips the takumi generator. */
 		ogImage?: string;
@@ -36,7 +36,7 @@
 	});
 
 	const ogUrl = $derived(ogImage ?? generatedOg);
-	const headTitle = $derived(pageTitle ?? `${title} — Recast`);
+	const headTitle = $derived(pageTitle ?? `${title} - Recast`);
 </script>
 
 <svelte:head>

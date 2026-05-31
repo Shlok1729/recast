@@ -1,0 +1,164 @@
+import { error, json } from "@sveltejs/kit";
+import { and, eq } from "drizzle-orm";
+import { getAuth } from "$lib/auth/server";
+import { getDb } from "$lib/db";
+import { member, recast, share, shareMember, user } from "$lib/db/schema";
+import {
+	constantTimeEquals,
+	unlockCookieName,
+	unlockToken,
+} from "$lib/share/password";
+import { isStorageConfigured, signDownloadUrl } from "$lib/storage";
+import type { RequestHandler } from "./$types";
+
+type SessionShape = {
+	user: { id: string; email: string; role?: string };
+};
+
+const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1h
+
+/**
+ * GET /api/share/[id]/video
+ *
+ * Returns a short-lived signed GET URL for the share's underlying video,
+ * after enforcing the visibility / password gates.
+ *
+ * Visibility:
+ *   - `public`              → anyone, no auth needed
+ *   - `workspace` / `team`  → signed-in member of the share's org
+ *   - `selected`            → signed-in user whose email is in share_member
+ *                             (or whose `user_id` matches that row)
+ *   - `private`             → owner or global admin only
+ *
+ * Password (when `passwordHash` is set) is checked AFTER visibility — we
+ * still want unauthorized viewers to get 401/403 instead of being prompted
+ * for a password they can't possibly satisfy. The actual /unlock endpoint
+ * setting the cookie is a follow-up; this handler refuses 401 with a
+ * `reason: "password_required"` body so the player can render the prompt.
+ */
+export const GET: RequestHandler = async ({ params, request, cookies }) => {
+	if (!isStorageConfigured()) error(503, "Cloud playback is not configured");
+
+	const db = getDb();
+
+	const [s] = await db
+		.select({
+			slug: share.slug,
+			recastId: share.recastId,
+			ownerId: share.ownerId,
+			organizationId: share.organizationId,
+			visibility: share.visibility,
+			passwordHash: share.passwordHash,
+			expiresAt: share.expiresAt,
+		})
+		.from(share)
+		.where(eq(share.slug, params.id))
+		.limit(1);
+	if (!s) error(404, "Share not found");
+
+	if (s.expiresAt && s.expiresAt.getTime() < Date.now()) {
+		return json({ ok: false, reason: "expired" }, { status: 410 });
+	}
+
+	// Resolve session up front — most paths need it.
+	const session = (await getAuth()
+		.api.getSession({ headers: request.headers })
+		.catch(() => null)) as SessionShape | null;
+
+	switch (s.visibility) {
+		case "public":
+			break;
+
+		case "workspace":
+		case "team": {
+			if (!session?.user) error(401, "Sign in required");
+			if (!s.organizationId) error(403, "Workspace share missing org");
+			const [m] = await db
+				.select({ id: member.id })
+				.from(member)
+				.where(
+					and(
+						eq(member.userId, session.user.id),
+						eq(member.organizationId, s.organizationId),
+					),
+				)
+				.limit(1);
+			if (!m) error(403, "Not a member of this workspace");
+			break;
+		}
+
+		case "selected": {
+			if (!session?.user) error(401, "Sign in required");
+			// Match by userId first (resolved at invite time), falling back
+			// to the email — invites issued before the user existed are only
+			// keyed by email until they're claimed.
+			const allowed = await db
+				.select({ id: shareMember.id })
+				.from(shareMember)
+				.where(
+					and(
+						eq(shareMember.shareSlug, s.slug),
+						// userId OR email — split into two queries because Drizzle's
+						// OR clause + nullable column is awkward. Owner is always
+						// allowed; check that first to short-circuit.
+						eq(shareMember.email, session.user.email),
+					),
+				)
+				.limit(1);
+			const isOwner = s.ownerId === session.user.id;
+			if (!isOwner && allowed.length === 0) {
+				error(403, "Not on the access list");
+			}
+			break;
+		}
+
+		case "private": {
+			if (!session?.user) error(401, "Sign in required");
+			if (session.user.id === s.ownerId) break;
+			// Re-read role server-side rather than trusting session.user.role
+			// so a role change takes effect on the next request.
+			const [u] = await db
+				.select({ role: user.role })
+				.from(user)
+				.where(eq(user.id, session.user.id))
+				.limit(1);
+			if (u?.role !== "admin") error(403, "Private share");
+			break;
+		}
+
+		default:
+			error(500, "Unknown visibility");
+	}
+
+	if (s.passwordHash) {
+		const got = cookies.get(unlockCookieName(s.slug));
+		const expected = await unlockToken(s.slug);
+		if (!got || !constantTimeEquals(got, expected)) {
+			return json(
+				{ ok: false, reason: "password_required" },
+				{ status: 401 },
+			);
+		}
+	}
+
+	const [r] = await db
+		.select({ videoUrl: recast.videoUrl, status: recast.status })
+		.from(recast)
+		.where(eq(recast.id, s.recastId))
+		.limit(1);
+	if (!r) error(404, "Underlying recast missing");
+	if (r.status === "archived") {
+		return json({ ok: false, reason: "archived" }, { status: 410 });
+	}
+
+	const url = await signDownloadUrl({
+		key: r.videoUrl,
+		expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+	});
+
+	return json({
+		ok: true,
+		url,
+		expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+	});
+};

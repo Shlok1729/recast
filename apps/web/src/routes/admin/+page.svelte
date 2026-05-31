@@ -88,7 +88,7 @@
 				</div>
 			</article>
 		{/each}
-		<!-- Placeholder — recasts table doesn't exist yet (still localStorage on
+		<!-- Placeholder - Recasts table doesn't exist yet (still localStorage on
 			the dashboard). Slot is reserved so the grid won't reflow when we
 			add `recasts` and start counting rows. -->
 		<article class="glass-card flex flex-col gap-3 rounded-xl p-4 opacity-60">

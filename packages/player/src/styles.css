@@ -55,9 +55,9 @@
 	--media-menu-color: var(--popover-foreground, #f5f5f5);
 
 	--media-control-padding: 0;
-	--media-control-height: 36px;
-	--media-button-icon-height: 16px;
-	--media-button-icon-width: 16px;
+	--media-control-height: 40px;
+	--media-button-icon-height: 18px;
+	--media-button-icon-width: 18px;
 	--media-button-padding: 0;
 	--media-focus-ring-color: var(--primary, #cdec3a);
 }
@@ -71,11 +71,11 @@
 	--media-range-track-pointer-background: rgba(255, 255, 255, 0.32);
 	--media-range-track-translucent-background: rgba(255, 255, 255, 0.28);
 	--media-range-bar-color: var(--primary, #cdec3a);
-	--media-range-track-height: 3px;
+	--media-range-track-height: 4px;
 	--media-range-track-border-radius: 9999px;
 	--media-range-thumb-background: var(--primary, #cdec3a);
-	--media-range-thumb-width: 12px;
-	--media-range-thumb-height: 12px;
+	--media-range-thumb-width: 14px;
+	--media-range-thumb-height: 14px;
 	--media-range-thumb-border-radius: 9999px;
 	--media-range-thumb-border: 0;
 	--media-range-thumb-box-shadow:
@@ -106,7 +106,7 @@
 
 	--media-preview-time-background: var(--foreground, #111111);
 	--media-preview-time-color: var(--background, #ffffff);
-	--media-preview-time-padding: 3px 8px;
+	--media-preview-time-padding: 6px 12px;
 	--media-preview-time-border-radius: 6px;
 	--media-preview-time-margin: 6px 0 0;
 }
@@ -130,12 +130,17 @@
 .recast-control-bar {
 	background: linear-gradient(
 		to top,
-		rgba(0, 0, 0, 0.7),
+		rgba(0, 0, 0, 0.82),
+		rgba(0, 0, 0, 0.38),
 		rgba(0, 0, 0, 0)
 	);
-	padding: 8px 10px 6px;
-	gap: 2px;
+	padding: 10px 12px 8px;
+	gap: 4px;
 	align-items: center;
+}
+
+media-controller.recast-player.recast-player-theater {
+	border-radius: 0;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -143,15 +148,15 @@
    ────────────────────────────────────────────────────────────────── */
 
 .recast-btn {
-	height: 32px;
-	min-width: 32px;
-	border-radius: 8px;
+	height: 36px;
+	min-width: 36px;
+	border-radius: 999px;
 	transition: background-color 150ms ease, color 150ms ease;
 	color: rgba(255, 255, 255, 0.92);
 }
 
 .recast-btn:hover {
-	background: rgba(255, 255, 255, 0.1) !important;
+	background: rgba(255, 255, 255, 0.14) !important;
 }
 
 .recast-btn:focus-visible {
@@ -167,7 +172,7 @@
 /* Text-only buttons (playback rate). Tighter padding, mono digit width
    so 1× → 1.25× → 1.5× doesn't jitter the bar. */
 .recast-btn-text {
-	padding: 0 8px;
+	padding: 0 10px;
 	font-family: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo,
 		Consolas, monospace !important;
 	font-size: 11px;
@@ -243,14 +248,14 @@
 /* The mute button sits next to volume; volume range expands a bit on
    hover for easier scrubbing without snapping shut. */
 .recast-volume {
-	width: 56px;
-	height: 32px;
+	width: 72px;
+	height: 36px;
 	transition: width 180ms ease;
 }
 
 .recast-volume:hover,
 .recast-volume:focus-within {
-	width: 72px;
+	width: 88px;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -265,12 +270,12 @@
 	top: 50%;
 	left: 50%;
 	transform: translate(-50%, -50%);
-	width: 72px;
-	height: 72px;
+	width: 68px;
+	height: 68px;
 	border-radius: 9999px;
-	background: rgba(15, 15, 14, 0.55);
-	backdrop-filter: blur(8px);
-	-webkit-backdrop-filter: blur(8px);
+	background: rgba(15, 15, 14, 0.74);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
 	transition:
 		background-color 180ms ease,
 		opacity 180ms ease,
@@ -321,8 +326,37 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 .recast-scrubber {
 	flex: 1;
 	min-width: 60px;
-	margin: 0 6px;
-	height: 32px;
+	margin: 0 8px;
+	height: 36px;
+}
+
+.recast-scrubber-wrap {
+	position: relative;
+	display: flex;
+	flex: 1;
+	align-items: center;
+}
+
+.recast-marker-rail {
+	position: absolute;
+	inset: 50% 8px auto 8px;
+	height: 14px;
+	transform: translateY(-50%);
+	pointer-events: none;
+}
+
+.recast-marker {
+	position: absolute;
+	top: 50%;
+	width: 8px;
+	height: 8px;
+	padding: 0;
+	border: 0;
+	border-radius: 999px;
+	background: var(--recast-marker-color, #cdec3a);
+	box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);
+	transform: translate(-50%, -50%);
+	pointer-events: auto;
 }
 
 .recast-time {
@@ -333,8 +367,8 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 	letter-spacing: -0.01em;
 	color: rgba(255, 255, 255, 0.78);
 	font-variant-numeric: tabular-nums;
-	padding: 0 6px;
-	height: 32px;
+	padding: 0 8px;
+	height: 36px;
 	display: inline-flex;
 	align-items: center;
 }
@@ -362,7 +396,7 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 
 @media (max-width: 640px) {
 	.recast-control-bar {
-		padding-inline: 6px;
+		padding-inline: 8px;
 	}
 
 	.recast-volume {
@@ -370,7 +404,11 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 	}
 
 	.recast-big-play {
-		width: 60px;
-		height: 60px;
+		width: 56px;
+		height: 56px;
+	}
+
+	.recast-marker-rail {
+		inset-inline: 6px;
 	}
 }

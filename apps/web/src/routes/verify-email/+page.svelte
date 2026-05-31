@@ -63,7 +63,7 @@
 </script>
 
 <svelte:head>
-	<title>Verify your email — Recast</title>
+	<title>Verify your email - Recast</title>
 	<meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 

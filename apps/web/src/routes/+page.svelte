@@ -863,7 +863,7 @@
 		</Container>
 	</Section>
 
-	<!-- Coming next — Recast Cloud (premium hosted offering, waitlist). The
+	<!-- Coming next - Recast Cloud (premium hosted offering, waitlist). The
 	     Drive flow above is the free, user-owned default; this section is the
 	     paid future for users who outgrow a raw Drive link. -->
 	<Section id="cloud" class="border-t border-border-low/60 bg-foreground/1.5 dark:bg-foreground/2">

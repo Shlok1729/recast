@@ -1,7 +1,7 @@
 <script lang="ts">
 	import DashboardHeader from "$lib/dashboard/components/DashboardHeader.svelte";
 	import DashboardSidebar from "$lib/dashboard/components/DashboardSidebar.svelte";
-	import { settingsStore } from "$lib/dashboard/store.svelte";
+	import { quotaStore, settingsStore } from "$lib/dashboard/store.svelte";
 	import { NavProgress } from "@recast/ui/nav-progress";
 	import * as Sidebar from "@recast/ui/sidebar";
 	import { onMount } from "svelte";
@@ -12,6 +12,12 @@
 	onMount(() => {
 		settingsStore.value.profile.name = data.user.name || data.user.email;
 		settingsStore.value.profile.email = data.user.email;
+	});
+
+	// Reactive re-hydration of quota — re-runs when the loader returns a
+	// new snapshot (e.g. after `invalidateAll()` post-upload).
+	$effect(() => {
+		quotaStore.hydrate(data.quota ?? null);
 	});
 </script>
 

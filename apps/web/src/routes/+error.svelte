@@ -110,7 +110,7 @@
 </script>
 
 <svelte:head>
-	<title>{status} — Recast</title>
+	<title>{status} - Recast</title>
 	<meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 

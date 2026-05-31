@@ -53,7 +53,7 @@
 </script>
 
 <svelte:head>
-	<title>Set a new password — Recast</title>
+	<title>Set a new password - Recast</title>
 </svelte:head>
 
 <AuthCard

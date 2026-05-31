@@ -31,7 +31,7 @@
 	  User,
 	  Users,
 	} from "@lucide/svelte";
-	import { goto } from "$app/navigation";
+	import { goto, invalidateAll } from "$app/navigation";
 	import { authClient } from "$lib/auth/client";
 	// Alias because the local `mode` ($state for view mode) collides with
 	// mode-watcher's exported reactor of the same name.
@@ -62,12 +62,61 @@
 	const recast = $derived(okAccess?.recast);
 	const shareMeta = $derived(okAccess?.share);
 	const canManage = $derived(okAccess?.canManage ?? false);
-	let visibility = $state<"public" | "team" | "private">(
-		untrack(() => (data.access.ok ? data.access.share.visibility : "public")),
+	// `requiresPassword` is set by the page loader when the share has a
+	// passwordHash and the viewer doesn't carry a valid unlock cookie. In
+	// that case `recast.src` is empty and we render the prompt below
+	// instead of the player. On a successful unlock we `invalidateAll()`
+	// so the loader re-runs, signs the URL, and the player mounts.
+	const requiresPassword = $derived(
+		Boolean(okAccess && "requiresPassword" in access && access.requiresPassword),
+	);
+	let passwordInput = $state("");
+	let unlocking = $state(false);
+	let unlockError = $state<string | null>(null);
+	async function submitUnlock(e: SubmitEvent) {
+		e.preventDefault();
+		if (!shareMeta || unlocking || !passwordInput) return;
+		unlocking = true;
+		unlockError = null;
+		try {
+			const res = await fetch(`/api/share/${shareMeta.slug}/unlock`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ password: passwordInput }),
+			});
+			if (!res.ok) {
+				unlockError =
+					res.status === 401 ? "Wrong password. Try again." : "Couldn't unlock.";
+				return;
+			}
+			passwordInput = "";
+			await invalidateAll();
+		} catch {
+			unlockError = "Network error. Try again.";
+		} finally {
+			unlocking = false;
+		}
+	}
+	// This dropdown only writes the legacy {public, team, private} triplet
+	// — the new {workspace, selected} scopes come from a richer share modal
+	// that isn't on this page yet. Coerce incoming server values into the
+	// triplet so old + new shares both render: `workspace` folds to `team`
+	// (functionally identical, just the canonical name), `selected` to
+	// `private` so it visibly reads as "restricted" rather than misleading.
+	type LegacyVisibility = "public" | "team" | "private";
+	const toLegacyVisibility = (v: string): LegacyVisibility => {
+		if (v === "public") return "public";
+		if (v === "team" || v === "workspace") return "team";
+		return "private";
+	};
+	let visibility = $state<LegacyVisibility>(
+		untrack(() =>
+			data.access.ok ? toLegacyVisibility(data.access.share.visibility) : "public",
+		),
 	);
 	let updatingVisibility = $state(false);
 	$effect(() => {
-		if (access.ok) visibility = access.share.visibility;
+		if (access.ok) visibility = toLegacyVisibility(access.share.visibility);
 	});
 
 	async function updateVisibility(next: "public" | "team" | "private") {
@@ -109,27 +158,25 @@
 	}
 
 	/**
-	 * Four viewing modes — picked to cover the different reasons someone
+	 * Three viewing modes — picked to cover the different reasons someone
 	 * lands on a share link:
 	 *
 	 *   • focus   — video as the message; minimal chrome around it
 	 *   • theater — wide video with description right below, YouTube-ish
 	 *   • review  — transcript + comments tabbed in a side rail (the work
 	 *               surface for feedback rounds)
-	 *   • cinema  — full-bleed, controls auto-hide, distraction-free
 	 *
 	 * Mode persists per-viewer in localStorage and can be pinned via
 	 * `?view=` for share-link presets ("send this to a stakeholder in
-	 * cinema mode").
+	 * focus mode").
 	 */
-	type Mode = "focus" | "theater" | "review" | "cinema";
+	type Mode = "focus" | "theater" | "review";
 	type ReviewTab = "transcript" | "comments";
 
 	const MODES: { id: Mode; label: string; icon: typeof Square; hint: string }[] = [
 		{ id: "focus", label: "Focus", icon: Square, hint: "Centered, no extras" },
 		{ id: "theater", label: "Theater", icon: RectangleHorizontal, hint: "Wide video, details below" },
 		{ id: "review", label: "Review", icon: MessageSquare, hint: "Transcript + comments rail" },
-		{ id: "cinema", label: "Cinema", icon: Film, hint: "Full-bleed, distraction-free" },
 	];
 
 	/**
@@ -219,12 +266,10 @@
 
 	let api = $state<RecastPlayerApi | null>(null);
 
-	// Re-seek every time the player API publishes — covers both the
-	// initial `?t=` URL seed AND subsequent mounts that happen when
-	// cinema mode flips (the player remounts because cinema lives in a
-	// different DOM branch). Reading `currentTime` via `untrack` so this
-	// effect only re-runs when `api` itself changes, not on every
-	// playback progress tick.
+	// Re-seek every time the player API publishes — covers the initial
+	// `?t=` URL seed and any later remount. Reading `currentTime` via
+	// `untrack` so this effect only re-runs when `api` itself changes,
+	// not on every playback progress tick.
 	$effect(() => {
 		if (!api) return;
 		const target = untrack(() => Math.max(initialSeekSeconds, currentTime));
@@ -361,7 +406,7 @@
 		{ start: 38, end: 60, text: "Once you're happy with the edit, you publish to Recast Cloud and get a share link." },
 		{ start: 60, end: 80, text: "Recipients land on a page like this. They can leave timestamped comments." },
 		{ start: 80, end: 110, text: "If you want, they can see the transcript alongside the video and click to seek." },
-		{ start: 110, end: 145, text: "For external review, switch to cinema mode — full-screen, no distractions." },
+		{ start: 110, end: 145, text: "For external review, switch to focus mode — just the video, no distractions." },
 		{ start: 145, end: 180, text: "We'll talk about the AI editor next: cut markers, auto-trim, B-roll suggestions." },
 		{ start: 180, end: 240, text: "The same player ships in the desktop app and in the web share page." },
 		{ start: 240, end: 300, text: "Adaptive bitrate over HLS keeps it watchable on patchy connections." },
@@ -454,10 +499,10 @@
 	async function copyEmbedCode() {
 		if (!browser) return;
 		const url = new URL(window.location.href);
-		// Force cinema mode in embeds so the iframe is the player itself,
-		// not a tiny shrunk-down full-page chrome. Time fragment travels
-		// along so an embed at a specific moment "just works".
-		url.searchParams.set("view", "cinema");
+		// Force focus mode in embeds so the iframe leads with the video and
+		// minimal chrome. Time fragment travels along so an embed at a
+		// specific moment "just works".
+		url.searchParams.set("view", "focus");
 		const iframe = `<iframe src="${url.toString()}" width="640" height="360" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`;
 		await writeClipboard(iframe, "Embed code copied.");
 	}
@@ -505,13 +550,11 @@
 	// Layout math driven by the active mode. We do this in JS so the
 	// values can be tween'd / animated; CSS Grid can't yet smoothly
 	// interpolate template changes across browsers.
-	const isFullBleed = $derived(mode === "cinema");
 	const showRail = $derived(mode === "review");
 	const wrapMaxWidth = $derived(
 		mode === "focus" ? "max-w-3xl" :
 		mode === "theater" ? "max-w-5xl" :
-		mode === "review" ? "max-w-7xl" :
-		"max-w-none",
+		"max-w-7xl",
 	);
 
 	// Scroll active transcript cue into view inside the rail.
@@ -593,94 +636,68 @@
 			</div>
 		</div>
 	</div>
-{:else}
-<!-- Cinema mode renders a completely different shell: full-bleed black
-     canvas, controls auto-hide, no chrome around the video. The morph
-     reads as a "zoom into the player" — backdrop fades to black while
-     the inner stage scales up from 0.94 with a long quint-out tail
-     (560ms) so the eye tracks the player into the canvas instead of
-     the layout snapping. Both branches animate in AND out so they
-     crossfade. `currentTime` is preserved across the remount via the
-     api-watching effect above. -->
-{#if isFullBleed}
-	<div
-		class="fixed inset-0 z-50 grid place-items-center bg-black"
-		in:fade={{ duration: 420, easing: quintOut }}
-		out:fade={{ duration: 280, easing: quintOut }}
-	>
+{:else if requiresPassword}
+	<!-- Password-protected share. Same chrome as the denial card so the
+	     unlock experience reads as a single page rather than a hard
+	     redirect. On success we invalidate the page data; the loader
+	     re-runs with the unlock cookie in place and signs the URL. -->
+	<div class="relative grid min-h-screen place-items-center px-6 py-16 text-foreground">
 		<div
-			class="relative w-full h-full grid place-items-center"
-			in:scale={{ start: 0.94, duration: 560, easing: quintOut, opacity: 0.4 }}
-			out:scale={{ start: 0.96, duration: 320, easing: quintOut, opacity: 0.6 }}
+			aria-hidden="true"
+			class="pointer-events-none absolute inset-0 -z-10"
+			style="background: radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--color-primary) 6%, transparent), transparent 70%);"
+		></div>
+		<div
+			aria-hidden="true"
+			class="bg-grid bg-grid-fade pointer-events-none absolute inset-0 -z-10 opacity-25"
+		></div>
+
+		<form
+			class="glass-card w-full max-w-md rounded-2xl border border-border-low/40 p-7 shadow-craft-xl"
+			in:scale={{ start: 0.96, duration: 320, easing: quintOut, opacity: 0.6 }}
+			onsubmit={submitUnlock}
 		>
-			<div class="w-full max-w-screen max-h-screen aspect-video">
-				<RecastPlayer
-					bind:api
-					src={recast!.src}
-					poster={recast!.poster}
-					title={recast!.title}
-					onengagement={(e) => {
-						if (e.type === "view-start") isPlaying = true;
-						if (e.type === "progress") {
-							currentTime = e.currentTime;
-							watchedPct = e.percent;
-						}
-						if (e.type === "ended") {
-							watchedPct = 100;
-							isPlaying = false;
-						}
-					}}
-				/>
-			</div>
-			<!-- Floating mode switcher. Cinema canvas is solid black in
-			     both themes, so the pill is tuned against black: glassy
-			     backdrop-blur container with a thin white hairline and
-			     soft shadow, white/60 idle buttons, primary-tinted active
-			     state. Keeps the same shape as the top-bar switcher so
-			     viewers don't relearn it. -->
-			<Tooltip.Provider delayDuration={250}>
-				<div
-					role="tablist"
-					aria-label="View mode"
-					class="absolute right-4 top-4 flex items-center gap-0.5 rounded-xl border border-white/10 bg-black/55 p-1 shadow-craft-md backdrop-blur-xl supports-[backdrop-filter]:bg-black/40"
-					in:fly={{ y: -8, duration: 260, easing: cubicOut }}
-				>
-					{#each MODES as m (m.id)}
-						<Tooltip.Root>
-							<Tooltip.Trigger
-								role="tab"
-								aria-selected={mode === m.id}
-								aria-label="{m.label} — {m.hint}"
-								onclick={() => (mode = m.id)}
-								class={cn(
-									"grid size-8 place-items-center rounded-lg text-white/60 transition-all duration-200",
-									"hover:bg-white/10 hover:text-white",
-									mode === m.id && "bg-primary/20 text-primary ring-1 ring-primary/40",
-								)}
-							>
-								<m.icon class="size-3.5" />
-							</Tooltip.Trigger>
-							<Tooltip.Content sideOffset={8} class="max-w-56 bg-popover">
-								<div class="text-[11px] leading-snug">
-									<div class="font-semibold text-popover-foreground">{m.label}</div>
-									<div class="mt-0.5 text-muted-foreground">{m.hint}</div>
-								</div>
-							</Tooltip.Content>
-						</Tooltip.Root>
-					{/each}
+			<div class="flex items-start gap-3">
+				<span class="grid size-10 shrink-0 place-items-center rounded-xl bg-foreground/5 text-foreground ring-1 ring-border/40">
+					<Lock class="size-5" />
+				</span>
+				<div class="min-w-0">
+					<h1 class="text-lg font-semibold tracking-tight">Password required</h1>
+					<p class="mt-1 text-sm text-muted-foreground">
+						This recast is password-protected. Enter the password the owner shared with you.
+					</p>
 				</div>
-			</Tooltip.Provider>
-		</div>
+			</div>
+
+			<label class="mt-5 block">
+				<span class="sr-only">Password</span>
+				<input
+					type="password"
+					required
+					autocomplete="current-password"
+					bind:value={passwordInput}
+					class="w-full rounded-lg border border-border-low/70 bg-background/80 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary/60"
+					placeholder="Password"
+					disabled={unlocking}
+				/>
+			</label>
+
+			{#if unlockError}
+				<p class="mt-2 text-xs text-destructive">{unlockError}</p>
+			{/if}
+
+			<div class="mt-4 flex flex-col gap-2">
+				<Button type="submit" disabled={unlocking || !passwordInput} class="gap-2">
+					{unlocking ? "Unlocking…" : "Unlock"}
+					{#if !unlocking}<ArrowRight class="size-3.5" />{/if}
+				</Button>
+			</div>
+		</form>
 	</div>
 {:else}
-	<!-- Standard (non-cinema) shell. Matches the cinema branch's
-	     transitions in reverse: fades out as cinema fades in, and
-	     scales slightly down as it leaves so the eye reads "this is
-	     receding while the cinema canvas grows". -->
 	<div
 		class="relative min-h-screen text-foreground"
 		in:fade={{ duration: 420, easing: quintOut }}
-		out:scale={{ start: 0.98, duration: 320, easing: quintOut, opacity: 0.5 }}
 	>
 		<div
 			aria-hidden="true"
@@ -1256,5 +1273,4 @@
 			     content, not chrome. -->
 		</main>
 	</div>
-{/if}
 {/if}

@@ -7,6 +7,7 @@ import {
 	member as memberTable,
 	organization as organizationTable,
 } from "$lib/db/schema";
+import { getQuotaSnapshot, storagePctUsed } from "$lib/storage/quota";
 import type { LayoutServerLoad } from "./$types";
 
 type SessionUser = {
@@ -116,6 +117,32 @@ export const load: LayoutServerLoad = async ({ request, url }) => {
 		(m) => m.organizationId === activeOrganizationId,
 	)!;
 
+	// Live quota snapshot for the active workspace — feeds the sidebar
+	// usage meter, the upload-button enable state, and the
+	// transparency surface on settings/billing. Coerce Infinity to null
+	// so the JSON payload survives `JSON.stringify` (which drops it).
+	const snap = await getQuotaSnapshot(activeMembership.organizationId);
+	const finite = (n: number): number | null => (Number.isFinite(n) ? n : null);
+	const quota = snap
+		? {
+				plan: snap.plan,
+				usage: {
+					storageBytes: snap.usage.storageBytes,
+					activeRecastsCount: snap.usage.activeRecastsCount,
+					archivedRecastsCount: snap.usage.archivedRecastsCount,
+					membersCount: snap.usage.membersCount,
+				},
+				limits: {
+					storageBytes: finite(snap.limits.storageBytes),
+					activeRecasts: finite(snap.limits.activeRecasts),
+					members: finite(snap.limits.members),
+					maxDurationSec: finite(snap.limits.maxDurationSec),
+					playbackMaxHeight: snap.limits.playbackMaxHeight,
+				},
+				storagePctUsed: storagePctUsed(snap),
+			}
+		: null;
+
 	return {
 		user: {
 			id: session.user.id,
@@ -133,5 +160,6 @@ export const load: LayoutServerLoad = async ({ request, url }) => {
 			plan: activeMembership.plan,
 			role: activeMembership.role,
 		},
+		quota,
 	};
 };

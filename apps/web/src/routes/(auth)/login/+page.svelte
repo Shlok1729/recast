@@ -144,7 +144,7 @@
 </script>
 
 <svelte:head>
-	<title>Sign in — Recast</title>
+	<title>Sign in - Recast</title>
 </svelte:head>
 
 <AuthCard title="Welcome back" description="Sign in to your Recast account.">

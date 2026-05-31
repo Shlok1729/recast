@@ -17,6 +17,64 @@ export type RecastPlayerControls = {
 	fullscreen: boolean;
 };
 
+export type RecastPlayerBranding = {
+	src?: string | null;
+	alt?: string;
+	name?: string;
+	href?: string | null;
+	width?: number;
+	height?: number;
+	className?: string;
+	position?: "top-left";
+};
+
+export type RecastPlayerChapter = {
+	id?: string;
+	label: string;
+	startTime: number;
+	endTime?: number | null;
+};
+
+export type RecastPlayerMarker = {
+	id: string;
+	time: number;
+	label: string;
+	kind?: "chapter" | "comment" | "highlight" | "cta";
+	color?: string;
+};
+
+export type RecastPlayerUtilityAction =
+	| { id: "share"; label?: string }
+	| { id: "download"; label?: string }
+	| { id: "screenshot"; label?: string }
+	| { id: "theater"; label?: string }
+	| { id: "chapters"; label?: string }
+	| { id: "shortcuts"; label?: string }
+	| { id: "settings"; label?: string }
+	| { id: "pip"; label?: string }
+	| { id: "custom"; label: string; actionId: string };
+
+export type RecastPlayerFeatures = {
+	settingsMenu: boolean;
+	chaptersMenu: boolean;
+	theaterMode: boolean;
+	miniPlayer: boolean;
+	share: boolean;
+	download: boolean;
+	screenshot: boolean;
+	keyboardShortcuts: boolean;
+	markers: boolean;
+};
+
+export type RecastPlayerActionEvent =
+	| { type: "share"; currentTime: number }
+	| { type: "download"; src: string }
+	| { type: "screenshot"; currentTime: number; dataUrl: string }
+	| { type: "theater"; active: boolean }
+	| { type: "chapter-select"; chapter: RecastPlayerChapter }
+	| { type: "marker-select"; marker: RecastPlayerMarker }
+	| { type: "custom"; actionId: string; currentTime: number };
+
 export type RecastPlayerState = {
 	paused: boolean;
 	ended: boolean;
@@ -27,6 +85,8 @@ export type RecastPlayerState = {
 	playbackRate: number;
 	videoWidth: number;
 	videoHeight: number;
+	pictureInPicture: boolean;
+	theaterMode: boolean;
 };
 
 /**
@@ -45,6 +105,10 @@ export type RecastPlayerApi = {
 	setMuted: (next: boolean) => void;
 	setVolume: (next: number) => void;
 	setPlaybackRate: (next: number) => void;
+	togglePlay: () => Promise<void>;
+	setTheaterMode: (next: boolean) => void;
+	openSettings: () => void;
+	closeSettings: () => void;
 	enterFullscreen: () => Promise<void>;
 	exitFullscreen: () => Promise<void>;
 	enterPictureInPicture: () => Promise<void>;
@@ -69,13 +133,19 @@ export type RecastPlayerProps = {
 	playbackRate?: number;
 	currentTime?: number;
 	paused?: boolean | null;
+	chapters?: RecastPlayerChapter[];
+	markers?: RecastPlayerMarker[];
+	utilityActions?: RecastPlayerUtilityAction[];
+	features?: Partial<RecastPlayerFeatures>;
 	showMenu?: boolean;
 	controls?: Partial<RecastPlayerControls>;
+	branding?: RecastPlayerBranding | null;
 	aspectRatio?: number | string | null;
 	objectFit?: "contain" | "cover" | "fill" | "none" | "scale-down";
 	ariaLabel?: string;
 	className?: string;
 	onengagement?: (event: RecastPlayerEngagement) => void;
 	onstatechange?: (state: RecastPlayerState) => void;
+	onaction?: (event: RecastPlayerActionEvent) => void;
 	api?: RecastPlayerApi | null;
 };

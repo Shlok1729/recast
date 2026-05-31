@@ -15,6 +15,18 @@ import { member, recast, share, user } from "$lib/db/schema";
  * UI can render a "request access" affordance instead of a dead end.
  */
 
+/**
+ * `team` is the legacy enum value preserved for backwards compatibility with
+ * old share rows. New writes should use `workspace`; consumers treat the
+ * two identically.
+ */
+export type ShareVisibility =
+	| "public"
+	| "workspace"
+	| "team"
+	| "selected"
+	| "private";
+
 export type ResolvedShare =
 	| {
 			ok: true;
@@ -30,7 +42,7 @@ export type ResolvedShare =
 			};
 			share: {
 				slug: string;
-				visibility: "public" | "team" | "private";
+				visibility: ShareVisibility;
 				organizationId: string | null;
 			};
 			canManage: boolean;
@@ -38,7 +50,7 @@ export type ResolvedShare =
 	| {
 			ok: false;
 			reason: "not-found" | "denied";
-			visibility?: "public" | "team" | "private";
+			visibility?: ShareVisibility;
 			ownerEmail?: string;
 			sameTeam?: boolean;
 	  };
@@ -103,11 +115,16 @@ export async function resolveShareAccess(
 		row.organizationId != null &&
 		viewer?.memberOrgIds.has(row.organizationId) === true;
 
+	// `workspace` is the canonical name; `team` is the legacy alias. Both
+	// mean "any signed-in member of the share's org". `selected` adds an
+	// allowlist on top — handled in the dedicated player endpoint, not
+	// here; this page-level resolver falls back to owner-only access for
+	// `selected` until the allowlist check is wired into this path.
 	const canView =
 		row.visibility === "public" ||
 		isOwner ||
 		isAdmin ||
-		(row.visibility === "team" && inOrg);
+		((row.visibility === "team" || row.visibility === "workspace") && inOrg);
 
 	const canManage = isOwner || isAdmin;
 

@@ -75,7 +75,7 @@
 </script>
 
 <svelte:head>
-	<title>Sign up — Recast</title>
+	<title>Sign up - Recast</title>
 </svelte:head>
 
 <AuthCard

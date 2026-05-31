@@ -152,7 +152,7 @@
 </script>
 
 <svelte:head>
-	<title>Terms of Service — Recast</title>
+	<title>Terms of Service - Recast</title>
 	<meta
 		name="description"
 		content="The rules that govern using Recast — desktop, website, and Cloud."

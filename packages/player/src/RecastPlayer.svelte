@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { cubicOut } from "svelte/easing";
+	import { fade, scale } from "svelte/transition";
 	import {
 		Captions,
 		Maximize,
 		Minimize,
+		Pause,
 		PictureInPicture,
 		PictureInPicture2,
-		Pause,
 		Play,
 		RotateCcw,
 		RotateCw,
@@ -14,12 +16,19 @@
 		Volume1,
 		Volume2,
 		VolumeX,
+		X,
 	} from "@lucide/svelte";
 	import type {
+		RecastPlayerActionEvent,
 		RecastPlayerApi,
+		RecastPlayerBranding,
+		RecastPlayerChapter,
 		RecastPlayerControls,
+		RecastPlayerFeatures,
+		RecastPlayerMarker,
 		RecastPlayerProps,
 		RecastPlayerState,
+		RecastPlayerUtilityAction,
 	} from "./types";
 
 	import "media-chrome";
@@ -36,6 +45,30 @@
 		fullscreen: true,
 	};
 
+	const DEFAULT_FEATURES: RecastPlayerFeatures = {
+		settingsMenu: true,
+		chaptersMenu: true,
+		theaterMode: true,
+		miniPlayer: true,
+		share: true,
+		download: true,
+		screenshot: true,
+		keyboardShortcuts: true,
+		markers: true,
+	};
+
+	const DEFAULT_BRANDING_SRC = "/logo.svg";
+	const DEFAULT_BRANDING: RecastPlayerBranding = {
+		src: DEFAULT_BRANDING_SRC,
+		alt: "Recast",
+		name: "Recast",
+		width: 118,
+		height: 28,
+		className: "",
+	};
+
+	const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
 	let {
 		src,
 		poster = null,
@@ -51,14 +84,20 @@
 		playbackRate = $bindable(1),
 		currentTime = $bindable(0),
 		paused = $bindable<boolean | null>(null),
+		chapters = [],
+		markers = [],
+		utilityActions = [],
+		features = {},
 		showMenu = true,
 		controls = {},
+		branding = DEFAULT_BRANDING,
 		aspectRatio = null,
 		objectFit = "contain",
 		ariaLabel = "",
 		className = "",
 		onengagement,
 		onstatechange,
+		onaction,
 		api = $bindable<RecastPlayerApi | null>(null),
 	}: RecastPlayerProps = $props();
 
@@ -68,17 +107,52 @@
 	let started = false;
 	let intrinsicWidth = $state(0);
 	let intrinsicHeight = $state(0);
+	let isTheaterMode = $state(false);
+	let isPictureInPicture = $state(false);
+	let activeTooltipId = $state<string | null>(null);
 
 	const isHls = $derived(/\.m3u8(\?|#|$)/i.test(src));
 	const mergedControls = $derived({ ...DEFAULT_CONTROLS, ...controls });
+	const mergedFeatures = $derived({ ...DEFAULT_FEATURES, ...features });
 	const showCaptions = $derived(mergedControls.captions && showMenu);
 	const playerLabel = $derived(ariaLabel || title || "Video player");
+	const resolvedBranding = $derived.by(() => {
+		if (branding === null) return null;
+		return { ...DEFAULT_BRANDING, ...branding };
+	});
+	const sortedChapters = $derived(
+		[...chapters].sort((a, b) => a.startTime - b.startTime),
+	);
+	const resolvedUtilityActions = $derived.by(() => {
+		if (utilityActions.length > 0) return utilityActions;
+		const actions: RecastPlayerUtilityAction[] = [];
+		if (mergedFeatures.share) actions.push({ id: "share", label: "Share" });
+		if (mergedFeatures.screenshot) actions.push({ id: "screenshot", label: "Screenshot" });
+		if (mergedFeatures.download) actions.push({ id: "download", label: "Download" });
+		if (mergedFeatures.chaptersMenu && sortedChapters.length > 0) {
+			actions.push({ id: "chapters", label: "Chapters" });
+		}
+		if (mergedFeatures.theaterMode) actions.push({ id: "theater", label: "Theater mode" });
+		if (mergedFeatures.keyboardShortcuts) {
+			actions.push({ id: "shortcuts", label: "Shortcuts" });
+		}
+		if (mergedFeatures.settingsMenu) actions.push({ id: "settings", label: "Settings" });
+		return actions;
+	});
+	const activeChapter = $derived.by(() => {
+		const current = currentTime;
+		return (
+			sortedChapters.find((chapter, index) => {
+				const next = sortedChapters[index + 1];
+				const endTime = chapter.endTime ?? next?.startTime ?? Number.POSITIVE_INFINITY;
+				return current >= chapter.startTime && current < endTime;
+			}) ?? null
+		);
+	});
 	const resolvedAspectRatio = $derived.by(() => {
 		if (typeof aspectRatio === "number" && aspectRatio > 0) return `${aspectRatio}`;
 		if (typeof aspectRatio === "string" && aspectRatio.trim()) return aspectRatio.trim();
-		if (intrinsicWidth > 0 && intrinsicHeight > 0) {
-			return `${intrinsicWidth} / ${intrinsicHeight}`;
-		}
+		if (intrinsicWidth > 0 && intrinsicHeight > 0) return `${intrinsicWidth} / ${intrinsicHeight}`;
 		return null;
 	});
 	const playerStyle = $derived.by(() => {
@@ -95,11 +169,6 @@
 		return Math.min(1, Math.max(0, value));
 	}
 
-	function emitState() {
-		if (!onstatechange || !videoEl) return;
-		onstatechange(getState());
-	}
-
 	function getState(): RecastPlayerState {
 		return {
 			paused: videoEl?.paused ?? true,
@@ -111,7 +180,14 @@
 			playbackRate: videoEl?.playbackRate ?? playbackRate,
 			videoWidth: videoEl?.videoWidth ?? intrinsicWidth,
 			videoHeight: videoEl?.videoHeight ?? intrinsicHeight,
+			pictureInPicture: isPictureInPicture,
+			theaterMode: isTheaterMode,
 		};
+	}
+
+	function emitState() {
+		if (!onstatechange || !videoEl) return;
+		onstatechange(getState());
 	}
 
 	async function safePlay() {
@@ -124,6 +200,18 @@
 		}
 	}
 
+	async function togglePlay() {
+		if (!videoEl) return;
+		if (videoEl.paused) await safePlay();
+		else videoEl.pause();
+	}
+
+	function setTheaterMode(next: boolean) {
+		isTheaterMode = next;
+		onaction?.({ type: "theater", active: next });
+		emitState();
+	}
+
 	async function enterFullscreen() {
 		if (!controllerEl) return;
 		if (document.fullscreenElement === controllerEl) return;
@@ -131,9 +219,7 @@
 	}
 
 	async function exitFullscreen() {
-		if (document.fullscreenElement) {
-			await document.exitFullscreen();
-		}
+		if (document.fullscreenElement) await document.exitFullscreen();
 	}
 
 	async function enterPictureInPicture() {
@@ -142,10 +228,110 @@
 		await videoEl.requestPictureInPicture?.();
 	}
 
+	function chapterEndTime(chapter: RecastPlayerChapter, index: number) {
+		return chapter.endTime ?? sortedChapters[index + 1]?.startTime ?? Number.POSITIVE_INFINITY;
+	}
+
+	function markerLeft(time: number) {
+		const duration = videoEl?.duration ?? 0;
+		if (!duration || !isFinite(duration)) return 0;
+		return Math.max(0, Math.min(100, (time / duration) * 100));
+	}
+
+	function markerColor(marker: RecastPlayerMarker) {
+		if (marker.color) return marker.color;
+		switch (marker.kind) {
+			case "comment":
+				return "#60a5fa";
+			case "highlight":
+				return "#f59e0b";
+			case "cta":
+				return "#f43f5e";
+			default:
+				return "#cdec3a";
+		}
+	}
+
+	function selectChapter(chapter: RecastPlayerChapter) {
+		if (videoEl) videoEl.currentTime = Math.max(0, chapter.startTime);
+		onaction?.({ type: "chapter-select", chapter });
+	}
+
+	function selectMarker(marker: RecastPlayerMarker) {
+		if (videoEl) videoEl.currentTime = Math.max(0, marker.time);
+		onaction?.({ type: "marker-select", marker });
+	}
+
+	function downloadVideo() {
+		onaction?.({ type: "download", src });
+		const anchor = document.createElement("a");
+		anchor.href = src;
+		anchor.download = title ? `${title}.mp4` : "video";
+		anchor.rel = "noreferrer";
+		anchor.click();
+	}
+
+	function shareVideo() {
+		onaction?.({ type: "share", currentTime });
+	}
+
+	function captureScreenshotDataUrl() {
+		if (!videoEl || !intrinsicWidth || !intrinsicHeight) return null;
+		const canvas = document.createElement("canvas");
+		canvas.width = intrinsicWidth;
+		canvas.height = intrinsicHeight;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return null;
+		ctx.drawImage(videoEl, 0, 0, intrinsicWidth, intrinsicHeight);
+		return canvas.toDataURL("image/png");
+	}
+
+	function screenshotVideo() {
+		const dataUrl = captureScreenshotDataUrl();
+		if (!dataUrl) return;
+		onaction?.({ type: "screenshot", currentTime, dataUrl });
+	}
+
+	async function handleUtilityAction(action: RecastPlayerUtilityAction) {
+		switch (action.id) {
+			case "share":
+				shareVideo();
+				break;
+			case "download":
+				downloadVideo();
+				break;
+			case "screenshot":
+				screenshotVideo();
+				break;
+			case "theater":
+				setTheaterMode(!isTheaterMode);
+				break;
+			case "pip":
+				await enterPictureInPicture();
+				break;
+			case "custom":
+				onaction?.({ type: "custom", actionId: action.actionId, currentTime });
+				break;
+		}
+	}
+
+	function utilityLabel(action: RecastPlayerUtilityAction) {
+		return action.label ?? action.id;
+	}
+
+	function showTooltip(id: string) {
+		activeTooltipId = id;
+	}
+
+	function hideTooltip(id: string) {
+		if (activeTooltipId === id) activeTooltipId = null;
+	}
+
 	onMount(() => {
 		api = {
 			play: safePlay,
 			pause: () => videoEl?.pause(),
+			togglePlay,
 			seek: (seconds) => {
 				if (videoEl) videoEl.currentTime = Math.max(0, seconds);
 			},
@@ -158,6 +344,9 @@
 			setPlaybackRate: (next) => {
 				if (videoEl) videoEl.playbackRate = next;
 			},
+			setTheaterMode,
+			openSettings: () => {},
+			closeSettings: () => {},
 			enterFullscreen,
 			exitFullscreen,
 			enterPictureInPicture,
@@ -203,11 +392,7 @@
 		const pct = Math.min(100, Math.round((videoEl.currentTime / duration) * 100));
 		if (pct - lastReportedPct >= 5) {
 			lastReportedPct = pct;
-			onengagement({
-				type: "progress",
-				percent: pct,
-				currentTime: videoEl.currentTime,
-			});
+			onengagement({ type: "progress", percent: pct, currentTime: videoEl.currentTime });
 		}
 	}
 
@@ -235,11 +420,17 @@
 		paused = true;
 		emitState();
 		if (!onengagement) return;
-		onengagement({
-			type: "ended",
-			percent: 100,
-			currentTime: videoEl.currentTime,
-		});
+		onengagement({ type: "ended", percent: 100, currentTime: videoEl.currentTime });
+	}
+
+	function handleEnterPictureInPicture() {
+		isPictureInPicture = true;
+		emitState();
+	}
+
+	function handleLeavePictureInPicture() {
+		isPictureInPicture = false;
+		emitState();
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
@@ -247,20 +438,16 @@
 		const target = event.target as HTMLElement | null;
 		if (
 			target &&
-			(target.tagName === "INPUT" ||
-				target.tagName === "TEXTAREA" ||
-				target.isContentEditable)
+			(target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
 		) {
 			return;
 		}
-
 		switch (event.key) {
 			case " ":
 			case "k":
 			case "K":
 				event.preventDefault();
-				if (videoEl.paused) void safePlay();
-				else videoEl.pause();
+				void togglePlay();
 				break;
 			case "ArrowLeft":
 			case "j":
@@ -287,6 +474,11 @@
 				event.preventDefault();
 				if (document.fullscreenElement) void exitFullscreen();
 				else void enterFullscreen();
+				break;
+			case "c":
+			case "C":
+			case "?":
+			case "Escape":
 				break;
 			case "Home":
 				event.preventDefault();
@@ -338,7 +530,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <media-controller
 	bind:this={controllerEl}
-	class={`recast-player ${className}`}
+	class={`recast-player ${isTheaterMode ? "recast-player-theater" : ""} ${className}`}
 	style={playerStyle}
 	aria-label={playerLabel}
 	role="region"
@@ -368,6 +560,8 @@
 			onratechange={handleRateChange}
 			onseeked={handleSeeked}
 			onended={handleEnded}
+			onenterpictureinpicture={handleEnterPictureInPicture}
+			onleavepictureinpicture={handleLeavePictureInPicture}
 		>
 			{#if thumbnails}
 				<track kind="metadata" src={thumbnails} label="thumbnails" default />
@@ -404,6 +598,8 @@
 			onratechange={handleRateChange}
 			onseeked={handleSeeked}
 			onended={handleEnded}
+			onenterpictureinpicture={handleEnterPictureInPicture}
+			onleavepictureinpicture={handleLeavePictureInPicture}
 		>
 			{#if thumbnails}
 				<track kind="metadata" src={thumbnails} label="thumbnails" default />
@@ -421,6 +617,47 @@
 	{/if}
 
 	<media-loading-indicator class="recast-loading"></media-loading-indicator>
+
+	{#if resolvedBranding?.src}
+		{#if resolvedBranding.href}
+			<a
+				class={`recast-branding ${resolvedBranding.className ?? ""}`}
+				href={resolvedBranding.href}
+				target="_blank"
+				rel="noreferrer"
+				aria-label={resolvedBranding.alt}
+			>
+				<span class="recast-branding-mark">
+					<img
+						src={resolvedBranding.src}
+						alt={resolvedBranding.alt}
+						width={resolvedBranding.width}
+						height={resolvedBranding.height}
+					/>
+				</span>
+				{#if resolvedBranding.name}
+					<span class="recast-branding-name">{resolvedBranding.name}</span>
+				{/if}
+			</a>
+		{:else}
+			<div
+				class={`recast-branding ${resolvedBranding.className ?? ""}`}
+				aria-hidden="true"
+			>
+				<span class="recast-branding-mark">
+					<img
+						src={resolvedBranding.src}
+						alt={resolvedBranding.alt}
+						width={resolvedBranding.width}
+						height={resolvedBranding.height}
+					/>
+				</span>
+				{#if resolvedBranding.name}
+					<span class="recast-branding-name">{resolvedBranding.name}</span>
+				{/if}
+			</div>
+		{/if}
+	{/if}
 
 	{#if mergedControls.bigPlay}
 		<media-play-button class="recast-big-play" aria-label="Toggle playback">
@@ -453,18 +690,43 @@
 			<media-time-display class="recast-time" showduration></media-time-display>
 		{/if}
 
-		<media-time-range class="recast-scrubber" aria-label="Seek">
-			{#if thumbnails}
-				<media-preview-thumbnail
-					slot="preview"
-					class="recast-thumb"
-				></media-preview-thumbnail>
+		<div class="recast-scrubber-wrap">
+			<media-time-range class="recast-scrubber" aria-label="Seek">
+				{#if thumbnails}
+					<media-preview-thumbnail slot="preview" class="recast-thumb"></media-preview-thumbnail>
+				{/if}
+				<media-preview-time-display slot="preview" class="recast-preview-time"></media-preview-time-display>
+			</media-time-range>
+
+			{#if mergedFeatures.markers && markers.length > 0}
+				<div class="recast-marker-rail">
+					{#each markers as marker (marker.id)}
+						{@const markerTooltipId = `marker-${marker.id}`}
+						<button
+							type="button"
+							class="recast-marker"
+							style={`left:${markerLeft(marker.time)}%;--recast-marker-color:${markerColor(marker)};`}
+							title={marker.label}
+							aria-label={marker.label}
+							onmouseenter={() => showTooltip(markerTooltipId)}
+							onmouseleave={() => hideTooltip(markerTooltipId)}
+							onfocus={() => showTooltip(markerTooltipId)}
+							onblur={() => hideTooltip(markerTooltipId)}
+							onclick={() => selectMarker(marker)}
+						></button>
+						{#if activeTooltipId === markerTooltipId}
+							<div
+								class="recast-ui-tooltip recast-ui-tooltip-marker"
+								style={`left:${markerLeft(marker.time)}%;`}
+								transition:fade={{ duration: 120 }}
+							>
+								{marker.label}
+							</div>
+						{/if}
+					{/each}
+				</div>
 			{/if}
-			<media-preview-time-display
-				slot="preview"
-				class="recast-preview-time"
-			></media-preview-time-display>
-		</media-time-range>
+		</div>
 
 		{#if mergedControls.volume}
 			<media-mute-button class="recast-btn" aria-label="Mute or unmute">
@@ -473,7 +735,6 @@
 				<span slot="medium" class="recast-icon"><Volume1 class="size-4" /></span>
 				<span slot="high" class="recast-icon"><Volume2 class="size-4" /></span>
 			</media-mute-button>
-
 			<media-volume-range class="recast-volume" aria-label="Volume"></media-volume-range>
 		{/if}
 
@@ -488,9 +749,7 @@
 		{#if showCaptions}
 			<media-captions-button class="recast-btn" aria-label="Captions">
 				<span slot="on" class="recast-icon"><Captions class="size-4" /></span>
-				<span slot="off" class="recast-icon recast-icon-muted">
-					<Captions class="size-4" />
-				</span>
+				<span slot="off" class="recast-icon recast-icon-muted"><Captions class="size-4" /></span>
 			</media-captions-button>
 		{/if}
 
@@ -523,5 +782,115 @@
 		height: 100%;
 		object-fit: var(--recast-player-object-fit, contain);
 		background: #000;
+	}
+
+	.recast-branding {
+		position: absolute;
+		top: 14px;
+		left: 14px;
+		z-index: 3;
+		display: inline-flex;
+		align-items: center;
+		gap: 0;
+		min-height: 40px;
+		padding: 6px;
+		border-radius: 999px;
+		background: rgba(15, 15, 14, 0.42);
+		color: rgba(255, 255, 255, 0.96);
+		backdrop-filter: blur(16px) saturate(145%);
+		-webkit-backdrop-filter: blur(16px) saturate(145%);
+		box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+		text-decoration: none;
+		transition:
+			padding 180ms ease,
+			gap 180ms ease,
+			background-color 180ms ease;
+	}
+
+	.recast-branding-mark {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 auto;
+		width: 28px;
+		height: 28px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.14);
+		overflow: hidden;
+	}
+
+	.recast-branding img {
+		display: block;
+		height: auto;
+		width: 18px;
+		max-width: 18px;
+		max-height: 18px;
+		object-fit: contain;
+	}
+
+	.recast-branding-name {
+		max-width: 0;
+		overflow: hidden;
+		opacity: 0;
+		transform: translateX(-4px);
+		transition:
+			max-width 180ms ease,
+			opacity 160ms ease,
+			transform 180ms ease;
+		font-size: 12px;
+		font-weight: 600;
+		line-height: 1;
+		letter-spacing: 0;
+		white-space: nowrap;
+	}
+
+	.recast-branding:hover,
+	.recast-branding:focus-visible {
+		gap: 10px;
+		padding-right: 12px;
+		background: rgba(15, 15, 14, 0.5);
+	}
+
+	.recast-branding:hover .recast-branding-name,
+	.recast-branding:focus-visible .recast-branding-name {
+		max-width: 120px;
+		opacity: 1;
+		transform: translateX(0);
+	}
+
+	.recast-ui-tooltip {
+		position: absolute;
+		z-index: 6;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 6px 12px;
+		border-radius: 6px;
+		background: var(--foreground, #111111);
+		color: var(--background, #ffffff);
+		box-shadow: var(--shadow-craft-sm);
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 1.2;
+		letter-spacing: 0;
+		white-space: nowrap;
+		pointer-events: none;
+	}
+
+	.recast-ui-tooltip::after {
+		content: "";
+		position: absolute;
+		left: 50%;
+		top: 100%;
+		width: 10px;
+		height: 10px;
+		background: inherit;
+		transform: translate(-50%, -55%) rotate(45deg);
+		border-radius: 2px;
+	}
+
+	.recast-ui-tooltip-marker {
+		bottom: calc(100% + 10px);
+		transform: translateX(-50%);
 	}
 </style>

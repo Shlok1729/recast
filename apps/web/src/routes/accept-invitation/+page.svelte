@@ -111,7 +111,7 @@
 </script>
 
 <svelte:head>
-	<title>Team invitation — Recast</title>
+	<title>Team invitation - Recast</title>
 	<meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
