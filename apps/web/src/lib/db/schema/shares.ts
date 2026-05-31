@@ -56,6 +56,22 @@ export const share = pgTable(
 		expiresAt: timestamp("expires_at"),
 		/** Free plan: always true and shown on player. Pro removes. */
 		watermark: boolean("watermark").notNull().default(true),
+		/**
+		 * Owner's call-to-action — the "next step" a founder wants the viewer
+		 * to take (book a call, try it, reply). Rendered as a persistent
+		 * button below the video AND an end-card overlay when playback ends.
+		 * Both null = no CTA. `ctaUrl` is an absolute URL; `ctaLabel` is the
+		 * button text.
+		 */
+		ctaLabel: text("cta_label"),
+		ctaUrl: text("cta_url"),
+		/**
+		 * Whether viewers can post comments on this share. Reactions are
+		 * always allowed (lighter, less abuse surface). The create flow sets
+		 * this `false` for Pro workspaces per the Cloud-plan default; column
+		 * default is `true` for Free.
+		 */
+		commentsEnabled: boolean("comments_enabled").notNull().default(true),
 		/** Cached counter — incremented from share_view writes for cheap reads. */
 		viewsCount: integer("views_count").notNull().default(0),
 		createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -122,6 +138,65 @@ export const shareView = pgTable(
 	],
 );
 
+/**
+ * Viewer comments on a share. Flat (no threading in v1) and anchored to a
+ * point in the video via `atSeconds`. Comments are name-only: a viewer
+ * doesn't need a Recast account, so identity is a self-supplied
+ * `authorName` plus the anonymous `sessionId` fingerprint (same one
+ * `share_view` uses). Soft-deleted via `deletedAt` so the owner can
+ * moderate without breaking reply context or counts.
+ */
+export const shareComment = pgTable(
+	"share_comment",
+	{
+		id: text("id").primaryKey(),
+		shareSlug: text("share_slug")
+			.notNull()
+			.references(() => share.slug, { onDelete: "cascade" }),
+		/** Anonymous fingerprint — lets the author edit/remove their own posts. */
+		sessionId: text("session_id").notNull(),
+		authorName: text("author_name").notNull(),
+		/** Point in the video the comment is anchored to. */
+		atSeconds: integer("at_seconds").notNull().default(0),
+		body: text("body").notNull(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		/** Owner moderation — soft delete keeps counts stable. */
+		deletedAt: timestamp("deleted_at"),
+	},
+	(t) => [
+		index("share_comment_share_idx").on(t.shareSlug),
+		index("share_comment_share_created_idx").on(t.shareSlug, t.createdAt),
+	],
+);
+
+/**
+ * Lightweight sentiment reactions (Cap-style). Always allowed regardless of
+ * the comments toggle. One row per (share, viewer, emoji) so each emoji
+ * toggles once per viewer rather than stacking. `atSeconds` records WHERE in
+ * the video the viewer was when they reacted — surfaced to the owner later
+ * ("most viewers loved 0:52"), not used by the viewer-facing toggle.
+ */
+export const shareReaction = pgTable(
+	"share_reaction",
+	{
+		id: text("id").primaryKey(),
+		shareSlug: text("share_slug")
+			.notNull()
+			.references(() => share.slug, { onDelete: "cascade" }),
+		sessionId: text("session_id").notNull(),
+		emoji: text("emoji").notNull(),
+		/** Playhead position when the reaction was made (owner-insight metadata). */
+		atSeconds: integer("at_seconds").notNull().default(0),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(t) => [
+		index("share_reaction_share_idx").on(t.shareSlug),
+		unique("share_reaction_unique_key").on(t.shareSlug, t.sessionId, t.emoji),
+	],
+);
+
 export type Share = typeof share.$inferSelect;
 export type ShareMember = typeof shareMember.$inferSelect;
 export type ShareView = typeof shareView.$inferSelect;
+export type ShareComment = typeof shareComment.$inferSelect;
+export type ShareReaction = typeof shareReaction.$inferSelect;

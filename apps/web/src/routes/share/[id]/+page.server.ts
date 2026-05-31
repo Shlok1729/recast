@@ -50,6 +50,11 @@ const DEMO: DemoOrResolved = {
 		slug: "demo",
 		visibility: "public",
 		organizationId: null,
+		ctaLabel: "Try Recast free",
+		ctaUrl: "https://recast.li",
+		commentsEnabled: true,
+		viewsCount: 1280,
+		watermark: true,
 	},
 	canManage: false,
 };

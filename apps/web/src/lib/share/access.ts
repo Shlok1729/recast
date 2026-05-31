@@ -44,6 +44,11 @@ export type ResolvedShare =
 				slug: string;
 				visibility: ShareVisibility;
 				organizationId: string | null;
+				ctaLabel: string | null;
+				ctaUrl: string | null;
+				commentsEnabled: boolean;
+				viewsCount: number;
+				watermark: boolean;
 			};
 			canManage: boolean;
 	  }
@@ -91,6 +96,11 @@ export async function resolveShareAccess(
 			slug: share.slug,
 			visibility: share.visibility,
 			organizationId: share.organizationId,
+			ctaLabel: share.ctaLabel,
+			ctaUrl: share.ctaUrl,
+			commentsEnabled: share.commentsEnabled,
+			viewsCount: share.viewsCount,
+			watermark: share.watermark,
 			ownerId: share.ownerId,
 			ownerEmail: user.email,
 			ownerName: user.name,
@@ -157,6 +167,11 @@ export async function resolveShareAccess(
 			slug: row.slug,
 			visibility: row.visibility,
 			organizationId: row.organizationId,
+			ctaLabel: row.ctaLabel,
+			ctaUrl: row.ctaUrl,
+			commentsEnabled: row.commentsEnabled,
+			viewsCount: row.viewsCount,
+			watermark: row.watermark,
 		},
 		canManage,
 	};
