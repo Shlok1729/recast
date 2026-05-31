@@ -1,5 +1,6 @@
 pub(crate) mod assets;
 pub(crate) mod auth;
+pub(crate) mod cloud;
 mod editor;
 mod ffmpeg;
 pub(crate) mod files;
@@ -10,6 +11,7 @@ pub(crate) mod types;
 
 pub use assets::*;
 pub use auth::*;
+pub use cloud::*;
 pub use editor::*;
 pub use files::*;
 pub use gdrive::*;

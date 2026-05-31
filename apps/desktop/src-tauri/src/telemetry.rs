@@ -122,16 +122,12 @@ fn read_consent(app: &AppHandle) -> (bool, String) {
     }
 }
 
-/// Capture a scrubbed exception. `wait` blocks until the HTTP send finishes —
-/// used by the panic hook so the report flushes before the process unwinds. The
-/// non-blocking path (command-site errors) fires and forgets.
-pub fn capture_exception(
-    app: &AppHandle,
-    name: &str,
-    message: &str,
-    stack: Option<String>,
-    wait: bool,
-) {
+/// Capture a scrubbed exception. Always fire-and-forget: the HTTP send happens
+/// on a detached thread with its own short-lived runtime, so telemetry can never
+/// block or stall the app — not even on the crashing thread during a panic. If
+/// the process exits before the send finishes, the report is simply dropped
+/// (best-effort delivery; reliability is never traded for blocking the app).
+pub fn capture_exception(app: &AppHandle, name: &str, message: &str, stack: Option<String>) {
     let (errors_on, distinct_id) = read_consent(app);
     if !errors_on {
         return;
@@ -166,9 +162,11 @@ pub fn capture_exception(
     });
 
     let url = format!("{}/i/v0/e/", host.trim_end_matches('/'));
-    let handle = std::thread::spawn(move || {
-        // A panic may fire on a thread with no tokio context, so stand up a
-        // tiny current-thread runtime just for this send.
+    // Detached — never joined. A panic may fire on a thread with no tokio
+    // context, so we stand up a tiny current-thread runtime just for this send.
+    // `Builder::spawn` returns a Result (vs `thread::spawn`, which panics if the
+    // OS can't create a thread) so this can't double-panic inside the panic hook.
+    let _ = std::thread::Builder::new().spawn(move || {
         let Ok(rt) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -185,10 +183,6 @@ pub fn capture_exception(
             let _ = client.post(&url).json(&payload).send().await;
         });
     });
-
-    if wait {
-        let _ = handle.join();
-    }
 }
 
 /// Report a non-fatal Rust error (command-site `Result::Err`). Fire-and-forget.
@@ -196,7 +190,7 @@ pub fn capture_exception(
 /// coverage.
 #[allow(dead_code)]
 pub fn report_error(app: &AppHandle, context: &str, err: &str) {
-    capture_exception(app, "RustError", &format!("{context}: {err}"), None, false);
+    capture_exception(app, "RustError", &format!("{context}: {err}"), None);
 }
 
 /// Install the global panic hook. Always logs through the existing
@@ -219,7 +213,7 @@ pub fn install_panic_hook(app: AppHandle) {
         };
         let message = format!("panic at {location}: {payload}");
         log::error!("{message}");
-        capture_exception(&app, "RustPanic", &message, Some(location), true);
+        capture_exception(&app, "RustPanic", &message, Some(location));
         previous(info);
     }));
 }

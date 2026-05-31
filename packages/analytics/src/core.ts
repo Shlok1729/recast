@@ -48,6 +48,31 @@ export interface CreateAnalyticsOptions {
  * Errors are scrubbed *here*, before the provider is ever called, so the noop
  * path and the real path redact identically.
  */
+/**
+ * Analytics is a non-essential side channel: it must NEVER throw into a caller
+ * or crash a feature. Every interaction with the provider goes through `safe`,
+ * which swallows any error (sync or async) and — in dev only — logs it. This is
+ * what makes `analytics.capture(...)` safe to call inline before critical work
+ * (e.g. right before `invoke("start_recording")`).
+ */
+function isDev(): boolean {
+	try {
+		return Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+	} catch {
+		return false;
+	}
+}
+
+function safe(fn: () => void): void {
+	try {
+		fn();
+	} catch (err) {
+		if (isDev() && typeof console !== "undefined") {
+			console.debug("[analytics] swallowed error:", err);
+		}
+	}
+}
+
 export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 	const enabled = opts.enabled ?? Boolean(opts.config.apiKey);
 	const provider: Provider = enabled ? opts.provider : noopProvider;
@@ -56,7 +81,8 @@ export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 	let initialized = false;
 	let optedOut = false;
 
-	function ensureProvider() {
+	// Internal — already wrapped by `safe` at every call site below.
+	function ensureProviderUnsafe() {
 		if (!enabled) return;
 		if (!anyConsent(consent)) {
 			// Both channels off — if we were running, stop (keep the instance so a
@@ -68,14 +94,25 @@ export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 			return;
 		}
 		if (!initialized) {
-			void provider.init(opts.config);
+			// Mark initialized BEFORE awaiting so a slow/failed init can't trigger a
+			// re-init storm. `init` may be async (dynamic import of posthog-js); a
+			// rejected import or init must never surface as an unhandled rejection.
 			initialized = true;
 			optedOut = false;
+			Promise.resolve()
+				.then(() => provider.init(opts.config))
+				.catch((err) => {
+					if (isDev() && typeof console !== "undefined") {
+						console.debug("[analytics] provider init failed:", err);
+					}
+				});
 		} else if (optedOut) {
 			provider.optIn();
 			optedOut = false;
 		}
 	}
+
+	const ensureProvider = () => safe(ensureProviderUnsafe);
 
 	// Stand the provider up at construction only when behaviour tracking is
 	// already consented to, or the app explicitly asks for eager init (web). An
@@ -86,47 +123,55 @@ export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 	return {
 		capture<E extends AnalyticsEvent>(event: E, props?: PropsFor<E>) {
 			if (!canCapture(consent)) return;
-			ensureProvider();
-			provider.capture(event, props as Record<string, unknown> | undefined);
+			safe(() => {
+				ensureProviderUnsafe();
+				provider.capture(event, props as Record<string, unknown> | undefined);
+			});
 		},
 
 		identify(userId, traits) {
 			// Identity is part of product analytics — only link a real user when
 			// behaviour tracking is consented to.
 			if (!canCapture(consent)) return;
-			ensureProvider();
-			provider.identify(userId, traits);
+			safe(() => {
+				ensureProviderUnsafe();
+				provider.identify(userId, traits);
+			});
 		},
 
 		reset() {
 			if (!initialized) return;
-			provider.reset();
+			safe(() => provider.reset());
 		},
 
 		captureError(err: unknown, ctx?: ErrorContext) {
-			// Always scrub, even when we won't send — keeps the redaction path
-			// exercised and means callers can't leak PII through a later code path.
-			const scrubbed = scrubError(err, ctx);
-			if (!canReportErrors(consent)) return;
-			ensureProvider();
-			provider.captureError(scrubbed);
+			safe(() => {
+				// Always scrub, even when we won't send — keeps the redaction path
+				// exercised and means callers can't leak PII through a later path.
+				const scrubbed = scrubError(err, ctx);
+				if (!canReportErrors(consent)) return;
+				ensureProviderUnsafe();
+				provider.captureError(scrubbed);
+			});
 		},
 
 		register(props) {
 			if (!initialized) return;
-			provider.register(props);
+			safe(() => provider.register(props));
 		},
 
 		setConsent(next) {
 			const prev = consent;
 			consent = { ...consent, ...next };
-			ensureProvider();
-			// Record the opt-in so we can measure consent rates. Revocation is
-			// intentionally silent — once product is off the gate would drop the
-			// event anyway, and sending a final beacon on opt-out is bad manners.
-			if (next.product === true && prev.product !== true) {
-				provider.capture("consent_granted", { channel: "product" });
-			}
+			safe(() => {
+				ensureProviderUnsafe();
+				// Record the opt-in so we can measure consent rates. Revocation is
+				// intentionally silent — once product is off the gate would drop the
+				// event anyway, and sending a final beacon on opt-out is bad manners.
+				if (next.product === true && prev.product !== true) {
+					provider.capture("consent_granted", { channel: "product" });
+				}
+			});
 		},
 
 		getConsent() {
@@ -135,7 +180,7 @@ export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 
 		upgradePersistence() {
 			if (!initialized) return;
-			provider.upgradePersistence();
+			safe(() => provider.upgradePersistence());
 		},
 
 		isReady() {
@@ -143,7 +188,11 @@ export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 		},
 
 		isFeatureEnabled(flag) {
-			return provider.isFeatureEnabled(flag);
+			let result: boolean | undefined;
+			safe(() => {
+				result = provider.isFeatureEnabled(flag);
+			});
+			return result;
 		},
 	};
 }

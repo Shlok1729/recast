@@ -47,7 +47,7 @@ const DEFAULT_CLOUD_API_URL: &str = "https://recast.nexonauts.com";
 /// the desktop has no settings UI for this and we don't want a malicious
 /// or accidentally-injected env to silently redirect auth/sync traffic to
 /// an attacker-controlled host. Trailing slashes are stripped.
-fn cloud_api_url() -> String {
+pub(crate) fn cloud_api_url() -> String {
     #[cfg(debug_assertions)]
     let raw = std::env::var("CLOUD_API_URL").unwrap_or_else(|_| DEFAULT_CLOUD_API_URL.to_string());
     #[cfg(not(debug_assertions))]
@@ -55,7 +55,7 @@ fn cloud_api_url() -> String {
     raw.trim_end_matches('/').to_string()
 }
 
-fn user_agent() -> String {
+pub(crate) fn user_agent() -> String {
     // Better Auth captures this header into `session.userAgent`. Putting the
     // OS + hostname here gives the user a recognizable label in the future
     // Settings → Devices list ("Kanak-Desktop on Windows") without needing

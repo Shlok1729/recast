@@ -1,0 +1,23 @@
+# Turborepo internal cache
+.turbo
+
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+build
+.svelte-kit
+# OS
+.DS_Store
+Thumbs.db
+.claude
+
+~/
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
