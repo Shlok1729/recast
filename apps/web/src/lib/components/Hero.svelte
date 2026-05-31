@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Container, Eyebrow, Section } from "$lib/components";
 	import { TextLoop } from "$lib/motion-core";
-	import { Button } from "@recast/ui/button";
 	import { ArrowRight, Download, MousePointer2, Share2, Sparkles, Video } from "@lucide/svelte";
+	import { Button } from "@recast/ui/button";
 	import { cubicOut } from "svelte/easing";
 	import { blur, fly } from "svelte/transition";
 
@@ -69,7 +69,7 @@
 			>
 				{#each steps as step, i}
 					{@const Icon = step.icon}
-					<span class="glass-chip flex items-center gap-1.5 rounded-full px-3 py-1.5">
+					<span class="glass-chip flex items-center gap-1.5 rounded-full px-3 py-1.5 whitespace-nowrap">
 						<Icon class="size-3.5 text-primary" />
 						{step.label}
 					</span>

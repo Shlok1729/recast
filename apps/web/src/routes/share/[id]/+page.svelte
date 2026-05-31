@@ -158,27 +158,25 @@
 	}
 
 	/**
-	 * Four viewing modes — picked to cover the different reasons someone
+	 * Three viewing modes — picked to cover the different reasons someone
 	 * lands on a share link:
 	 *
 	 *   • focus   — video as the message; minimal chrome around it
 	 *   • theater — wide video with description right below, YouTube-ish
 	 *   • review  — transcript + comments tabbed in a side rail (the work
 	 *               surface for feedback rounds)
-	 *   • cinema  — full-bleed, controls auto-hide, distraction-free
 	 *
 	 * Mode persists per-viewer in localStorage and can be pinned via
 	 * `?view=` for share-link presets ("send this to a stakeholder in
-	 * cinema mode").
+	 * focus mode").
 	 */
-	type Mode = "focus" | "theater" | "review" | "cinema";
+	type Mode = "focus" | "theater" | "review";
 	type ReviewTab = "transcript" | "comments";
 
 	const MODES: { id: Mode; label: string; icon: typeof Square; hint: string }[] = [
 		{ id: "focus", label: "Focus", icon: Square, hint: "Centered, no extras" },
 		{ id: "theater", label: "Theater", icon: RectangleHorizontal, hint: "Wide video, details below" },
 		{ id: "review", label: "Review", icon: MessageSquare, hint: "Transcript + comments rail" },
-		{ id: "cinema", label: "Cinema", icon: Film, hint: "Full-bleed, distraction-free" },
 	];
 
 	/**
@@ -268,12 +266,10 @@
 
 	let api = $state<RecastPlayerApi | null>(null);
 
-	// Re-seek every time the player API publishes — covers both the
-	// initial `?t=` URL seed AND subsequent mounts that happen when
-	// cinema mode flips (the player remounts because cinema lives in a
-	// different DOM branch). Reading `currentTime` via `untrack` so this
-	// effect only re-runs when `api` itself changes, not on every
-	// playback progress tick.
+	// Re-seek every time the player API publishes — covers the initial
+	// `?t=` URL seed and any later remount. Reading `currentTime` via
+	// `untrack` so this effect only re-runs when `api` itself changes,
+	// not on every playback progress tick.
 	$effect(() => {
 		if (!api) return;
 		const target = untrack(() => Math.max(initialSeekSeconds, currentTime));
@@ -410,7 +406,7 @@
 		{ start: 38, end: 60, text: "Once you're happy with the edit, you publish to Recast Cloud and get a share link." },
 		{ start: 60, end: 80, text: "Recipients land on a page like this. They can leave timestamped comments." },
 		{ start: 80, end: 110, text: "If you want, they can see the transcript alongside the video and click to seek." },
-		{ start: 110, end: 145, text: "For external review, switch to cinema mode — full-screen, no distractions." },
+		{ start: 110, end: 145, text: "For external review, switch to focus mode — just the video, no distractions." },
 		{ start: 145, end: 180, text: "We'll talk about the AI editor next: cut markers, auto-trim, B-roll suggestions." },
 		{ start: 180, end: 240, text: "The same player ships in the desktop app and in the web share page." },
 		{ start: 240, end: 300, text: "Adaptive bitrate over HLS keeps it watchable on patchy connections." },
@@ -503,10 +499,10 @@
 	async function copyEmbedCode() {
 		if (!browser) return;
 		const url = new URL(window.location.href);
-		// Force cinema mode in embeds so the iframe is the player itself,
-		// not a tiny shrunk-down full-page chrome. Time fragment travels
-		// along so an embed at a specific moment "just works".
-		url.searchParams.set("view", "cinema");
+		// Force focus mode in embeds so the iframe leads with the video and
+		// minimal chrome. Time fragment travels along so an embed at a
+		// specific moment "just works".
+		url.searchParams.set("view", "focus");
 		const iframe = `<iframe src="${url.toString()}" width="640" height="360" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`;
 		await writeClipboard(iframe, "Embed code copied.");
 	}
@@ -554,13 +550,11 @@
 	// Layout math driven by the active mode. We do this in JS so the
 	// values can be tween'd / animated; CSS Grid can't yet smoothly
 	// interpolate template changes across browsers.
-	const isFullBleed = $derived(mode === "cinema");
 	const showRail = $derived(mode === "review");
 	const wrapMaxWidth = $derived(
 		mode === "focus" ? "max-w-3xl" :
 		mode === "theater" ? "max-w-5xl" :
-		mode === "review" ? "max-w-7xl" :
-		"max-w-none",
+		"max-w-7xl",
 	);
 
 	// Scroll active transcript cue into view inside the rail.
@@ -701,93 +695,9 @@
 		</form>
 	</div>
 {:else}
-<!-- Cinema mode renders a completely different shell: full-bleed black
-     canvas, controls auto-hide, no chrome around the video. The morph
-     reads as a "zoom into the player" — backdrop fades to black while
-     the inner stage scales up from 0.94 with a long quint-out tail
-     (560ms) so the eye tracks the player into the canvas instead of
-     the layout snapping. Both branches animate in AND out so they
-     crossfade. `currentTime` is preserved across the remount via the
-     api-watching effect above. -->
-{#if isFullBleed}
-	<div
-		class="fixed inset-0 z-50 grid place-items-center bg-black"
-		in:fade={{ duration: 420, easing: quintOut }}
-		out:fade={{ duration: 280, easing: quintOut }}
-	>
-		<div
-			class="relative w-full h-full grid place-items-center"
-			in:scale={{ start: 0.94, duration: 560, easing: quintOut, opacity: 0.4 }}
-			out:scale={{ start: 0.96, duration: 320, easing: quintOut, opacity: 0.6 }}
-		>
-			<div class="w-full max-w-screen max-h-screen aspect-video">
-				<RecastPlayer
-					bind:api
-					src={recast!.src}
-					poster={recast!.poster}
-					title={recast!.title}
-					onengagement={(e) => {
-						if (e.type === "view-start") isPlaying = true;
-						if (e.type === "progress") {
-							currentTime = e.currentTime;
-							watchedPct = e.percent;
-						}
-						if (e.type === "ended") {
-							watchedPct = 100;
-							isPlaying = false;
-						}
-					}}
-				/>
-			</div>
-			<!-- Floating mode switcher. Cinema canvas is solid black in
-			     both themes, so the pill is tuned against black: glassy
-			     backdrop-blur container with a thin white hairline and
-			     soft shadow, white/60 idle buttons, primary-tinted active
-			     state. Keeps the same shape as the top-bar switcher so
-			     viewers don't relearn it. -->
-			<Tooltip.Provider delayDuration={250}>
-				<div
-					role="tablist"
-					aria-label="View mode"
-					class="absolute right-4 top-4 flex items-center gap-0.5 rounded-xl border border-white/10 bg-black/55 p-1 shadow-craft-md backdrop-blur-xl supports-[backdrop-filter]:bg-black/40"
-					in:fly={{ y: -8, duration: 260, easing: cubicOut }}
-				>
-					{#each MODES as m (m.id)}
-						<Tooltip.Root>
-							<Tooltip.Trigger
-								role="tab"
-								aria-selected={mode === m.id}
-								aria-label="{m.label} — {m.hint}"
-								onclick={() => (mode = m.id)}
-								class={cn(
-									"grid size-8 place-items-center rounded-lg text-white/60 transition-all duration-200",
-									"hover:bg-white/10 hover:text-white",
-									mode === m.id && "bg-primary/20 text-primary ring-1 ring-primary/40",
-								)}
-							>
-								<m.icon class="size-3.5" />
-							</Tooltip.Trigger>
-							<Tooltip.Content sideOffset={8} class="max-w-56 bg-popover">
-								<div class="text-[11px] leading-snug">
-									<div class="font-semibold text-popover-foreground">{m.label}</div>
-									<div class="mt-0.5 text-muted-foreground">{m.hint}</div>
-								</div>
-							</Tooltip.Content>
-						</Tooltip.Root>
-					{/each}
-				</div>
-			</Tooltip.Provider>
-		</div>
-	</div>
-{:else}
-	<!-- Standard (non-cinema) shell. Matches the cinema branch's
-	     transitions in reverse: fades out as cinema fades in, and
-	     scales slightly down as it leaves so the eye reads "this is
-	     receding while the cinema canvas grows". -->
 	<div
 		class="relative min-h-screen text-foreground"
 		in:fade={{ duration: 420, easing: quintOut }}
-		out:scale={{ start: 0.98, duration: 320, easing: quintOut, opacity: 0.5 }}
 	>
 		<div
 			aria-hidden="true"
@@ -1363,5 +1273,4 @@
 			     content, not chrome. -->
 		</main>
 	</div>
-{/if}
 {/if}
