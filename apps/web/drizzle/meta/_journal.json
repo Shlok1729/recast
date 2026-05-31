@@ -36,6 +36,13 @@
       "when": 1780158509432,
       "tag": "0004_previous_stryfe",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780206097885,
+      "tag": "0005_natural_carnage",
+      "breakpoints": true
     }
   ]
 }
