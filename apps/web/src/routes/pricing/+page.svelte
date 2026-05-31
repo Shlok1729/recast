@@ -394,7 +394,7 @@
 
 			<Reveal variant="blur" class="mt-14">
 				<div class="overflow-x-auto rounded-2xl border border-border-low/50">
-					<div class="min-w-[760px]">
+					<div class="min-w-190">
 						<div class="grid grid-cols-[1.6fr_1fr_1fr_1fr_1fr] border-b border-border-low/50 bg-foreground/2 text-[11px] font-semibold uppercase tracking-[0.16em]">
 							<div class="px-5 py-3.5 text-muted-foreground">Feature</div>
 							{#each columns as col}
