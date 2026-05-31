@@ -8,6 +8,10 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	// Injected by Vite `define` — the running web build version, used as an
+	// analytics super-property.
+	const __APP_VERSION__: string;
 }
 
 export {};

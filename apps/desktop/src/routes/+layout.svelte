@@ -15,7 +15,78 @@
 
   let { children } = $props();
 
+  // First-run privacy prompt — shown once in the main window only.
+  let showFirstRun = $state(false);
+
+  // Analytics + global error capture. Overlay windows (panel, pickers,
+  // camera-preview) are skipped — they're transient chrome. The main window
+  // owns `app_opened` / identify / the first-run prompt; editor windows still
+  // get error capture (gated by the errors-consent flag inside the client).
+  onMount(() => {
+    if (isTransparentRoute) return;
+
+    let cancelled = false;
+    let unlistenAuth: (() => void) | undefined;
+
+    const setup = async () => {
+      const { getCurrentWebviewWindow } = await import(
+        "@tauri-apps/api/webviewWindow"
+      );
+      if (getCurrentWebviewWindow().label !== "main") return;
+
+      // Hydrate the OS super-property, then record the launch. `app_opened`
+      // is a no-op unless the user has opted into product analytics.
+      try {
+        const { platform } = await import("@tauri-apps/plugin-os");
+        analytics.register({ os: platform() });
+      } catch {
+        // Non-Tauri preview — leave os unset.
+      }
+      analytics.capture("app_opened");
+
+      if (!desktopConsent.hasSeenFirstRun) showFirstRun = true;
+
+      // Alias anonymous events to the cloud account on sign-in. The payload
+      // carries `userId` when the server provides it; otherwise identify is a
+      // no-op and only the anonymous install id is tracked.
+      const unlisten = await listen<{ userId?: string | null }>(
+        "auth:signed-in",
+        ({ payload }) => {
+          if (payload?.userId) analytics.identify(payload.userId);
+          analytics.capture("cloud_connected");
+        },
+      );
+      if (cancelled) unlisten();
+      else unlistenAuth = unlisten;
+    };
+    void setup();
+
+    // Global JS error capture → scrubbed $exception (default-on errors consent).
+    const onError = (e: ErrorEvent) =>
+      analytics.captureError(e.error ?? e.message, {
+        source: "desktop",
+        route: page.url.pathname,
+      });
+    const onRejection = (e: PromiseRejectionEvent) =>
+      analytics.captureError(e.reason, {
+        source: "desktop",
+        route: page.url.pathname,
+      });
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+
+    return () => {
+      cancelled = true;
+      unlistenAuth?.();
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  });
+
   import CommandPaletteHost from "$components/layout/CommandPaletteHost.svelte";
+  import FirstRunConsent from "$components/FirstRunConsent.svelte";
+  import { analytics } from "$lib/analytics/client";
+  import { desktopConsent } from "$lib/stores/consent.svelte";
   import { initAssets } from "$lib/assets";
   import { NavProgress } from "@recast/ui/nav-progress";
   import { getTauriTheme, isTauriApp } from "$lib/runtime/tauri";
@@ -238,4 +309,7 @@
   >
     {@render children()}
   </div>
+  {#if showFirstRun}
+    <FirstRunConsent onclose={() => (showFirstRun = false)} />
+  {/if}
 </TooltipProvider>

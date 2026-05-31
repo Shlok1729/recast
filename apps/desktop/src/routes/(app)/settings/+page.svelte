@@ -17,6 +17,7 @@
     Moon,
     Navigation,
     Settings as SettingsIcon,
+    Shield,
     SlidersHorizontal as SlidersIcon,
     Sparkles,
     Sun,
@@ -36,6 +37,8 @@
     type ExperimentalFlag,
   } from "$lib/stores/experimental.svelte";
   import { profilesStore } from "$lib/stores/profiles.svelte";
+  import { desktopConsent } from "$lib/stores/consent.svelte";
+  import { syncConsent } from "$lib/analytics/client";
 
   type Theme = "light" | "dark" | "system";
   type EditorBehavior = "navigate" | "new-window";
@@ -75,6 +78,20 @@
     const next = !experimentalStore.isEnabled(key);
     experimentalStore.setEnabled(key, next);
     toast.success(next ? `${label} enabled` : `${label} disabled`);
+  }
+
+  function toggleProductAnalytics() {
+    const next = !desktopConsent.product;
+    desktopConsent.setProduct(next);
+    syncConsent();
+    toast.success(next ? "Usage analytics enabled" : "Usage analytics disabled");
+  }
+
+  function toggleCrashReports() {
+    const next = !desktopConsent.errors;
+    desktopConsent.setErrors(next);
+    syncConsent();
+    toast.success(next ? "Crash reports enabled" : "Crash reports disabled");
   }
 
   async function fetchSettings() {
@@ -539,6 +556,97 @@
                         class={cn(
                           "size-4 rounded-full bg-card shadow-sm transition-transform",
                           closeToTray ? "translate-x-4.5" : "translate-x-0.5",
+                        )}
+                      ></span>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Privacy & Telemetry. Two independent, locally-stored opt-ins:
+                   usage analytics (strictly opt-in, default off) and crash
+                   reports (default on). Both anonymous; crash reports are
+                   PII-scrubbed before leaving the machine. -->
+              <section id="settings-privacy" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <Shield class="size-3 text-primary" />
+                    Privacy & Telemetry
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    Recast is offline-first — your recordings never leave this
+                    machine. These control anonymous diagnostics only.
+                  </p>
+                </div>
+                <div
+                  class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Share anonymous usage analytics
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        Which features you use, so we know what to improve. Off by
+                        default — nothing is sent unless you turn this on.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="Share anonymous usage analytics"
+                      aria-checked={desktopConsent.product}
+                      onclick={toggleProductAnalytics}
+                      class={cn(
+                        "flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors",
+                        desktopConsent.product
+                          ? "bg-primary"
+                          : "bg-input ring-1 ring-inset ring-border/50",
+                      )}
+                    >
+                      <span
+                        class={cn(
+                          "size-4 rounded-full bg-card shadow-sm transition-transform",
+                          desktopConsent.product
+                            ? "translate-x-4.5"
+                            : "translate-x-0.5",
+                        )}
+                      ></span>
+                    </button>
+                  </div>
+                  <div
+                    class="flex items-center justify-between gap-3 border-t border-border/40 px-4 py-3"
+                  >
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Send anonymous crash reports
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        Scrubbed error details when something breaks — no file
+                        names or paths. On by default.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="Send anonymous crash reports"
+                      aria-checked={desktopConsent.errors}
+                      onclick={toggleCrashReports}
+                      class={cn(
+                        "flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors",
+                        desktopConsent.errors
+                          ? "bg-primary"
+                          : "bg-input ring-1 ring-inset ring-border/50",
+                      )}
+                    >
+                      <span
+                        class={cn(
+                          "size-4 rounded-full bg-card shadow-sm transition-transform",
+                          desktopConsent.errors
+                            ? "translate-x-4.5"
+                            : "translate-x-0.5",
                         )}
                       ></span>
                     </button>

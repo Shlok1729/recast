@@ -123,9 +123,25 @@ pub struct AppConfig {
     /// who don't want background tray presence can flip this off in Settings.
     #[serde(default = "default_close_to_tray")]
     pub close_to_tray: bool,
+    /// Telemetry consent, mirrored from the frontend `consent.svelte.ts` store
+    /// so the native crash reporter (`telemetry.rs`) can read it without IPC.
+    ///
+    /// `telemetry_product` (behaviour analytics) is strictly opt-in — default
+    /// false. `telemetry_errors` (crash reporting) is default opt-in — default
+    /// true. `install_id` is the anonymous `distinct_id` shared with JS events.
+    #[serde(default)]
+    pub telemetry_product: bool,
+    #[serde(default = "default_telemetry_errors")]
+    pub telemetry_errors: bool,
+    #[serde(default)]
+    pub install_id: Option<String>,
 }
 
 fn default_close_to_tray() -> bool {
+    true
+}
+
+fn default_telemetry_errors() -> bool {
     true
 }
 
@@ -135,6 +151,9 @@ impl Default for AppConfig {
             output_dir: None,
             last_source: None,
             close_to_tray: true,
+            telemetry_product: false,
+            telemetry_errors: true,
+            install_id: None,
         }
     }
 }

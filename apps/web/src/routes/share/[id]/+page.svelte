@@ -33,6 +33,7 @@
 	  Film,
 	} from "@lucide/svelte";
 	import { goto, invalidateAll } from "$app/navigation";
+	import { analytics } from "$lib/analytics/client";
 	import { authClient } from "$lib/auth/client";
 	import { mode as themeMode, toggleMode } from "@recast/ui/theme";
 	import { RecastPlayer, type RecastPlayerApi } from "@recast/player";
@@ -75,6 +76,17 @@
 	const canManage = $derived(okAccess?.canManage ?? false);
 	const slug = $derived(shareMeta?.slug ?? recast?.id ?? "");
 	const isDemo = $derived(slug === "demo");
+
+	// Record a real share view, keyed to the anonymous shareView session id so
+	// PostHog reconciles with the first-party watch-metrics table. Viewers are
+	// never identified — this stays anonymous regardless of consent.
+	onMount(() => {
+		if (!browser || !okAccess || isDemo) return;
+		analytics.capture("share_viewed", {
+			visibility: shareMeta?.visibility,
+			share_session_id: shareSessionId(),
+		});
+	});
 
 	// `requiresPassword` is set by the page loader when the share has a
 	// passwordHash and the viewer doesn't carry a valid unlock cookie. In

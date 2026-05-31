@@ -9,6 +9,7 @@
  */
 
 import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
+import { analytics } from "$lib/analytics/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -167,6 +168,8 @@ export function startRecording(
 	options?: RecordingOptions,
 	region?: RegionRect | null,
 ): Promise<RecordingStartResult> {
+	// No-op unless the user opted into product analytics. No PII — source kind only.
+	analytics.capture("recording_started", { source_kind: targetType });
 	return invoke<RecordingStartResult>("start_recording", {
 		targetType,
 		targetId,
@@ -210,6 +213,7 @@ export function updateCameraPreviewState(state: CameraPreviewState): Promise<voi
 }
 
 export function stopRecording(): Promise<string> {
+	analytics.capture("recording_stopped", {});
 	return invoke<string>("stop_recording");
 }
 
@@ -290,6 +294,7 @@ export function exportVideo(
 	exportId: string,
 	gifSettings?: ExportGifSettings,
 ): Promise<string> {
+	analytics.capture("export_started", { format, quality });
 	return invoke<string>("export_video", {
 		request: { exportId, inputPath, format, quality, renderState, gifSettings },
 	});

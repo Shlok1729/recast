@@ -12,6 +12,7 @@ mod project;
 mod recording;
 mod render;
 mod silence;
+mod telemetry;
 mod tray;
 
 use commands::system::load_config;
@@ -137,6 +138,11 @@ pub fn run() {
                 pending_open_file: Mutex::new(pending_open_file),
             });
 
+            // Native crash reporting. Installed after AppState is managed so the
+            // panic hook can read the consent flag + install id. Gated on the
+            // user's `telemetry_errors` consent (default on) and PII-scrubbed.
+            telemetry::install_panic_hook(handle.clone());
+
             // System tray. Init failure is non-fatal — the app still works
             // without a tray (the user just can't quick-access actions while
             // the window is hidden, which is fine). Log + continue.
@@ -253,6 +259,7 @@ pub fn run() {
             commands::auth_cancel,
             commands::get_close_to_tray,
             commands::set_close_to_tray,
+            commands::set_telemetry_consent,
             commands::gdrive_connect,
             commands::gdrive_status,
             commands::gdrive_disconnect,

@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { dev } from "$app/environment";
 	import { page } from "$app/state";
+	import { analytics } from "$lib/analytics/client";
+	import { webConsent } from "$lib/analytics/consent.svelte";
+	import ConsentBanner from "$lib/components/ConsentBanner.svelte";
+	import { authClient } from "$lib/auth/client";
 	import ImpersonationBanner from "$lib/auth/components/ImpersonationBanner.svelte";
 	import {
 		DevThemeToggle,
@@ -36,6 +40,27 @@
 			page.url.pathname === "/verify-email" ||
 			chromelessPaths.has(page.url.pathname),
 	);
+
+	// Returning visitor who already accepted → re-enable replay + persistent id
+	// before any events fire this session.
+	$effect(() => {
+		if (webConsent.hasAccepted) analytics.upgradePersistence();
+	});
+
+	// Tie events to the signed-in user (aliases the anonymous distinct id) and
+	// drop the identity on sign-out. Gated by product consent inside the client.
+	const session = authClient.useSession();
+	let lastUserId: string | null = null;
+	$effect(() => {
+		const userId = $session.data?.user?.id ?? null;
+		if (userId && userId !== lastUserId) {
+			analytics.identify(userId);
+			lastUserId = userId;
+		} else if (!userId && lastUserId) {
+			analytics.reset();
+			lastUserId = null;
+		}
+	});
 </script>
 
 <SeoMeta
@@ -67,6 +92,8 @@
 </div>
 
 <Toaster position="bottom-right" duration={5000} />
+
+<ConsentBanner />
 
 {#if dev}
 	<DevThemeToggle />

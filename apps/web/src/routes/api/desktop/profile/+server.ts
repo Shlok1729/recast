@@ -2,6 +2,8 @@ import { getAuth } from "$lib/auth/server";
 import { PLANS, type PlanId } from "$lib/billing/plans";
 import { getDb } from "$lib/db";
 import {
+	member as memberTable,
+	organization as organizationTable,
 	recast as recastTable,
 	share as shareTable,
 	subscription as subscriptionTable,
@@ -11,7 +13,13 @@ import { and, count, eq, gt, isNull, or, sum } from "drizzle-orm";
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 
 type SessionShape = {
-	user: { id: string; email: string; name?: string | null; image?: string | null };
+	user: {
+		id: string;
+		email: string;
+		name?: string | null;
+		image?: string | null;
+		activeOrganizationId?: string | null;
+	};
 };
 
 /**
@@ -38,9 +46,9 @@ export const GET: RequestHandler = async ({ request }) => {
 	const db = getDb();
 	const userId = session.user.id;
 
-	// Run the three aggregate queries in parallel — they don't depend on each
+	// Run the aggregate queries in parallel — they don't depend on each
 	// other and each is cheap (single-table indexed scan / counter read).
-	const [userRow, subRow, recastAgg, shareAgg] = await Promise.all([
+	const [userRow, subRow, recastAgg, shareAgg, memberships] = await Promise.all([
 		db
 			.select({
 				email: userTable.email,
@@ -84,9 +92,29 @@ export const GET: RequestHandler = async ({ request }) => {
 				),
 			)
 			.then((rows) => rows[0] ?? { active: 0 }),
+		// Workspaces the user belongs to — the desktop needs an explicit
+		// workspaceId for /api/uploads/init (its device session may not
+		// carry an activeOrganizationId).
+		db
+			.select({
+				id: organizationTable.id,
+				name: organizationTable.name,
+				role: memberTable.role,
+			})
+			.from(memberTable)
+			.innerJoin(organizationTable, eq(memberTable.organizationId, organizationTable.id))
+			.where(eq(memberTable.userId, userId)),
 	]);
 
 	if (!userRow) throw error(404, "user_not_found");
+
+	// Default upload target: the session's active org if the user is still a
+	// member, else their first workspace. null only if they belong to none.
+	const workspaces = memberships.map((m) => ({ id: m.id, name: m.name, role: m.role }));
+	const activeId = session.user.activeOrganizationId ?? null;
+	const defaultWorkspaceId =
+		(activeId && workspaces.some((w) => w.id === activeId) ? activeId : workspaces[0]?.id) ??
+		null;
 
 	// Default to free if there's no subscription row (the seed for new users
 	// only inserts on Polar webhook). Same fallback the org plugin uses.
@@ -116,5 +144,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			activeShares: Number(shareAgg.active) || 0,
 			sharesLimit, // null = unlimited
 		},
+		workspaces,
+		defaultWorkspaceId,
 	});
 };
