@@ -3,11 +3,13 @@
   import { config } from "$constants/app";
   import { LATEST_RELEASE } from "$constants/changelog";
   import { gdrive } from "$lib/stores/gdrive.svelte";
+  import { cloudShare } from "$lib/stores/cloudShare.svelte";
   import { updater } from "$lib/stores/updater.svelte";
   import { whatsNew } from "$lib/stores/whats-new.svelte";
   import {
     ArrowRight,
     CircleCheck,
+    Cloud,
     Copy,
     Download,
     ExternalLink,
@@ -49,6 +51,33 @@
     } catch {
       // Browser/non-Tauri fallback.
       window.open(link, "_blank", "noopener");
+    }
+  }
+
+  async function copyShareLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Share link copied.");
+    } catch (e) {
+      toast.error(`Could not copy link: ${e}`);
+    }
+  }
+
+  // Phase → human label for the Recast Cloud share card. The upload runs
+  // export → upload → finalize → share; only the cloud-side phases surface
+  // here (the export phase has its own progress UI).
+  function cloudPhaseLabel(phase: string) {
+    switch (phase) {
+      case "preparing":
+        return "Preparing…";
+      case "uploading":
+        return "Uploading to Recast Cloud";
+      case "finalizing":
+        return "Finalizing…";
+      case "sharing":
+        return "Creating share link…";
+      default:
+        return "Sharing…";
     }
   }
 </script>
@@ -252,6 +281,78 @@
           <Button size="xs" onclick={() => openDriveLink(up.webViewLink!)}>
             <ExternalLink class="mr-1 size-3" />
             Open in Drive
+          </Button>
+        </div>
+      {/if}
+    </div>
+  {/each}
+
+  <!-- Recast Cloud share stack — one card per in-flight or completed share.
+       Phase-based (no byte %), so in-flight shows an indeterminate pulse. -->
+  {#each cloudShare.activeUploads as up (up.sourcePath)}
+    <div
+      class="pointer-events-auto overflow-hidden rounded-xl border border-border bg-card shadow-lg ring-1 ring-black/5"
+      transition:fly={{ y: 16, x: 8, duration: 240, easing: cubicOut }}
+    >
+      <div class="flex items-start gap-3 px-4 py-3">
+        <div
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
+        >
+          {#if up.status === "uploading"}
+            <Cloud class="size-4 animate-pulse" />
+          {:else if up.status === "complete"}
+            <CircleCheck class="size-4" />
+          {:else}
+            <TriangleAlert class="size-4 text-destructive" />
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-[12.5px] font-semibold leading-tight text-foreground">
+            {#if up.status === "uploading"}
+              {cloudPhaseLabel(up.phase)}
+            {:else if up.status === "complete"}
+              Shared to Recast Cloud
+            {:else}
+              Share failed
+            {/if}
+          </p>
+          <p
+            class="mt-0.5 truncate text-[11.5px] leading-snug text-muted-foreground"
+            title={up.fileName}
+          >
+            {#if up.status === "error" && up.error}
+              {up.error}
+            {:else}
+              {up.fileName}
+            {/if}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="-mr-1 -mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground"
+          aria-label="Dismiss"
+          onclick={() => cloudShare.dismiss(up.sourcePath)}
+        >
+          <X class="size-3.5" />
+        </button>
+      </div>
+      {#if up.status === "uploading"}
+        <div class="px-4 pb-3">
+          <div class="h-1 overflow-hidden rounded-full bg-muted">
+            <div class="h-full w-1/3 animate-pulse rounded-full bg-primary"></div>
+          </div>
+        </div>
+      {:else if up.status === "complete" && up.shareUrl}
+        <div
+          class="flex items-center justify-end gap-1.5 border-t border-border/50 bg-muted/30 px-3 py-2"
+        >
+          <Button size="xs" variant="ghost" onclick={() => copyShareLink(up.shareUrl!)}>
+            <Copy class="mr-1 size-3" />
+            Copy link
+          </Button>
+          <Button size="xs" onclick={() => openDriveLink(up.shareUrl!)}>
+            <ExternalLink class="mr-1 size-3" />
+            Open
           </Button>
         </div>
       {/if}

@@ -53,6 +53,35 @@ fn bearer(token: &str) -> String {
     format!("Bearer {token}")
 }
 
+/// Resolve the workspace to upload into. Honors an explicit id; otherwise
+/// asks `/api/desktop/profile` for the user's `defaultWorkspaceId` (active
+/// org, else first membership). Returns `None` only if the profile call
+/// fails or the user belongs to no workspace — in which case `init` falls
+/// back to the session's active org and surfaces a clear error if unset.
+async fn resolve_workspace_id(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    provided: Option<String>,
+) -> Option<String> {
+    if let Some(ws) = provided.filter(|s| !s.is_empty()) {
+        return Some(ws);
+    }
+    let resp = client
+        .get(format!("{base}/api/desktop/profile"))
+        .header(header::AUTHORIZATION, bearer(token))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body = resp.json::<serde_json::Value>().await.ok()?;
+    body.get("defaultWorkspaceId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Local manifest — which local exports have a cloud copy, keyed by file path.
 // Lets the library swap "Share to Cloud" → "Copy link / Manage" without a
@@ -221,6 +250,8 @@ pub async fn recast_cloud_upload(
     let duration_sec = meta.duration.round().max(0.0) as u64;
     let size_bytes = meta.size_bytes;
 
+    let resolved_workspace = resolve_workspace_id(&client, &base, &token, workspace_id).await;
+
     // ── init ──────────────────────────────────────────────────────────
     let mut init_body = serde_json::Map::new();
     init_body.insert("title".into(), title.trim().into());
@@ -230,7 +261,7 @@ pub async fn recast_cloud_upload(
     init_body.insert("height".into(), height.into());
     init_body.insert("fps".into(), fps.into());
     // zod treats workspaceId as optional-string — omit (not null) when absent.
-    if let Some(ws) = workspace_id.as_ref().filter(|s| !s.is_empty()) {
+    if let Some(ws) = resolved_workspace.as_ref().filter(|s| !s.is_empty()) {
         init_body.insert("workspaceId".into(), ws.clone().into());
     }
 

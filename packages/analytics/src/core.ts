@@ -63,13 +63,17 @@ function isDev(): boolean {
 	}
 }
 
+function devlog(msg: string, err: unknown): void {
+	if (isDev() && typeof console !== "undefined") {
+		console.debug(`[analytics] ${msg}`, err);
+	}
+}
+
 function safe(fn: () => void): void {
 	try {
 		fn();
 	} catch (err) {
-		if (isDev() && typeof console !== "undefined") {
-			console.debug("[analytics] swallowed error:", err);
-		}
+		devlog("swallowed error:", err);
 	}
 }
 
@@ -94,18 +98,19 @@ export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 			return;
 		}
 		if (!initialized) {
-			// Mark initialized BEFORE awaiting so a slow/failed init can't trigger a
-			// re-init storm. `init` may be async (dynamic import of posthog-js); a
-			// rejected import or init must never surface as an unhandled rejection.
+			// Mark initialized BEFORE init so a slow/failed init can't trigger a
+			// re-init storm. Call init SYNCHRONOUSLY (not deferred to a microtask)
+			// so its synchronous side-effects — e.g. the provider stashing config
+			// for a later upgradePersistence() — happen this tick, before any
+			// same-tick caller (returning-visitor upgrade) runs. Sync throws are
+			// caught by the enclosing safe(); the async tail (dynamic import of
+			// posthog-js) gets its own .catch so a rejection never surfaces.
 			initialized = true;
 			optedOut = false;
-			Promise.resolve()
-				.then(() => provider.init(opts.config))
-				.catch((err) => {
-					if (isDev() && typeof console !== "undefined") {
-						console.debug("[analytics] provider init failed:", err);
-					}
-				});
+			const result = provider.init(opts.config) as void | Promise<void>;
+			if (result && typeof (result as Promise<void>).then === "function") {
+				(result as Promise<void>).catch((err) => devlog("provider init failed:", err));
+			}
 		} else if (optedOut) {
 			provider.optIn();
 			optedOut = false;
@@ -156,8 +161,18 @@ export function createAnalytics(opts: CreateAnalyticsOptions): AnalyticsClient {
 		},
 
 		register(props) {
-			if (!initialized) return;
-			safe(() => provider.register(props));
+			safe(() => {
+				// Merge into the init config NOW so a not-yet-initialized provider
+				// (desktop sets `os` before product opt-in) still picks these
+				// super-properties up when it eventually stands up. `opts.config` is
+				// the same object later handed to `provider.init`. Forward live too
+				// when already running.
+				opts.config.superProperties = {
+					...(opts.config.superProperties ?? {}),
+					...props,
+				};
+				if (initialized) provider.register(props);
+			});
 		},
 
 		setConsent(next) {

@@ -91,11 +91,18 @@ export function createPostHogBrowserProvider(): Provider {
 		},
 
 		upgradePersistence() {
-			if (!ph || !config) return;
+			if (!config) return;
+			// Mutate the stored config so an in-flight `init()` (still awaiting the
+			// dynamic import) stands PostHog up already-upgraded — `config` is the
+			// same object `init()` reads its options from before calling
+			// `posthog.init`. This is also why the init-time `disableSessionRecording`
+			// flag no longer gates replay here: upgradePersistence is only ever
+			// called to *enable* replay (web consent), so we flip it on.
+			config.persistence = "localStorage+cookie";
+			config.disableSessionRecording = false;
+			if (!ph) return; // a pending init() will apply the upgraded config
 			ph.set_config({ persistence: "localStorage+cookie" });
-			// Session replay was disabled at init unless the app opted in; start it
-			// now if the app's config permits recording (web does, desktop doesn't).
-			if (!config.disableSessionRecording) ph.startSessionRecording();
+			ph.startSessionRecording();
 		},
 
 		isFeatureEnabled(flag) {

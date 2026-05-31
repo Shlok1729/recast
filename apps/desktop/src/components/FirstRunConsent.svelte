@@ -49,6 +49,9 @@
 			<!-- Crash reports: default ON -->
 			<button
 				type="button"
+				role="switch"
+				aria-checked={errors}
+				aria-label="Anonymous crash reports"
 				class="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/40 px-4 py-3 text-left"
 				onclick={() => (errors = !errors)}
 			>
@@ -80,6 +83,9 @@
 			<!-- Product analytics: default OFF -->
 			<button
 				type="button"
+				role="switch"
+				aria-checked={product}
+				aria-label="Anonymous usage analytics"
 				class="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/40 px-4 py-3 text-left"
 				onclick={() => (product = !product)}
 			>

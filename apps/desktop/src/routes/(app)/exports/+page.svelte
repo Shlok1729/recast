@@ -13,6 +13,7 @@
   import {
     Check,
     Clock,
+    Cloud,
     CopyIcon,
     Download,
     ExternalLink,
@@ -28,12 +29,15 @@
     RefreshCw,
     Search,
     Share2,
+    SlidersHorizontal,
     SortAsc,
     Trash2,
     Unlink2,
     X,
   } from "@lucide/svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
+  import { cloudShare } from "$lib/stores/cloudShare.svelte";
+  import ShareManageDialog from "$components/cloud/ShareManageDialog.svelte";
   import { isShareSupported, shareRecording } from "$lib/share";
   import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
@@ -59,6 +63,7 @@
   let sort = $state<"recent" | "name" | "size">("recent");
   let renameTarget = $state<RecordingEntry | null>(null);
   let deleteTarget = $state<RecordingEntry | null>(null);
+  let manageTarget = $state<RecordingEntry | null>(null);
   let playTarget = $state<RecordingEntry | null>(null);
 
   // Multi-select: a toolbar "Select" toggle flips the page into selection
@@ -74,6 +79,9 @@
     // without a per-row roundtrip. The store caches across mounts so
     // subsequent visits are instant.
     void gdrive.init();
+    // Same for Recast Cloud — hydrates sign-in state + the share manifest so
+    // each row shows "Share to Cloud" vs. "Copy link / Manage".
+    void cloudShare.init();
     const storedView = localStorage.getItem("exports-view") as
       | "grid"
       | "list"
@@ -181,7 +189,64 @@
     // come back next session claiming it was uploaded. The Drive file
     // itself is left alone; users can still find it in their Drive.
     void gdrive.forgetUpload(entry.path);
+    // Same for the Recast Cloud manifest — the local file is gone, so the row
+    // shouldn't keep claiming a cloud copy. The cloud object is left alone.
+    void cloudShare.forget(entry.path);
     toast.success(`Moved "${entry.filename}" to trash`);
+  }
+
+  /**
+   * Share an export to Recast Cloud: uploads the MP4 and creates a public
+   * link, then copies it. Routes to Settings if not signed in — the device
+   * sign-in opens a browser tab and shouldn't happen inline from a menu.
+   * Progress is surfaced via the corner-notification stack.
+   */
+  async function shareToCloud(entry: RecordingEntry) {
+    await cloudShare.init();
+    if (!cloudShare.signedIn) {
+      toast.info("Sign in to Recast Cloud in Settings first.");
+      void goto("/settings");
+      return;
+    }
+    const title = entry.filename.replace(/\.[^.]+$/, "");
+    try {
+      const result = await cloudShare.share(entry.path, title);
+      try {
+        await navigator.clipboard.writeText(result.shareUrl);
+        toast.success("Shared — link copied to clipboard.");
+      } catch {
+        toast.success("Shared to Recast Cloud.");
+      }
+    } catch (e) {
+      toast.error(`Cloud share failed: ${(e as Error)?.message ?? e}`);
+    }
+  }
+
+  async function copyCloudLink(entry: RecordingEntry) {
+    const record = cloudShare.getRecordForPath(entry.path);
+    if (!record) return;
+    try {
+      await navigator.clipboard.writeText(record.shareUrl);
+      toast.success("Share link copied.");
+    } catch (e) {
+      toast.error(`Could not copy link: ${e}`);
+    }
+  }
+
+  async function openCloudLink(entry: RecordingEntry) {
+    const record = cloudShare.getRecordForPath(entry.path);
+    if (!record) return;
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(record.shareUrl);
+    } catch {
+      window.open(record.shareUrl, "_blank", "noopener");
+    }
+  }
+
+  async function forgetCloudShare(entry: RecordingEntry) {
+    await cloudShare.forget(entry.path);
+    toast.success(`Forgot cloud link for "${entry.filename}"`);
   }
 
   /**
@@ -576,6 +641,7 @@
                   Math.round((activeUpload.bytesSent / activeUpload.totalBytes) * 100),
                 )
               : 0}
+            {@const cloudActive = cloudShare.getActiveForPath(entry.path)}
             <div
               in:fade={{ duration: 200, delay: Math.min(i * 25, 200) }}
               animate:morph={{ duration: 340 }}
@@ -775,6 +841,33 @@
                         </DropdownMenu.Item>
                       {/if}
                       <DropdownMenu.Separator />
+                      {#if cloudShare.uploadHistory[entry.path]}
+                        <!-- Already shared to Recast Cloud — the share link is
+                             the artifact. "Manage" opens scope / password /
+                             expiry / delete; "Forget" just drops the local
+                             association (the cloud copy is left untouched). -->
+                        <DropdownMenu.Item onSelect={() => copyCloudLink(entry)}>
+                          <Link2 /> Copy share link
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item onSelect={() => openCloudLink(entry)}>
+                          <ExternalLink /> Open share page
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item onSelect={() => (manageTarget = entry)}>
+                          <SlidersHorizontal /> Manage share…
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Separator />
+                        <DropdownMenu.Item
+                          onSelect={() => forgetCloudShare(entry)}
+                          class="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                        >
+                          <Unlink2 /> Forget cloud link
+                        </DropdownMenu.Item>
+                      {:else}
+                        <DropdownMenu.Item onSelect={() => shareToCloud(entry)}>
+                          <Cloud /> Share to Recast Cloud
+                        </DropdownMenu.Item>
+                      {/if}
+                      <DropdownMenu.Separator />
                       <DropdownMenu.Item
                         onSelect={() => (deleteTarget = entry)}
                         class="text-destructive focus:bg-destructive/10 focus:text-destructive"
@@ -799,6 +892,17 @@
                     class="h-full rounded-r-sm bg-primary/85 transition-[width] duration-200"
                     style="width: {uploadPct}%"
                   ></div>
+                </div>
+              {/if}
+
+              <!-- Recast Cloud share-in-flight strip. Phase-based (no byte %),
+                   so it's an indeterminate pulse rather than a fill. -->
+              {#if cloudActive}
+                <div
+                  class="pointer-events-none absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-muted/30"
+                  aria-hidden="true"
+                >
+                  <div class="h-full w-1/3 animate-pulse rounded-r-sm bg-primary/85"></div>
                 </div>
               {/if}
             </div>
@@ -901,4 +1005,16 @@
 
 {#if playTarget}
   <PlayerDialog entry={playTarget} onclose={() => (playTarget = null)} />
+{/if}
+
+{#if manageTarget && cloudShare.uploadHistory[manageTarget.path]}
+  <ShareManageDialog
+    open={true}
+    record={cloudShare.uploadHistory[manageTarget.path]}
+    fileName={manageTarget.filename}
+    path={manageTarget.path}
+    onOpenChange={(v: boolean) => {
+      if (!v) manageTarget = null;
+    }}
+  />
 {/if}
