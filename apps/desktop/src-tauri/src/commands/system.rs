@@ -121,6 +121,30 @@ pub fn set_close_to_tray(
     Ok(())
 }
 
+/// Mirror the frontend telemetry-consent state into `AppConfig` so the native
+/// crash reporter (`telemetry.rs`) can read the `errors` flag and attribute
+/// crashes to the same anonymous `install_id` as JS events. Called from
+/// `consent.svelte.ts` whenever a toggle flips or on first-run dismissal.
+#[tauri::command]
+pub fn set_telemetry_consent(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    product: bool,
+    errors: bool,
+    install_id: Option<String>,
+) -> Result<(), String> {
+    let mut config = state.config.lock();
+    config.telemetry_product = product;
+    config.telemetry_errors = errors;
+    if let Some(id) = install_id {
+        if !id.is_empty() {
+            config.install_id = Some(id);
+        }
+    }
+    save_config(&app, &config);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn set_last_source(
     app: AppHandle,

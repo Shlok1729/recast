@@ -3,23 +3,28 @@ import { eq } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
 import { share, user } from "$lib/db/schema";
+import { hashSharePassword } from "$lib/share/password";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = { user: { id: string; role?: string } };
 
 const MAX_CTA_LABEL = 60;
+const MIN_PASSWORD = 4;
 
 /**
  * PATCH /api/share/[id]/settings
  *
  * Owner-or-admin endpoint for the non-visibility share knobs surfaced in the
- * share menu: the call-to-action button and the comments toggle. Visibility
- * lives in the sibling `/access` endpoint; password in `/unlock`.
+ * share menu / desktop manage drawer. Visibility lives in the sibling
+ * `/access` endpoint.
  *
  * Body (all optional, only provided keys are written):
  *   - ctaLabel, ctaUrl : both-or-neither. Empty/null on either clears the
  *                        CTA. ctaUrl must be an absolute http(s) URL.
  *   - commentsEnabled  : boolean
+ *   - password         : string (≥4 chars) to set, "" or null to remove.
+ *                        Hashed before persist; never echoed back.
+ *   - expiresAt        : ISO datetime to set, null to clear. Must be future.
  */
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const session = (await getAuth()
@@ -31,6 +36,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		ctaLabel?: unknown;
 		ctaUrl?: unknown;
 		commentsEnabled?: unknown;
+		password?: unknown;
+		expiresAt?: unknown;
 	} = {};
 	try {
 		body = (await request.json()) as typeof body;
@@ -64,6 +71,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		ctaLabel?: string | null;
 		ctaUrl?: string | null;
 		commentsEnabled?: boolean;
+		passwordHash?: string | null;
+		expiresAt?: Date | null;
 	} = {};
 
 	// CTA is both-or-neither: a label without a destination (or vice versa)
@@ -95,9 +104,47 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		patch.commentsEnabled = body.commentsEnabled;
 	}
 
+	// Password: a non-empty string sets (and hashes) it; "" or null clears.
+	if ("password" in body) {
+		if (body.password === null || body.password === "") {
+			patch.passwordHash = null;
+		} else if (typeof body.password === "string") {
+			if (body.password.length < MIN_PASSWORD) {
+				error(400, `Password must be at least ${MIN_PASSWORD} characters`);
+			}
+			patch.passwordHash = await hashSharePassword(body.password);
+		} else {
+			error(400, "Invalid password");
+		}
+	}
+
+	// Expiry: an ISO datetime sets it (must be future); null clears.
+	if ("expiresAt" in body) {
+		if (body.expiresAt === null) {
+			patch.expiresAt = null;
+		} else if (typeof body.expiresAt === "string") {
+			const when = new Date(body.expiresAt);
+			if (Number.isNaN(when.getTime())) error(400, "Invalid expiry date");
+			if (when.getTime() <= Date.now()) error(400, "Expiry must be in the future");
+			patch.expiresAt = when;
+		} else {
+			error(400, "Invalid expiry date");
+		}
+	}
+
 	if (Object.keys(patch).length === 0) error(400, "Nothing to update");
 
 	await db.update(share).set(patch).where(eq(share.slug, params.id));
 
-	return json({ ok: true, ...patch });
+	// Never echo the password hash back. Report whether a password is now set
+	// and the other (safe) fields that changed.
+	const { passwordHash, expiresAt, ...safe } = patch;
+	return json({
+		ok: true,
+		...safe,
+		...("passwordHash" in patch ? { passwordSet: passwordHash !== null } : {}),
+		...("expiresAt" in patch
+			? { expiresAt: expiresAt ? expiresAt.toISOString() : null }
+			: {}),
+	});
 };

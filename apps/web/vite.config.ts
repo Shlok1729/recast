@@ -8,6 +8,11 @@ export default defineConfig({
 		sveltekit()
 	],
 	clearScreen: false,
+	// Surfaced as a global so analytics can tag every event with the running
+	// build. npm_package_version is set by the pnpm/npm script runner.
+	define: {
+		__APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? "0.0.0"),
+	},
 	server: {
 		port: 4420,
 		strictPort: true,
@@ -49,6 +54,9 @@ export default defineConfig({
 			'svelte-sonner',
 			'tailwind-merge',
 			'tailwind-variants',
+			// posthog-js is a transitive dep of @recast/analytics (dynamic import);
+			// pre-bundle it so the first capture doesn't trigger a reload cascade.
+			'posthog-js',
 		],
 		exclude: [
 			// Workspace packages — leave them out of prebundling so edits
@@ -57,6 +65,7 @@ export default defineConfig({
 			'@recast/ui',
 			'@recast/design',
 			'@recast/player',
+			'@recast/analytics',
 		],
 	},
 	// Env variables starting with the item of `envPrefix` will be exposed in tauri's source code through `import.meta.env`.

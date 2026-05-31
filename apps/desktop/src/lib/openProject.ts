@@ -12,6 +12,7 @@
  * in another editor window. Same path opened twice → focus the existing
  * window (label-based dedupe).
  */
+import { analytics } from "$lib/analytics/client";
 import { toast } from "@recast/ui/sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -57,6 +58,8 @@ export async function openProjectInNewWindow(path: string): Promise<void> {
     center: true,
     decorations: false,
   });
+  // No-op unless product analytics are on. No PII — the path never leaves.
+  analytics.capture("editor_opened");
 }
 
 /**

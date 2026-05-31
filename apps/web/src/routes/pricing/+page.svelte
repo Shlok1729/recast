@@ -368,7 +368,7 @@
 					</ul>
 					<div class="md:shrink-0">
 						<Button
-							href="mailto:hello@recast.app?subject=Recast%20Enterprise"
+							href="mailto:hello@recast.li?subject=Recast%20Enterprise"
 							variant="secondary"
 							size="lg"
 							class="w-full gap-2 md:w-auto"
@@ -394,7 +394,7 @@
 
 			<Reveal variant="blur" class="mt-14">
 				<div class="overflow-x-auto rounded-2xl border border-border-low/50">
-					<div class="min-w-[760px]">
+					<div class="min-w-190">
 						<div class="grid grid-cols-[1.6fr_1fr_1fr_1fr_1fr] border-b border-border-low/50 bg-foreground/2 text-[11px] font-semibold uppercase tracking-[0.16em]">
 							<div class="px-5 py-3.5 text-muted-foreground">Feature</div>
 							{#each columns as col}
@@ -437,7 +437,7 @@
 			<Reveal variant="up" class="mt-8">
 				<p class="mx-auto max-w-2xl text-balance text-center text-xs leading-relaxed text-muted-foreground">
 					Cloud pricing isn't final. The desktop app stays free forever, no card required. Cloud Free will stay free for small teams that bring their own storage.
-					<a href="mailto:hello@recast.app?subject=Recast%20Enterprise" class="text-foreground underline-offset-2 hover:underline">Talk to us</a> for Enterprise.
+					<a href="mailto:hello@recast.li?subject=Recast%20Enterprise" class="text-foreground underline-offset-2 hover:underline">Talk to us</a> for Enterprise.
 				</p>
 			</Reveal>
 		</Container>

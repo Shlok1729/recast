@@ -9,6 +9,7 @@
  */
 
 import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
+import { analytics } from "$lib/analytics/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -167,6 +168,8 @@ export function startRecording(
 	options?: RecordingOptions,
 	region?: RegionRect | null,
 ): Promise<RecordingStartResult> {
+	// No-op unless the user opted into product analytics. No PII — source kind only.
+	analytics.capture("recording_started", { source_kind: targetType });
 	return invoke<RecordingStartResult>("start_recording", {
 		targetType,
 		targetId,
@@ -210,6 +213,7 @@ export function updateCameraPreviewState(state: CameraPreviewState): Promise<voi
 }
 
 export function stopRecording(): Promise<string> {
+	analytics.capture("recording_stopped", {});
 	return invoke<string>("stop_recording");
 }
 
@@ -233,7 +237,78 @@ export function listExports(): Promise<RecordingEntry[]> {
 	return invoke<RecordingEntry[]>("list_exports");
 }
 
-//  Editor commands 
+//  Recast Cloud commands
+
+/** Result of a successful cloud upload + share-link creation. */
+export interface CloudShareResult {
+	recastId: string;
+	slug: string;
+	shareUrl: string;
+}
+
+/** Local manifest entry: a local export that has a cloud copy. */
+export interface CloudUploadRecord {
+	recastId: string;
+	slug: string;
+	shareUrl: string;
+	uploadedAt: number;
+}
+
+/**
+ * Upload an already-exported MP4 to Recast Cloud and create a public share
+ * link. The caller runs `exportVideo` first; `workspaceId` comes from the
+ * desktop profile's `defaultWorkspaceId`. Emits `recast-cloud:progress`,
+ * `recast-cloud:complete`, and `recast-cloud:error` events keyed by `path`.
+ */
+export function recastCloudUpload(
+	path: string,
+	title: string,
+	workspaceId?: string,
+): Promise<CloudShareResult> {
+	return invoke<CloudShareResult>("recast_cloud_upload", { path, title, workspaceId });
+}
+
+/**
+ * Update an existing share. Omit a field to leave it unchanged; for
+ * `password` / `expiresAt`, pass "" to clear.
+ */
+export function recastCloudUpdateShare(
+	slug: string,
+	opts: {
+		visibility?: "public" | "workspace" | "private";
+		password?: string;
+		expiresAt?: string;
+	},
+): Promise<void> {
+	return invoke<void>("recast_cloud_update_share", {
+		slug,
+		visibility: opts.visibility,
+		password: opts.password,
+		expiresAt: opts.expiresAt,
+	});
+}
+
+/** Delete the cloud copy (blob + row + shares). Never touches the local file. */
+export function recastCloudDelete(recastId: string, path?: string): Promise<void> {
+	return invoke<void>("recast_cloud_delete", { recastId, path });
+}
+
+/** List the shares for a recast (owner-only). Shape mirrors the web API. */
+export function recastCloudListShares(recastId: string): Promise<unknown> {
+	return invoke<unknown>("recast_cloud_list_shares", { recastId });
+}
+
+/** All locally-recorded cloud uploads, keyed by local export path. */
+export function recastCloudListUploads(): Promise<Record<string, CloudUploadRecord>> {
+	return invoke<Record<string, CloudUploadRecord>>("recast_cloud_list_uploads");
+}
+
+/** Drop a manifest entry (no network) — e.g. the local file moved. */
+export function recastCloudForgetUpload(path: string): Promise<void> {
+	return invoke<void>("recast_cloud_forget_upload", { path });
+}
+
+//  Editor commands
 
 export function loadEditorDocument(path: string): Promise<EditorDocument> {
 	return invoke<EditorDocument>("load_editor_document", { path });
@@ -290,6 +365,7 @@ export function exportVideo(
 	exportId: string,
 	gifSettings?: ExportGifSettings,
 ): Promise<string> {
+	analytics.capture("export_started", { format, quality });
 	return invoke<string>("export_video", {
 		request: { exportId, inputPath, format, quality, renderState, gifSettings },
 	});

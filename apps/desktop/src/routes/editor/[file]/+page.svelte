@@ -35,6 +35,7 @@
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
+  import { cloudShare } from "$lib/stores/cloudShare.svelte";
   import { applyAutoZooms } from "$lib/zoom/auto-apply";
   import {
     ArrowLeft,
@@ -42,6 +43,7 @@
     ExternalLink,
     FlaskConical,
     FolderOpen,
+    Cloud,
     HardDriveUpload,
     Link2,
     RefreshCw,
@@ -858,6 +860,35 @@
     }
   }
 
+  /**
+   * Share the just-exported file to Recast Cloud and copy the public link.
+   * Progress surfaces through the corner-notifications stack (the cloud
+   * upload is phase-based, not byte-based, so it isn't mirrored inline like
+   * the Drive card). Routes to Settings if not signed in.
+   */
+  async function shareCurrentExportToCloud() {
+    if (exportResult?.kind !== "success") return;
+    await cloudShare.init();
+    if (!cloudShare.signedIn) {
+      toast.info("Sign in to Recast Cloud in Settings first.");
+      void goto("/settings");
+      return;
+    }
+    const title =
+      exportResult.path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "Recast";
+    try {
+      const result = await cloudShare.share(exportResult.path, title);
+      try {
+        await navigator.clipboard.writeText(result.shareUrl);
+        toast.success("Shared — link copied to clipboard.");
+      } catch {
+        toast.success("Shared to Recast Cloud.");
+      }
+    } catch (e) {
+      toast.error(`Cloud share failed: ${(e as Error)?.message ?? e}`);
+    }
+  }
+
   // Mirror the export-success card's path so the upload state below can key
   // off it reactively. Null whenever the dialog isn't in the success state.
   const successPath = $derived(
@@ -1671,6 +1702,15 @@
            after that, the Drive row above owns the upload lifecycle and
            the footer just complements with "Open in Drive" for completed
            uploads (paired with the inline "Copy link" chip). -->
+      <Button
+        variant="outline"
+        size="xs"
+        class="gap-1.5"
+        onclick={shareCurrentExportToCloud}
+      >
+        <Cloud class="size-3" />
+        Share to Cloud
+      </Button>
       {#if !successUpload}
         <Button
           variant="outline"

@@ -273,6 +273,15 @@ export const publicEnvSchema = z.object({
 		.transform((v) => v.trim())
 		.pipe(z.string().min(1))
 		.default("Recast"),
+
+	//  Analytics (PostHog) — optional; when PUBLIC_POSTHOG_KEY is blank the
+	//  analytics client is a total no-op (mirrors isStorageConfigured()). EU
+	//  Cloud host by default to keep data in-region for GDPR.
+	PUBLIC_POSTHOG_KEY: trimmed.pipe(z.string().min(1).optional()),
+	PUBLIC_POSTHOG_HOST: trimmed
+		.pipe(z.url().optional())
+		.transform((v) => v ?? "https://eu.i.posthog.com"),
+	PUBLIC_POSTHOG_UI_HOST: optionalUrl,
 });
 
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
