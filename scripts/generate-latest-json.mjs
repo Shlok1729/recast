@@ -30,6 +30,16 @@ const tag = arg("tag");
 const repo = arg("repo");
 const dir = arg("dir", ".");
 const out = arg("out", "latest.json");
+// Comma-separated updater platform keys that MUST be present, e.g.
+// "windows-x86_64,linux-x86_64,darwin-aarch64,darwin-x86_64". When set, a
+// missing key is a hard error instead of a skipped-with-warning — this is
+// what stops a release from silently publishing a manifest that omits a
+// platform (a build leg that failed early, or a bundle target that never
+// produced an updater artifact). Leave unset for partial/single-platform runs.
+const require = (arg("require", "") || "")
+	.split(",")
+	.map((s) => s.trim())
+	.filter(Boolean);
 
 if (!tag || !repo) {
 	console.error(
@@ -89,6 +99,17 @@ if (Object.keys(platforms).length === 0) {
 	console.error(
 		"::error::No signed updater bundles found — refusing to write an empty " +
 			"latest.json. Are the TAURI_SIGNING_PRIVATE_KEY secrets configured?",
+	);
+	process.exit(1);
+}
+
+const missing = require.filter((key) => !platforms[key]);
+if (missing.length > 0) {
+	console.error(
+		`::error::latest.json is missing required platform(s): ${missing.join(", ")}. ` +
+			"Refusing to publish a partial updater manifest — a build leg likely " +
+			"failed or produced no updater artifact (check that the macOS 'app' " +
+			"bundle target is enabled and that every matrix leg succeeded).",
 	);
 	process.exit(1);
 }

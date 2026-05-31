@@ -62,8 +62,11 @@ const DEMO: DemoOrResolved = {
 type SessionShape = { user: { id: string } };
 
 export const load: PageServerLoad = async ({ params, request, cookies }) => {
+	// `customSeo` tells the root layout to suppress its default OG card so the
+	// share page's own <SeoMeta> (branded card with this recast's title/owner)
+	// is the single authoritative set of og: tags.
 	if (params.id === "demo") {
-		return { access: DEMO };
+		return { access: DEMO, customSeo: true };
 	}
 
 	const session = (await getAuth()
@@ -78,7 +81,7 @@ export const load: PageServerLoad = async ({ params, request, cookies }) => {
 	}
 
 	// Deny branch — page renders the denial card, no need to sign anything.
-	if (!access.ok) return { access };
+	if (!access.ok) return { access, customSeo: true };
 
 	// Look up the share's passwordHash separately so `resolveShareAccess`
 	// stays focused on visibility. One extra round-trip is fine here —
@@ -101,6 +104,7 @@ export const load: PageServerLoad = async ({ params, request, cookies }) => {
 					requiresPassword: true,
 					recast: { ...access.recast, src: "" },
 				},
+				customSeo: true,
 			};
 		}
 	}
@@ -122,5 +126,5 @@ export const load: PageServerLoad = async ({ params, request, cookies }) => {
 		}
 	}
 
-	return { access };
+	return { access, customSeo: true };
 };

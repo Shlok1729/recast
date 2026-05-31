@@ -39,13 +39,38 @@
 		<span class="og-url">recast.li</span>
 		<span class="og-tag">
 			<span>Record</span>
-			<span class="og-arrow">→</span>
+			{@render arrow()}
 			<span>Polish</span>
-			<span class="og-arrow">→</span>
+			{@render arrow()}
 			<span>Share</span>
 		</span>
 	</div>
 </div>
+
+<!--
+	Inline SVG (not a "→" glyph): the OG image is rasterised by takumi's
+	WebAssembly renderer in production, which has no system-font fallback, and
+	Geist's latin subset has no U+2192 — a text arrow renders as tofu. takumi
+	serialises an inline <svg> and hands the markup to resvg, so this is
+	glyph-independent. xmlns is required for resvg to parse the standalone SVG.
+-->
+{#snippet arrow()}
+	<svg
+		class="og-arrow"
+		xmlns="http://www.w3.org/2000/svg"
+		width="24"
+		height="24"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="#b0eb4e"
+		stroke-width="2.5"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+	>
+		<path d="M4 12h15" />
+		<path d="M13 6l6 6-6 6" />
+	</svg>
+{/snippet}
 
 <style>
 	.og {
@@ -181,7 +206,8 @@
 	}
 
 	.og-arrow {
-		color: #b0eb4e;
-		font-weight: 600;
+		display: block;
+		width: 24px;
+		height: 24px;
 	}
 </style>
