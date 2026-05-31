@@ -63,11 +63,17 @@
 	});
 </script>
 
-<SeoMeta
-	title="Record. Polish. Share."
-	description="Recast turns a raw screen capture into a polished, shareable demo. Smart auto-edits and a friendly timeline anyone can drive. macOS, Windows, Linux."
-	pageTitle="Recast - Record. Polish. Share."
-/>
+<!-- Site-wide default social/SEO tags. Routes that need their own card (e.g.
+	 a shared recast) set `customSeo: true` in their load data and render their
+	 own <SeoMeta>; suppressing the default here keeps a single, authoritative
+	 set of og: tags instead of duplicates (scrapers take the first og:image). -->
+{#if !(page.data as { customSeo?: boolean }).customSeo}
+	<SeoMeta
+		title="Record. Polish. Share."
+		description="Recast turns a raw screen capture into a polished, shareable demo. Smart auto-edits and a friendly timeline anyone can drive. macOS, Windows, Linux."
+		pageTitle="Recast - Record. Polish. Share."
+	/>
+{/if}
 
 <ModeWatcher />
 <!-- Cmd/Ctrl+Shift+L from any route toggles light↔dark. Runs in prod

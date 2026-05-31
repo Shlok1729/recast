@@ -163,6 +163,11 @@ jobs:
 
       - name: Cache FFmpeg sidecars
         id: ffmpeg-cache
+        # A flaky cache restore must never sink the whole release leg: the
+        # sidecars are re-downloadable from the step below. On a cache error
+        # `cache-hit` stays falsy, so the download step runs and the build
+        # still gets its FFmpeg binaries.
+        continue-on-error: true
         uses: actions/cache@v4
         with:
           path: apps/desktop/src-tauri/binaries
@@ -314,6 +319,7 @@ jobs:
             --tag "${{ needs.create-release.outputs.tag_name }}" \
             --repo "${{ github.repository }}" \
             --dir updater-sigs \
+            --require "windows-x86_64,linux-x86_64,darwin-aarch64,darwin-x86_64" \
             --out latest.json
           echo "----- latest.json -----"
           cat latest.json

@@ -8,6 +8,15 @@ export default defineConfig({
 		sveltekit()
 	],
 	clearScreen: false,
+	// `@takumi-rs/wasm` (used by /api/og) ships its WebAssembly binary through a
+	// Vite `?url` import. Externalised SSR deps skip Vite transforms, so Node
+	// would receive the raw `?url` specifier and crash. Bundling the package lets
+	// Vite resolve the `?url`, emit the .wasm asset, and trace it into the
+	// serverless function — the native `@takumi-rs/core` addon doesn't bundle on
+	// Vercel, so we run the wasm renderer instead.
+	ssr: {
+		noExternal: ['@takumi-rs/wasm'],
+	},
 	// Surfaced as a global so analytics can tag every event with the running
 	// build. npm_package_version is set by the pnpm/npm script runner.
 	define: {
