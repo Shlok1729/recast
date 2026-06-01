@@ -31,6 +31,10 @@
 			source: r.source as Recast["source"],
 			provider: r.provider,
 			views: r.views,
+			// The home overview doesn't surface folders/tags — default them so
+			// the shared Recast shape stays satisfied.
+			folderId: null,
+			tags: [],
 			// `videoUrl` here is the R2 key (or external URL). The share
 			// page signs it before playback; the dashboard card just uses
 			// the poster + title, so leaving it un-signed is fine.

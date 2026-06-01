@@ -99,6 +99,13 @@ export const GET: RequestHandler = async ({ request, url }) => {
 				ORDER BY ${share.createdAt} DESC
 				LIMIT 1
 			)`,
+			// Tag id array per recast (resolved against the workspace tag list
+			// by the client). `[]` when untagged.
+			tags: sql<string[]>`COALESCE((
+				SELECT json_agg(rt.tag_id)
+				FROM recast_tag rt
+				WHERE rt.recast_id = ${recast.id}
+			), '[]'::json)`,
 		})
 		.from(recast)
 		.where(where)
@@ -116,6 +123,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 			views: Number(r.views ?? 0),
 			createdAt: r.createdAt.getTime(),
 			lastViewedAt: r.lastViewedAt ? r.lastViewedAt.getTime() : null,
+			tags: r.tags ?? [],
 		})),
 	});
 };

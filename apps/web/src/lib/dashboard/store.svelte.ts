@@ -21,6 +21,10 @@ export type Recast = {
 	source: RecordingSource;
 	provider: string | null;
 	views: number;
+	/** Owning folder, or null for the library root. */
+	folderId: string | null;
+	/** Tag ids — resolved against the workspace tag list in the UI. */
+	tags: string[];
 	/** Playable URL. May be a `blob:` URL for session uploads. */
 	videoUrl: string;
 	/** Poster image; empty string renders a gradient placeholder. */
@@ -52,7 +56,7 @@ function seedRecordings(): Recast[] {
 		{ id: "rec_bug", title: "Bug repro — export hang", durationSec: 52, createdAt: now - 6 * DAY, sizeBytes: 33_000_000, source: "local", provider: null, views: 0, ...sample("ForBiggerEscapes") },
 		{ id: "rec_teaser", title: "Launch teaser cut", durationSec: 31, createdAt: now - 9 * DAY, sizeBytes: 22_000_000, source: "cloud", provider: "Cloudinary", views: 1024, ...sample("ForBiggerFun") },
 		{ id: "rec_support", title: "Support reply — billing", durationSec: 107, createdAt: now - 13 * DAY, sizeBytes: 68_000_000, source: "local", provider: null, views: 0, ...sample("ForBiggerJoyrides") },
-	];
+	].map((r) => ({ folderId: null, tags: [] as string[], ...r })) as Recast[];
 }
 
 function readJSON<T>(key: string, fallback: T): T {
@@ -131,6 +135,28 @@ class RecordingsStore {
 			r.id === id
 				? { ...r, source, provider: source === "cloud" ? "Cloudinary" : null }
 				: r,
+		);
+		this.persist();
+	}
+
+	/** Move a recast to a folder (or null for root). Local mirror of the
+	 *  PATCH /api/recasts/[id] call the caller makes. */
+	move(id: string, folderId: string | null) {
+		this.items = this.items.map((r) => (r.id === id ? { ...r, folderId } : r));
+		this.persist();
+	}
+
+	/** Replace a recast's tag id set. Mirrors PUT /api/recasts/[id]/tags. */
+	setTags(id: string, tags: string[]) {
+		this.items = this.items.map((r) => (r.id === id ? { ...r, tags } : r));
+		this.persist();
+	}
+
+	/** Drop a folder reference from any recast that pointed at it (after the
+	 *  folder — or its subtree — is deleted server-side; recasts fall to root). */
+	clearFolder(folderIds: Set<string>) {
+		this.items = this.items.map((r) =>
+			r.folderId && folderIds.has(r.folderId) ? { ...r, folderId: null } : r,
 		);
 		this.persist();
 	}

@@ -245,9 +245,20 @@
 
 	// "Inside the editor" — honest tour of every tool a non-editor user will
 	// actually touch. Each card is tagged `auto` (it happens for you) or
-	// `manual` (you reach for it when you want control). The placeholder slot
-	// renders a dashed empty frame today so the layout is finalised before the
-	// real screenshots land — flip `image` to a path under /static when ready.
+	// `manual` (you reach for it when you want control).
+	//
+	// SCREENSHOT ASSET SLOTS — drop these PNG files into static/screenshots/
+	// to light up each card. Until a file exists, the matching card falls
+	// back to its `icon` rendered as the hero glyph (still looks deliberate,
+	// not "missing image"). Target dimensions: 880×560 (16:10), tightly
+	// cropped to the feature, dark mode. PNG ≤300 KB.
+	//
+	//   feat-smart-zoom.png       — editor canvas mid-zoom toward a click
+	//   feat-silence-trim.png     — timeline with silence regions highlighted
+	//   feat-cursor-smoothing.png — split / before-after of cursor path
+	//   feat-zoom-regions.png     — timeline with a manual focus region
+	//   feat-annotations.png      — frame with arrow + circle + text overlay
+	//   feat-camera-bubble.png    — webcam bubble showing shape/border options
 	type FeatureKind = "auto" | "manual";
 	const editorFeatures: Array<{
 		kind: FeatureKind;
@@ -262,7 +273,7 @@
 			title: "Smart zoom on clicks",
 			description:
 				"Recast watches your cursor, reads clicks and dwell, and zooms toward the moment that matters. You set zero keyframes.",
-			image: "/screenshots/preview_zoom.png",
+			image: "/screenshots/feat-smart-zoom.png",
 		},
 		{
 			kind: "auto",
@@ -270,7 +281,7 @@
 			title: "Silence trimming",
 			description:
 				"Detects dead-air segments (quiet audio + still cursor) and offers them up as one-click cuts. Toggle them off any time.",
-			image: null,
+			image: "/screenshots/feat-silence-trim.png",
 		},
 		{
 			kind: "auto",
@@ -278,7 +289,7 @@
 			title: "Cursor smoothing",
 			description:
 				"Velocity-aware easing kills the jitter, with optional snap-to-target so the path lands where you meant to point.",
-			image: "/screenshots/preview_cursor.png",
+			image: "/screenshots/feat-cursor-smoothing.png",
 		},
 		{
 			kind: "manual",
@@ -286,7 +297,7 @@
 			title: "Zoom regions on the timeline",
 			description:
 				"Drag any moment to add a focus region. The auto picks are just a starting point. Every position, scale, and easing is yours to tweak.",
-			image: null,
+			image: "/screenshots/feat-zoom-regions.png",
 		},
 		{
 			kind: "manual",
@@ -294,7 +305,7 @@
 			title: "Annotations & blur",
 			description:
 				"Drop arrows, rectangles, text, or a privacy blur straight on the frame. Layers live on the timeline alongside everything else.",
-			image: null,
+			image: "/screenshots/feat-annotations.png",
 		},
 		{
 			kind: "manual",
@@ -302,9 +313,14 @@
 			title: "Camera bubble",
 			description:
 				"Record yourself in a draggable bubble with shape, border, and follow-the-cursor motion. No second app. No green screen.",
-			image: null,
+			image: "/screenshots/feat-camera-bubble.png",
 		},
 	];
+
+	// Per-feature error flag. Flipped by the <img>'s onerror handler when the
+	// asset file isn't there yet — the rail card then falls back to its icon
+	// hero, so a half-produced screenshot batch never shows broken images.
+	let editorImgErrored = $state<Record<string, boolean>>({});
 
 	const kindChip: Record<FeatureKind, { label: string; dot: string; ring: string }> = {
 		auto: {
@@ -692,9 +708,12 @@
 									class="pointer-events-none absolute bottom-3 right-3 size-3 border-b border-r border-foreground/30"
 								></span>
 
-								{#if feature.image}
+								{#if feature.image && !editorImgErrored[feature.title]}
 									<!-- Real screenshot in a tilted plate. Hover eases the
-									     tilt down so the user can see the image flatter. -->
+									     tilt down so the user can see the image flatter.
+									     `onerror` flips the per-card flag so a missing
+									     asset falls back to the icon-hero branch below
+									     instead of rendering a broken-image glyph. -->
 									<div
 										class="absolute inset-6 origin-center overflow-hidden rounded-lg border border-border-low/60 shadow-craft-md transition-transform duration-500 group-hover/feat:scale-[1.02]"
 										style="transform: perspective(900px) rotateX(6deg) rotateY(-10deg); transform-origin: 50% 70%;"
@@ -705,6 +724,7 @@
 											loading="lazy"
 											decoding="async"
 											class="block size-full object-cover"
+											onerror={() => (editorImgErrored[feature.title] = true)}
 										/>
 									</div>
 								{:else}

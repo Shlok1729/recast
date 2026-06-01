@@ -1,13 +1,117 @@
 import { error, json } from "@sveltejs/kit";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
-import { recast, user, workspaceUsage } from "$lib/db/schema";
+import { folder, recast, user, workspaceUsage } from "$lib/db/schema";
 import { decrementUsageOnDelete } from "$lib/storage/quota";
 import { deleteObject } from "$lib/storage";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = { user: { id: string; role?: string } };
+
+const MAX_TITLE = 200;
+
+/** Owner-or-admin gate shared by PATCH and DELETE. Returns the recast row. */
+async function authorizeRecast(
+	request: Request,
+	recastId: string,
+): Promise<{
+	id: string;
+	ownerId: string;
+	workspaceId: string;
+	videoUrl: string;
+	sizeBytes: number;
+	status: string;
+}> {
+	const session = (await getAuth()
+		.api.getSession({ headers: request.headers })
+		.catch(() => null)) as SessionShape | null;
+	if (!session?.user) error(401, "Sign in required");
+
+	const db = getDb();
+	const [row] = await db
+		.select({
+			id: recast.id,
+			ownerId: recast.ownerId,
+			workspaceId: recast.workspaceId,
+			videoUrl: recast.videoUrl,
+			sizeBytes: recast.sizeBytes,
+			status: recast.status,
+		})
+		.from(recast)
+		.where(eq(recast.id, recastId))
+		.limit(1);
+	if (!row) error(404, "Recast not found");
+
+	const isOwner = row.ownerId === session.user.id;
+	if (!isOwner) {
+		const [u] = await db
+			.select({ role: user.role })
+			.from(user)
+			.where(eq(user.id, session.user.id))
+			.limit(1);
+		if (u?.role !== "admin") error(403, "Not allowed to modify this recast");
+	}
+	return row;
+}
+
+/**
+ * PATCH /api/recasts/[id]
+ *
+ * Rename and/or move a recast. Body (only provided keys are written):
+ *   - title    : 1–200 chars
+ *   - folderId : a folder id in the SAME workspace, or null to move to root
+ *
+ * Owner or global admin only.
+ */
+export const PATCH: RequestHandler = async ({ params, request }) => {
+	const row = await authorizeRecast(request, params.id);
+
+	let body: { title?: unknown; folderId?: unknown } = {};
+	try {
+		body = (await request.json()) as typeof body;
+	} catch {
+		error(400, "Invalid JSON body");
+	}
+
+	const patch: { title?: string; folderId?: string | null; updatedAt: Date } = {
+		updatedAt: new Date(),
+	};
+
+	if ("title" in body) {
+		const title = typeof body.title === "string" ? body.title.trim().slice(0, MAX_TITLE) : "";
+		if (!title) error(400, "Title can't be empty");
+		patch.title = title;
+	}
+
+	const db = getDb();
+	if ("folderId" in body) {
+		if (body.folderId === null) {
+			patch.folderId = null;
+		} else if (typeof body.folderId === "string") {
+			// The folder must exist and belong to the recast's workspace —
+			// otherwise a user could file a recast into another workspace's tree.
+			const [f] = await db
+				.select({ id: folder.id })
+				.from(folder)
+				.where(and(eq(folder.id, body.folderId), eq(folder.workspaceId, row.workspaceId)))
+				.limit(1);
+			if (!f) error(404, "Folder not found in this workspace");
+			patch.folderId = body.folderId;
+		} else {
+			error(400, "Invalid folderId");
+		}
+	}
+
+	if (!("title" in patch) && !("folderId" in patch)) error(400, "Nothing to update");
+
+	await db.update(recast).set(patch).where(eq(recast.id, row.id));
+	return json({
+		ok: true,
+		...(patch.title !== undefined ? { title: patch.title } : {}),
+		...("folderId" in patch ? { folderId: patch.folderId } : {}),
+	});
+};
 
 /**
  * DELETE /api/recasts/[id]

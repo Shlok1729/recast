@@ -238,6 +238,35 @@
 		smoothedTime.set(currentTime);
 	});
 
+	// First-party view recording. Bumps the cached view count AND — critically
+	// — refreshes `recast.lastViewedAt`, which the Free-tier expiry sweep keys
+	// off (without this, watched recasts still archive at 14 days). Anonymous:
+	// keyed only by the share session fingerprint. Skipped for the demo (no
+	// real share row) and SSR. `keepalive` lets the "ended" beacon survive a
+	// tab close.
+	let viewStartSent = false;
+	function recordView(event: "start" | "ended") {
+		if (!browser || isDemo || !slug) return;
+		if (event === "start") {
+			if (viewStartSent) return;
+			viewStartSent = true;
+		}
+		try {
+			void fetch(`/api/share/${slug}/view`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					sessionId: shareSessionId(),
+					event,
+					watchPct: Math.round(watchedPct),
+				}),
+				keepalive: true,
+			}).catch(() => {});
+		} catch {
+			// Never let a metrics beacon disrupt playback.
+		}
+	}
+
 	function onEngagement(e: {
 		type: "view-start" | "progress" | "ended";
 		percent?: number;
@@ -246,17 +275,22 @@
 		if (e.type === "view-start") {
 			isPlaying = true;
 			ended = false;
+			recordView("start");
 		}
 		if (e.type === "progress") {
 			currentTime = e.currentTime ?? currentTime;
 			watchedPct = e.percent ?? watchedPct;
 			isPlaying = true;
 			ended = false;
+			// Some players jump straight to progress without a view-start; the
+			// guard makes this idempotent so we still record the view once.
+			recordView("start");
 		}
 		if (e.type === "ended") {
 			watchedPct = 100;
 			isPlaying = false;
 			ended = true;
+			recordView("ended");
 		}
 	}
 
