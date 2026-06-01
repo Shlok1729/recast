@@ -6,6 +6,7 @@
 	import RecastCard from "$lib/dashboard/components/RecastCard.svelte";
 	import RenameDialog from "$lib/dashboard/components/RenameDialog.svelte";
 	import StatCard from "$lib/dashboard/components/StatCard.svelte";
+	import TagManagerDialog from "$lib/dashboard/components/TagManagerDialog.svelte";
 	import { focusOnMount } from "$lib/dashboard/focus";
 	import { formatBytes } from "$lib/dashboard/format";
 	import { foldersStore, tagsStore } from "$lib/dashboard/library.svelte";
@@ -16,7 +17,7 @@
 	  type RecordingSource,
 	} from "$lib/dashboard/store.svelte";
 	import { Chip } from "@recast/ui/chip";
-	import { Archive, Cloud, Film, FolderOpen, HardDrive, Library, LoaderCircle, Plus, Search, Upload, Video, X } from "@lucide/svelte";
+	import { Archive, Cloud, Film, FolderOpen, HardDrive, Library, LoaderCircle, Plus, Search, Settings2, Upload, Video, X } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
 	import * as Select from "@recast/ui/select";
 	import { toast } from "@recast/ui/sonner";
@@ -82,6 +83,7 @@
 	// Inline tag creation in the filter bar.
 	let creatingTag = $state(false);
 	let newTagName = $state("");
+	let managingTags = $state(false);
 
 	const filters: { label: string; value: RecordingSource | "all" }[] = [
 		{ label: "All", value: "all" },
@@ -450,6 +452,15 @@
 					<Plus class="size-3" /> New tag
 				</button>
 			{/if}
+			{#if tagsStore.items.length > 0}
+				<button
+					type="button"
+					onclick={() => (managingTags = true)}
+					class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/8 hover:text-foreground"
+				>
+					<Settings2 class="size-3" /> Manage
+				</button>
+			{/if}
 			{#if selectedTagIds.length > 0}
 				<button type="button" onclick={() => (selectedTagIds = [])} class="ml-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:underline">
 					Clear tags
@@ -571,4 +582,8 @@
 		onclose={() => (renaming = null)}
 		onsave={(title) => renaming && doRename(renaming, title)}
 	/>
+{/if}
+
+{#if managingTags}
+	<TagManagerDialog onclose={() => (managingTags = false)} />
 {/if}

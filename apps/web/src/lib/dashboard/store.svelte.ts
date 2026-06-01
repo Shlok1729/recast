@@ -152,6 +152,15 @@ class RecordingsStore {
 		this.persist();
 	}
 
+	/** Strip a tag id from every recast that carried it (after the tag is
+	 *  deleted server-side; the recast_tag rows cascade, this mirrors it locally). */
+	removeTagEverywhere(tagId: string) {
+		this.items = this.items.map((r) =>
+			r.tags.includes(tagId) ? { ...r, tags: r.tags.filter((t) => t !== tagId) } : r,
+		);
+		this.persist();
+	}
+
 	/** Drop a folder reference from any recast that pointed at it (after the
 	 *  folder — or its subtree — is deleted server-side; recasts fall to root). */
 	clearFolder(folderIds: Set<string>) {
