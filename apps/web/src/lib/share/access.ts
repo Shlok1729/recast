@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "$lib/db";
-import { member, recast, share, user } from "$lib/db/schema";
+import { member, recast, share, shareMember, user } from "$lib/db/schema";
+import { normalizeEmail } from "$lib/share/grant";
 
 /**
  * Share access resolution.
@@ -62,6 +63,7 @@ export type ResolvedShare =
 
 type Viewer = {
 	id: string;
+	email: string;
 	role: string;
 	memberOrgIds: Set<string>;
 } | null;
@@ -70,7 +72,7 @@ export async function loadViewer(userId: string | null | undefined): Promise<Vie
 	if (!userId) return null;
 	const db = getDb();
 	const [u] = await db
-		.select({ id: user.id, role: user.role })
+		.select({ id: user.id, email: user.email, role: user.role })
 		.from(user)
 		.where(eq(user.id, userId))
 		.limit(1);
@@ -81,6 +83,7 @@ export async function loadViewer(userId: string | null | undefined): Promise<Vie
 		.where(eq(member.userId, userId));
 	return {
 		id: u.id,
+		email: u.email,
 		role: u.role,
 		memberOrgIds: new Set(memberships.map((m) => m.organizationId)),
 	};
@@ -89,6 +92,13 @@ export async function loadViewer(userId: string | null | undefined): Promise<Vie
 export async function resolveShareAccess(
 	slug: string,
 	viewer: Viewer,
+	/**
+	 * Email certified by a valid grant cookie (see `$lib/share/grant`), for
+	 * account-less `selected`-share invitees. Null for everyone else. The
+	 * caller derives + verifies the cookie; this function still re-checks the
+	 * email against the allowlist, so a stale grant can't outlive a removal.
+	 */
+	grantedEmail: string | null = null,
 ): Promise<ResolvedShare> {
 	const db = getDb();
 	const rows = await db
@@ -125,16 +135,33 @@ export async function resolveShareAccess(
 		row.organizationId != null &&
 		viewer?.memberOrgIds.has(row.organizationId) === true;
 
+	// `selected` adds a per-share email allowlist on top of owner/admin. A
+	// viewer qualifies via their signed-in email OR an account-less grant
+	// cookie's certified email (`grantedEmail`) — both re-checked against
+	// `share_member` here so removing an invitee revokes access at once.
+	let onAllowlist = false;
+	if (row.visibility === "selected" && !isOwner && !isAdmin) {
+		const candidates = [viewer?.email, grantedEmail]
+			.filter((e): e is string => Boolean(e))
+			.map(normalizeEmail);
+		if (candidates.length > 0) {
+			const members = await db
+				.select({ email: shareMember.email })
+				.from(shareMember)
+				.where(eq(shareMember.shareSlug, slug));
+			const allow = new Set(members.map((m) => normalizeEmail(m.email)));
+			onAllowlist = candidates.some((e) => allow.has(e));
+		}
+	}
+
 	// `workspace` is the canonical name; `team` is the legacy alias. Both
-	// mean "any signed-in member of the share's org". `selected` adds an
-	// allowlist on top — handled in the dedicated player endpoint, not
-	// here; this page-level resolver falls back to owner-only access for
-	// `selected` until the allowlist check is wired into this path.
+	// mean "any signed-in member of the share's org".
 	const canView =
 		row.visibility === "public" ||
 		isOwner ||
 		isAdmin ||
-		((row.visibility === "team" || row.visibility === "workspace") && inOrg);
+		((row.visibility === "team" || row.visibility === "workspace") && inOrg) ||
+		(row.visibility === "selected" && onAllowlist);
 
 	const canManage = isOwner || isAdmin;
 

@@ -983,6 +983,21 @@ pub fn rename_file(path: String, new_name: String) -> Result<String, String> {
     Ok(dest.to_string_lossy().to_string())
 }
 
+/// Probe which video encoders actually initialize on this device (a real
+/// 1-frame encode per candidate, not just "compiled in"). Drives the
+/// Settings → About "Hardware acceleration" matrix so users can see which
+/// GPU encoder their machine supports and which one the recorder picks.
+///
+/// async + spawn_blocking because each hardware probe spawns FFmpeg and can
+/// take a few hundred ms cold — running it inline would freeze the GTK main
+/// thread on Linux (same rationale as `get_displays`).
+#[tauri::command]
+pub async fn probe_video_encoders() -> Result<Vec<crate::ffmpeg::EncoderAvailability>, String> {
+    tauri::async_runtime::spawn_blocking(crate::ffmpeg::probe_h264_encoders)
+        .await
+        .map_err(|e| format!("probe_video_encoders join error: {e}"))
+}
+
 #[derive(Debug, Serialize)]
 pub struct FfmpegDiagnostics {
     pub ffmpeg_path: String,

@@ -11,6 +11,7 @@ import {
 } from "$lib/storage/quota";
 import {
 	isStorageConfigured,
+	posterObjectKey,
 	recastObjectKey,
 	signUploadUrl,
 } from "$lib/storage";
@@ -97,6 +98,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const gate = checkUploadAllowed(snapshot, {
 		sizeBytes: body.sizeBytes,
 		durationSec: body.durationSec,
+		heightPx: body.height,
 	});
 	if (!gate.ok) {
 		return json(
@@ -138,6 +140,20 @@ export const POST: RequestHandler = async ({ request }) => {
 		error(500, "Could not generate upload URL");
 	}
 
+	// Also sign a poster PUT (a single WebP frame). Best-effort and
+	// non-fatal: if it fails, the client simply skips the poster and the
+	// recast keeps a null `posterUrl`. The video is the only required asset.
+	let posterUpload;
+	try {
+		posterUpload = await signUploadUrl({
+			key: posterObjectKey(workspaceId, recastId),
+			contentType: "image/webp",
+		});
+	} catch (err) {
+		console.error("[uploads/init] poster sign failed (non-fatal)", err);
+		posterUpload = undefined;
+	}
+
 	// `upload` is a discriminated union from files-sdk:
 	//   PUT  → { method: "PUT", url, headers? }
 	//   POST → { method: "POST", url, fields }
@@ -147,6 +163,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		recastId,
 		key,
 		upload,
+		posterUpload,
 		expiresInSeconds: 15 * 60,
 	});
 };
@@ -156,8 +173,9 @@ function denialStatus(d: UploadDenial): number {
 		case "workspace_not_found":
 			return 404;
 		case "duration_over_cap":
+		case "resolution_over_cap":
 		case "active_recasts_over_cap":
 		case "storage_over_cap":
-			return 402; // Payment Required — quota gate
+			return 402; // Payment Required — quota / plan gate
 	}
 }

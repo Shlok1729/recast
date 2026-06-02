@@ -80,6 +80,7 @@ export async function getQuotaSnapshot(
 export type UploadDenial =
 	| { reason: "workspace_not_found" }
 	| { reason: "duration_over_cap"; capSec: number }
+	| { reason: "resolution_over_cap"; heightPx: number; capHeight: number }
 	| {
 			reason: "active_recasts_over_cap";
 			current: number;
@@ -92,6 +93,11 @@ export type UploadDenial =
 			capBytes: number;
 	  };
 
+// Encoders round to even (and occasionally +2/+4) dimensions, so allow a
+// small slack above the plan cap before rejecting — 720p content that lands
+// at 722–728 shouldn't be treated as "over 720p".
+const RESOLUTION_SLACK_PX = 8;
+
 /**
  * Pre-upload gate. Caller passes the **declared** file size and duration
  * from the desktop's local file metadata. Bytes are advisory at this
@@ -101,7 +107,7 @@ export type UploadDenial =
  */
 export function checkUploadAllowed(
 	snapshot: QuotaSnapshot,
-	req: { sizeBytes: number; durationSec: number },
+	req: { sizeBytes: number; durationSec: number; heightPx?: number },
 ): { ok: true } | { ok: false; denial: UploadDenial } {
 	const { limits, usage } = snapshot;
 
@@ -109,6 +115,24 @@ export function checkUploadAllowed(
 		return {
 			ok: false,
 			denial: { reason: "duration_over_cap", capSec: limits.maxDurationSec },
+		};
+	}
+
+	// Resolution gate. Free playback caps at 720p; Pro/Enterprise at 2160p.
+	// Enforced at the source (upload) so we never store frames we'd refuse to
+	// play back. `playbackMaxHeight` is Infinity-free (a concrete px per plan).
+	if (
+		req.heightPx != null &&
+		Number.isFinite(limits.playbackMaxHeight) &&
+		req.heightPx > limits.playbackMaxHeight + RESOLUTION_SLACK_PX
+	) {
+		return {
+			ok: false,
+			denial: {
+				reason: "resolution_over_cap",
+				heightPx: req.heightPx,
+				capHeight: limits.playbackMaxHeight,
+			},
 		};
 	}
 

@@ -57,11 +57,15 @@
 			</button>
 		</header>
 
+		<!-- autohide={-1}: framed preview dialog — keep the controls pinned so an
+		     autoplaying clip doesn't hide its control bar before the viewer
+		     interacts. The immersive share page keeps the 2s default. -->
 		<RecastPlayer
 			src={recast.videoUrl}
 			poster={recast.posterUrl || null}
 			title={recast.title}
 			autoplay
+			autohide={-1}
 			{onengagement}
 		/>
 

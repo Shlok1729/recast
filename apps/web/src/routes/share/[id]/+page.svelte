@@ -73,6 +73,32 @@
 	const okAccess = $derived(access.ok ? access : null);
 	const deniedAccess = $derived(access.ok ? null : access);
 	const recast = $derived(okAccess?.recast);
+
+	// ── Account-less invitee claim (selected shares) ──────────────────────
+	// A denied viewer of a `selected` share can request an email access link.
+	let claimEmail = $state("");
+	let claimState = $state<"idle" | "sending" | "sent">("idle");
+	// The verify endpoint bounces back with ?claim=invalid on a bad/expired link.
+	const claimInvalid = $derived(page.url.searchParams.get("claim") === "invalid");
+
+	async function submitClaim(e: SubmitEvent) {
+		e.preventDefault();
+		const email = claimEmail.trim();
+		if (!email || claimState === "sending") return;
+		claimState = "sending";
+		try {
+			const res = await fetch(`/api/share/${page.params.id}/claim`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ email }),
+			});
+			if (!res.ok) throw new Error((await res.text()) || "Couldn't send the link.");
+			claimState = "sent";
+		} catch (err) {
+			claimState = "idle";
+			toast.error((err as Error)?.message ?? "Couldn't send the link.");
+		}
+	}
 	const shareMeta = $derived(okAccess?.share);
 	const canManage = $derived(okAccess?.canManage ?? false);
 	const slug = $derived(shareMeta?.slug ?? recast?.id ?? "");
@@ -719,7 +745,9 @@
 				<div class="min-w-0">
 					<h1 class="text-lg font-semibold tracking-tight">You don't have access</h1>
 					<p class="mt-1 text-sm text-muted-foreground">
-						{#if deniedAccess.visibility === "team"}
+						{#if deniedAccess.visibility === "selected"}
+							This recording is shared with specific people. Enter your email to get a one-time access link — no account needed.
+						{:else if deniedAccess.visibility === "team"}
 							This recast is shared with a specific team. Ask the owner to add you, or sign in with an account that's a member.
 						{:else if deniedAccess.visibility === "private"}
 							This recast is private. Only the owner can view it.
@@ -730,6 +758,48 @@
 				</div>
 			</div>
 
+			{#if deniedAccess.visibility === "selected"}
+				<!-- Invite-only: email-based access claim. -->
+				{#if claimState === "sent"}
+					<div class="mt-5 rounded-xl border border-primary/30 bg-primary/8 p-4 text-sm" in:fly={{ y: 8, duration: 240, easing: cubicOut }}>
+						<p class="flex items-center gap-2 font-medium text-foreground">
+							<Check class="size-4 text-primary" />
+							Check your inbox
+						</p>
+						<p class="mt-1 text-muted-foreground">
+							If <span class="font-medium text-foreground">{claimEmail}</span> is on the access list, we've sent a link to open this recording.
+						</p>
+					</div>
+				{:else}
+					<form class="mt-5 flex flex-col gap-2" onsubmit={submitClaim}>
+						{#if claimInvalid}
+							<p class="text-xs text-destructive" in:slide={{ duration: 160 }}>
+								That access link is invalid or has expired. Enter your email to get a fresh one.
+							</p>
+						{/if}
+						<div class="flex flex-col gap-2 sm:flex-row">
+							<Input
+								type="email"
+								bind:value={claimEmail}
+								placeholder="you@company.com"
+								autocomplete="email"
+								required
+								class="flex-1"
+							/>
+							<Button type="submit" class="gap-2" disabled={claimState === "sending"}>
+								<Mail class="size-3.5" />
+								{claimState === "sending" ? "Sending…" : "Email me a link"}
+							</Button>
+						</div>
+					</form>
+					<div class="mt-2">
+						<Button href="/dashboard" variant="outline" class="w-full gap-2">
+							<LayoutDashboard class="size-3.5" />
+							Back to dashboard
+						</Button>
+					</div>
+				{/if}
+			{:else}
 			<div class="mt-5 flex flex-col gap-2">
 				{#if deniedAccess.sameTeam && deniedAccess.ownerEmail}
 					<Button
@@ -750,6 +820,7 @@
 					Back to dashboard
 				</Button>
 			</div>
+			{/if}
 		</div>
 	</div>
 {:else if requiresPassword}

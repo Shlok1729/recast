@@ -30,8 +30,8 @@ export default defineConfig({
 		// @recast/analytics; pre-bundle it so the first capture in the webview
 		// doesn't trigger a dep-optimize reload. Keep the workspace package itself
 		// out so edits hot-reload.
-		include: ['posthog-js'],
-		exclude: ['@recast/analytics'],
+		include: ['@recast/analytics'],
+		// exclude: ['@recast/analytics'],
 	},
 	// Env variables starting with the item of `envPrefix` will be exposed in tauri's source code through `import.meta.env`.
 	envPrefix: ['VITE_', 'TAURI_ENV_*']

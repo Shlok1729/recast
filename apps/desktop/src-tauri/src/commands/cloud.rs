@@ -199,6 +199,9 @@ struct UploadEnvelope {
 struct InitResp {
     recast_id: String,
     upload: UploadEnvelope,
+    /// Optional PUT envelope for a poster WebP. Absent if the server couldn't
+    /// sign one; the uploader then skips the poster.
+    poster_upload: Option<UploadEnvelope>,
 }
 
 #[derive(Deserialize)]
@@ -249,6 +252,16 @@ pub async fn recast_cloud_upload(
     let fps = (meta.fps.round() as i64).max(1) as u32;
     let duration_sec = meta.duration.round().max(0.0) as u64;
     let size_bytes = meta.size_bytes;
+
+    // Best-effort poster (a single WebP frame). Generated off the main thread;
+    // a failure here never blocks the upload — the recast just keeps no poster.
+    let poster_src = path.clone();
+    let poster_bytes = tauri::async_runtime::spawn_blocking(move || {
+        super::editor::poster_webp_for_export(&poster_src)
+    })
+    .await
+    .ok()
+    .flatten();
 
     let resolved_workspace = resolve_workspace_id(&client, &base, &token, workspace_id).await;
 
@@ -326,6 +339,31 @@ pub async fn recast_cloud_upload(
         return Err(fail(&app, &path, format!("Upload rejected ({status}).")));
     }
 
+    // ── PUT the poster (best-effort) ────────────────────────────────────
+    // Never fails the upload: if the WebP wasn't generated, the server didn't
+    // sign a poster URL, or the PUT errors, we just report `hasPoster: false`.
+    let mut has_poster = false;
+    if let (Some(poster), Some(penv)) = (poster_bytes.as_ref(), init.poster_upload.as_ref()) {
+        if penv.method.eq_ignore_ascii_case("PUT") {
+            let pheaders = penv.headers.clone().unwrap_or_default();
+            let pheader_has_ct = pheaders
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case("content-type"));
+            let mut preq = client.put(&penv.url).body(poster.clone());
+            for (k, v) in &pheaders {
+                preq = preq.header(k.as_str(), v.as_str());
+            }
+            if !pheader_has_ct {
+                preq = preq.header(header::CONTENT_TYPE, "image/webp");
+            }
+            has_poster = preq
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+        }
+    }
+
     // ── complete ──────────────────────────────────────────────────────
     emit_progress(&app, &path, "finalizing");
     let complete_resp = client
@@ -337,6 +375,7 @@ pub async fn recast_cloud_upload(
             "height": height,
             "fps": fps,
             "durationSec": duration_sec,
+            "hasPoster": has_poster,
         }))
         .send()
         .await
@@ -585,6 +624,9 @@ fn humanize_init_error(status: u16, body: &str) -> String {
         Some("duration_over_cap") => {
             "This recording is longer than your plan allows for cloud sharing.".into()
         }
+        Some("resolution_over_cap") => {
+            "Your plan caps cloud sharing at 720p. Export at 720p, or upgrade for HD.".into()
+        }
         _ if status == 401 => "Your Recast Cloud session expired. Sign in again.".into(),
         _ if status == 403 => "You don't have access to that workspace.".into(),
         _ => format!("Upload init failed ({status})."),
@@ -596,6 +638,9 @@ fn humanize_complete_error(status: u16, body: &str) -> String {
         Some("upload_missing") => "The upload didn't arrive — please try again.".into(),
         Some("empty_upload") => "The uploaded file was empty — please try again.".into(),
         Some("storage_over_cap") => "You're out of cloud storage. Upgrade or free up space.".into(),
+        Some("resolution_over_cap") => {
+            "Your plan caps cloud sharing at 720p. Export at 720p, or upgrade for HD.".into()
+        }
         _ => format!("Finalize failed ({status})."),
     }
 }

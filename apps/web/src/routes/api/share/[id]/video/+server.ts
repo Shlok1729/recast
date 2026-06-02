@@ -8,6 +8,7 @@ import {
 	unlockCookieName,
 	unlockToken,
 } from "$lib/share/password";
+import { grantCookieName, normalizeEmail, readGrantedEmail } from "$lib/share/grant";
 import { isStorageConfigured, signDownloadUrl } from "$lib/storage";
 import type { RequestHandler } from "./$types";
 
@@ -88,25 +89,35 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 		}
 
 		case "selected": {
-			if (!session?.user) error(401, "Sign in required");
-			// Match by userId first (resolved at invite time), falling back
-			// to the email — invites issued before the user existed are only
-			// keyed by email until they're claimed.
-			const allowed = await db
-				.select({ id: shareMember.id })
+			// Owner short-circuits.
+			if (session?.user && s.ownerId === session.user.id) break;
+
+			// Identity can come from a signed-in email OR an account-less grant
+			// cookie (see $lib/share/grant) — both re-checked against the
+			// allowlist below so a removed invitee loses access immediately.
+			const grantedEmail = await readGrantedEmail(
+				s.slug,
+				cookies.get(grantCookieName(s.slug)),
+			);
+			const candidates = [session?.user?.email, grantedEmail]
+				.filter((e): e is string => Boolean(e))
+				.map(normalizeEmail);
+
+			if (candidates.length === 0) {
+				// No session and no grant — signal the player to render the
+				// "request access" prompt rather than a bare 401.
+				return json(
+					{ ok: false, reason: "claim_required" },
+					{ status: 401 },
+				);
+			}
+
+			const members = await db
+				.select({ email: shareMember.email })
 				.from(shareMember)
-				.where(
-					and(
-						eq(shareMember.shareSlug, s.slug),
-						// userId OR email — split into two queries because Drizzle's
-						// OR clause + nullable column is awkward. Owner is always
-						// allowed; check that first to short-circuit.
-						eq(shareMember.email, session.user.email),
-					),
-				)
-				.limit(1);
-			const isOwner = s.ownerId === session.user.id;
-			if (!isOwner && allowed.length === 0) {
+				.where(eq(shareMember.shareSlug, s.slug));
+			const allow = new Set(members.map((m) => normalizeEmail(m.email)));
+			if (!candidates.some((e) => allow.has(e))) {
 				error(403, "Not on the access list");
 			}
 			break;

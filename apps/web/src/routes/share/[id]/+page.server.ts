@@ -4,6 +4,7 @@ import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
 import { share } from "$lib/db/schema";
 import { loadViewer, resolveShareAccess, type ResolvedShare } from "$lib/share/access";
+import { grantCookieName, readGrantedEmail } from "$lib/share/grant";
 import {
 	constantTimeEquals,
 	unlockCookieName,
@@ -74,7 +75,17 @@ export const load: PageServerLoad = async ({ params, request, cookies }) => {
 		.catch(() => null)) as SessionShape | null;
 
 	const viewer = await loadViewer(session?.user.id ?? null);
-	const access: DemoOrResolved = await resolveShareAccess(params.id, viewer);
+	// Account-less invitee grant (selected shares). Verified here; the
+	// resolver re-checks the email against the allowlist.
+	const grantedEmail = await readGrantedEmail(
+		params.id,
+		cookies.get(grantCookieName(params.id)),
+	);
+	const access: DemoOrResolved = await resolveShareAccess(
+		params.id,
+		viewer,
+		grantedEmail,
+	);
 
 	if ("reason" in access && access.reason === "not-found") {
 		error(404, "Share link not found");

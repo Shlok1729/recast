@@ -76,6 +76,40 @@ export interface AutosaveState {
 
 //  System commands
 
+/** One H.264 encoder candidate and whether it really initializes here.
+ *  Mirrors the Rust `EncoderAvailability` struct (`probe_video_encoders`). */
+export interface EncoderAvailability {
+	name: string;
+	label: string;
+	vendor: string;
+	hardware: boolean;
+	available: boolean;
+	active: boolean;
+}
+
+/** ffmpeg/ffprobe resolution + codec diagnostics. Mirrors the Rust
+ *  `FfmpegDiagnostics` struct (`diagnose_ffmpeg`). */
+export interface FfmpegDiagnostics {
+	ffmpeg_path: string;
+	ffprobe_path: string;
+	version: string | null;
+	h264_encoder: string;
+	encoders_present: string[];
+	encoders_missing: string[];
+}
+
+/** Probe which video encoders actually work on this device (real init
+ *  probe, not just "compiled in"). Each hardware probe spawns ffmpeg, so
+ *  this can take up to ~2s cold — call it off the render path. */
+export function probeVideoEncoders(): Promise<EncoderAvailability[]> {
+	return invoke<EncoderAvailability[]>("probe_video_encoders");
+}
+
+/** Resolved ffmpeg paths, version, and which export codecs are present. */
+export function diagnoseFfmpeg(): Promise<FfmpegDiagnostics> {
+	return invoke<FfmpegDiagnostics>("diagnose_ffmpeg");
+}
+
 export function getOutputDir(): Promise<string> {
 	return invoke<string>("get_output_dir");
 }

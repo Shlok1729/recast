@@ -5,7 +5,13 @@ import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
 import { recast } from "$lib/db/schema";
 import { bumpUsageOnUpload, getQuotaSnapshot } from "$lib/storage/quota";
-import { deleteObject, isStorageConfigured, statObject } from "$lib/storage";
+import {
+	deleteObject,
+	isStorageConfigured,
+	posterObjectKey,
+	publicObjectUrl,
+	statObject,
+} from "$lib/storage";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = { user: { id: string } };
@@ -16,6 +22,8 @@ const BodySchema = z.object({
 	height: z.number().int().positive().optional(),
 	fps: z.number().int().positive().max(240).optional(),
 	durationSec: z.number().int().nonnegative().max(24 * 60 * 60).optional(),
+	/** Client PUT a poster WebP to the signed URL from /init. */
+	hasPoster: z.boolean().optional(),
 });
 
 /**
@@ -103,6 +111,30 @@ export const POST: RequestHandler = async ({ request }) => {
 	// past the cap, refuse and clean up.
 	const snapshot = await getQuotaSnapshot(row.workspaceId);
 	if (snapshot) {
+		// Resolution backstop — mirrors the init gate so a client that lied
+		// about (or skipped) `height` at init can't slip an over-cap file
+		// through. Reject + clean up rather than publish a frame we'd refuse
+		// to play back.
+		if (
+			body.height != null &&
+			Number.isFinite(snapshot.limits.playbackMaxHeight) &&
+			body.height > snapshot.limits.playbackMaxHeight + 8
+		) {
+			await deleteObject(row.videoUrl).catch(() => {});
+			await db.delete(recast).where(eq(recast.id, row.id));
+			return json(
+				{
+					ok: false,
+					denial: {
+						reason: "resolution_over_cap",
+						heightPx: body.height,
+						capHeight: snapshot.limits.playbackMaxHeight,
+					},
+				},
+				{ status: 402 },
+			);
+		}
+
 		const projected = snapshot.usage.storageBytes + actualBytes;
 		if (projected > snapshot.limits.storageBytes) {
 			await deleteObject(row.videoUrl).catch(() => {});
@@ -122,6 +154,17 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 	}
 
+	// Poster: the client PUT a WebP frame to the signed URL from /init. We
+	// store an absolute public URL (posters aren't sensitive and benefit from
+	// CDN caching; the video itself stays signed/gated). If the provider has
+	// no public base configured, `publicObjectUrl` returns null and we leave
+	// posterUrl unset — cards fall back to their placeholder.
+	let posterUrl: string | undefined;
+	if (body.hasPoster) {
+		posterUrl =
+			publicObjectUrl(posterObjectKey(row.workspaceId, row.id)) ?? undefined;
+	}
+
 	await db.transaction(async (tx) => {
 		await tx
 			.update(recast)
@@ -131,6 +174,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				height: body.height,
 				fps: body.fps,
 				durationSec: body.durationSec ?? undefined,
+				posterUrl,
 				status: "published",
 				updatedAt: new Date(),
 			})

@@ -141,6 +141,16 @@ export type RecastPlayerProps = {
 	controls?: Partial<RecastPlayerControls>;
 	branding?: RecastPlayerBranding | null;
 	aspectRatio?: number | string | null;
+	/**
+	 * Seconds of pointer inactivity before the control bar auto-hides during
+	 * playback (media-chrome's `autohide`). Pass a negative value (e.g. `-1`)
+	 * to keep the controls permanently visible — the right call for framed
+	 * preview surfaces (the dashboard/desktop player dialogs) where the video
+	 * may autoplay and would otherwise hide its controls before the viewer
+	 * ever moves the pointer. Omitted → media-chrome's 2s default (immersive
+	 * share page).
+	 */
+	autohide?: number | null;
 	objectFit?: "contain" | "cover" | "fill" | "none" | "scale-down";
 	ariaLabel?: string;
 	className?: string;

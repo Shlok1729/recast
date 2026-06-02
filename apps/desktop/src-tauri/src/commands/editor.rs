@@ -544,6 +544,64 @@ fn extract_single_thumbnail(
     result
 }
 
+/// Single-frame poster encoded as WebP — lighter than JPEG/PNG at equal
+/// visual quality. Best-effort: returns `None` if the seek fails or the
+/// bundled ffmpeg lacks libwebp. Used by the cloud uploader to give shared
+/// recasts a thumbnail.
+fn extract_poster_webp(media_path: &Path, timestamp: f64, scale_width: u32) -> Option<Vec<u8>> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir()
+        .join("recast-posters")
+        .join(format!("{}-{stamp}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+    let out_path = temp_dir.join("poster.webp");
+
+    let mut command = Command::new(crate::ffmpeg::ffmpeg_path());
+    command.args([
+        "-y",
+        "-ss",
+        &format!("{timestamp:.2}"),
+        "-i",
+        &media_path.to_string_lossy(),
+        "-frames:v",
+        "1",
+        "-vf",
+        &format!("scale={scale_width}:-1"),
+        "-c:v",
+        "libwebp",
+        "-quality",
+        "82",
+        "-compression_level",
+        "6",
+        out_path.to_string_lossy().as_ref(),
+    ]);
+    crate::ffmpeg::configure_silent_command(&mut command);
+
+    let result = command
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|_| fs::read(&out_path).ok());
+    let _ = fs::remove_file(&out_path);
+    let _ = fs::remove_dir(&temp_dir);
+    result
+}
+
+/// Poster WebP bytes for an exported MP4 (the cloud uploader's source file).
+/// Seeks to 25% — the same frame the editor's single-thumbnail path picks.
+/// Returns `None` on any failure; callers treat the poster as optional.
+pub(crate) fn poster_webp_for_export(path: &str) -> Option<Vec<u8>> {
+    let input = PathBuf::from(path);
+    let meta = probe_video_metadata(&input).ok()?;
+    if meta.duration <= 0.0 {
+        return None;
+    }
+    extract_poster_webp(&input, meta.duration * 0.25, 960)
+}
+
 /// Pass 1 of the 2-pass GIF export. Consumes the source at the GIF's target
 /// fps + scale and writes a single palette PNG. The main encode pass then
 /// reads that palette as an external input and runs paletteuse on every

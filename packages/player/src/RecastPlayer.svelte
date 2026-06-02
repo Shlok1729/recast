@@ -92,6 +92,7 @@
 		controls = {},
 		branding = DEFAULT_BRANDING,
 		aspectRatio = null,
+		autohide = null,
 		objectFit = "contain",
 		ariaLabel = "",
 		className = "",
@@ -112,6 +113,12 @@
 	let activeTooltipId = $state<string | null>(null);
 
 	const isHls = $derived(/\.m3u8(\?|#|$)/i.test(src));
+	// A negative `autohide` means "never hide the controls". media-chrome's
+	// `autohide` attribute only suppresses the inactivity *timer* — the
+	// controller still starts in `user-inactive` on connect, so an autoplaying
+	// clip hides its bar until the first pointer move. Pinning the control bar
+	// with `noautohide` is what actually keeps it visible from frame one.
+	const pinControls = $derived(typeof autohide === "number" && autohide < 0);
 	const mergedControls = $derived({ ...DEFAULT_CONTROLS, ...controls });
 	const mergedFeatures = $derived({ ...DEFAULT_FEATURES, ...features });
 	const showCaptions = $derived(mergedControls.captions && showMenu);
@@ -536,6 +543,7 @@
 	role="region"
 	tabindex="0"
 	defaultsubtitles
+	autohide={autohide ?? undefined}
 	onkeydown={handleKeyDown}
 >
 	{#if isHls}
@@ -670,7 +678,7 @@
 		</media-play-button>
 	{/if}
 
-	<media-control-bar class="recast-control-bar">
+	<media-control-bar class="recast-control-bar" noautohide={pinControls ? "" : undefined}>
 		<media-play-button class="recast-btn" aria-label="Play or pause">
 			<span slot="play" class="recast-icon"><Play class="size-4 translate-x-[0.5px]" /></span>
 			<span slot="pause" class="recast-icon"><Pause class="size-4" /></span>

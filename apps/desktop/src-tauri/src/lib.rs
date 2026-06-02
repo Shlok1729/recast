@@ -253,6 +253,7 @@ pub fn run() {
             commands::get_cached_asset_path,
             commands::hydrate_cached_assets,
             commands::diagnose_ffmpeg,
+            commands::probe_video_encoders,
             commands::auth_start,
             commands::auth_status,
             commands::auth_sign_out,

@@ -275,6 +275,87 @@ pub fn preferred_h264_encoder() -> &'static str {
     })
 }
 
+/// Real availability of one H.264 encoder on THIS machine. Unlike
+/// `ffmpeg -encoders` (which only reports what was *compiled in* — the
+/// bundled binaries always ship NVENC/AMF/QSV), `available` reflects an
+/// actual 1-frame init probe, so it's true only when the GPU + driver
+/// combination can really encode. Surfaced to Settings → About so users
+/// can see exactly which hardware acceleration their device supports.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncoderAvailability {
+    /// FFmpeg codec name, e.g. `h264_nvenc`.
+    pub name: String,
+    /// Human-readable label, e.g. `NVIDIA NVENC`.
+    pub label: String,
+    /// Vendor family, e.g. `NVIDIA` / `AMD` / `Intel` / `Software`.
+    pub vendor: String,
+    /// Hardware-accelerated (GPU) vs software (CPU) path.
+    pub hardware: bool,
+    /// Whether a 1-frame encode actually succeeded on this machine.
+    pub available: bool,
+    /// The encoder the recorder/export will pick — the highest-priority
+    /// available one (mirrors `preferred_h264_encoder`).
+    pub active: bool,
+}
+
+/// Probe every H.264 encoder candidate for real init success on this
+/// device, in the same NVIDIA → AMD → Intel → CPU priority order the
+/// recorder selects from. The first one that initializes is flagged
+/// `active` (libx264 is the always-present software fallback, so there's
+/// always exactly one active entry). Each hardware probe spawns FFmpeg
+/// (~300–500 ms cold); callers should run this off the UI thread.
+pub fn probe_h264_encoders() -> Vec<EncoderAvailability> {
+    let candidates: [(&str, &str, &str, bool, &[&str]); 4] = [
+        (
+            "h264_nvenc",
+            "NVIDIA NVENC",
+            "NVIDIA",
+            true,
+            &["-preset", "p1"],
+        ),
+        ("h264_amf", "AMD AMF", "AMD", true, &["-quality", "speed"]),
+        (
+            "h264_qsv",
+            "Intel Quick Sync",
+            "Intel",
+            true,
+            &["-preset", "veryfast"],
+        ),
+        ("libx264", "x264 (CPU)", "Software", false, &[]),
+    ];
+
+    let mut list: Vec<EncoderAvailability> = candidates
+        .into_iter()
+        .map(|(name, label, vendor, hardware, extra)| {
+            // libx264 ships in every bundled build and always initializes —
+            // skip the spawn for the software path.
+            let available = if hardware {
+                probe_encoder(name, extra)
+            } else {
+                true
+            };
+            EncoderAvailability {
+                name: name.to_string(),
+                label: label.to_string(),
+                vendor: vendor.to_string(),
+                hardware,
+                available,
+                active: false,
+            }
+        })
+        .collect();
+
+    // First available candidate (priority order preserved above) is what the
+    // recorder picks — identical logic to `preferred_h264_encoder`, computed
+    // here from the probe results so we don't double-probe the whole chain.
+    if let Some(idx) = list.iter().position(|e| e.available) {
+        list[idx].active = true;
+    }
+
+    list
+}
+
 fn probe_encoder(name: &str, extra_args: &[&str]) -> bool {
     let mut command = Command::new(ffmpeg_path());
     command.args([

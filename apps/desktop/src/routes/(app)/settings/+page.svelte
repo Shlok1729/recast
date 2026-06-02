@@ -1,18 +1,21 @@
 <script lang="ts">
   import Logo from "$components/logo.svelte";
   import CloudSignIn from "$components/settings/CloudSignIn.svelte";
+  import DeviceCapabilities from "$components/settings/DeviceCapabilities.svelte";
   import GoogleDriveConnection from "$components/settings/GoogleDriveConnection.svelte";
   import { config } from "$constants/app";
   import { getOutputDir, setOutputDir } from "$lib/ipc";
   import {
     ArrowUpRight,
     Cloud,
+    Cpu,
     ExternalLink,
     FlaskConical,
     FolderOpen,
     Github,
     Globe,
     HardDrive,
+    Info,
     Monitor,
     Moon,
     Navigation,
@@ -21,6 +24,7 @@
     SlidersHorizontal as SlidersIcon,
     Sparkles,
     Sun,
+    Video,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import { toast } from "@recast/ui/sonner";
@@ -31,27 +35,27 @@
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
 
+  import { syncConsent } from "$lib/analytics/client";
+  import { desktopConsent } from "$lib/stores/consent.svelte";
   import {
     FLAG_META,
     experimentalStore,
     type ExperimentalFlag,
   } from "$lib/stores/experimental.svelte";
   import { profilesStore } from "$lib/stores/profiles.svelte";
-  import { desktopConsent } from "$lib/stores/consent.svelte";
-  import { syncConsent } from "$lib/analytics/client";
 
   type Theme = "light" | "dark" | "system";
   type EditorBehavior = "navigate" | "new-window";
-  type SettingsTab = "general" | "local" | "cloud";
+  type SettingsTab = "general" | "recording" | "cloud" | "privacy" | "about";
 
   let outputDir = $state("");
   let currentTheme = $state<Theme>("system");
   let editorWindow = $state<EditorBehavior>("navigate");
   let closeToTray = $state(true);
-  // Default to the middle tab so the visual ordering reads naturally
-  // (general — local — cloud) while landing the user on the daily-use
-  // panel (output dir, profiles, editor behavior).
-  let activeTab = $state<SettingsTab>("local");
+  // Land on Recording — the daily-use panel (output directory, profiles,
+  // editor behavior) — rather than the leftmost General tab, matching how
+  // people actually reach for these settings.
+  let activeTab = $state<SettingsTab>("recording");
 
   onMount(() => {
     fetchSettings();
@@ -193,10 +197,13 @@
       </p>
     </header>
 
-    <!-- Tabs: Local (offline, daily-use) / Cloud (network-dependent) /
-         General (theme, experimental, about). Side-slide transition tracks
-         tab order in `TAB_ORDER` so backward navigation slides right and
-         forward navigation slides left — same convention as iOS push/pop. -->
+    <!-- Tabs, grouped by concern:
+           General   — appearance + window behavior
+           Recording — storage, editor, capture profiles (daily-use)
+           Cloud     — Recast Cloud + Google Drive (network integrations)
+           Privacy   — telemetry consent + experimental flags
+           About     — version, links, and device/encoder diagnostics
+         Each panel slides/fades in via tw-animate-css inside Tabs.Content. -->
     <div
       in:fly={{ y: 12, duration: 320, delay: 80, easing: cubicOut }}
       class="flex min-w-0 flex-col gap-6"
@@ -206,18 +213,29 @@
         onValueChange={(v) => (activeTab = v as SettingsTab)}
         class="flex flex-col gap-6"
       >
-        <Tabs.List variant="soft" class="grid w-full max-w-md grid-cols-3 gap-1 p-1">
-          <Tabs.Trigger value="general" class="gap-1.5 px-3">
+        <Tabs.List
+          variant="soft"
+          class="grid w-full max-w-2xl grid-cols-5 gap-1 p-1"
+        >
+          <Tabs.Trigger value="general" class="gap-1.5 px-2">
             <SettingsIcon class="size-3.5" />
             <span class="text-[12px] font-semibold">General</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="local" class="gap-1.5 px-3">
-            <HardDrive class="size-3.5" />
-            <span class="text-[12px] font-semibold">Local</span>
+          <Tabs.Trigger value="recording" class="gap-1.5 px-2">
+            <Video class="size-3.5" />
+            <span class="text-[12px] font-semibold">Recording</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="cloud" class="gap-1.5 px-3">
+          <Tabs.Trigger value="cloud" class="gap-1.5 px-2">
             <Cloud class="size-3.5" />
             <span class="text-[12px] font-semibold">Cloud</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="privacy" class="gap-1.5 px-2">
+            <Shield class="size-3.5" />
+            <span class="text-[12px] font-semibold">Privacy</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="about" class="gap-1.5 px-2">
+            <Info class="size-3.5" />
+            <span class="text-[12px] font-semibold">About</span>
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -225,7 +243,7 @@
              tw-animate-css (defined in @recast/ui's tabs-content.svelte) —
              no need for custom Svelte transitions. Panels not matching the
              active value unmount, so we don't pay layout cost. -->
-        <Tabs.Content value="local" class="flex min-w-0 flex-col gap-8">
+        <Tabs.Content value="recording" class="flex min-w-0 flex-col gap-8">
               <!-- Storage / Output directory -->
               <section id="settings-storage" class="flex flex-col gap-3">
                 <div class="px-1">
@@ -562,7 +580,9 @@
                   </div>
                 </div>
               </section>
+        </Tabs.Content>
 
+        <Tabs.Content value="privacy" class="flex min-w-0 flex-col gap-8">
               <!-- Privacy & Telemetry. Two independent, locally-stored opt-ins:
                    usage analytics (strictly opt-in, default off) and crash
                    reports (default on). Both anonymous; crash reports are
@@ -711,7 +731,9 @@
                   {/each}
                 </div>
               </section>
+        </Tabs.Content>
 
+        <Tabs.Content value="about" class="flex min-w-0 flex-col gap-8">
               <!-- About -->
               <section id="settings-about" class="flex flex-col gap-3">
                 <div class="px-1">
@@ -731,7 +753,7 @@
                     <div
                       class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-foreground ring-1 ring-inset ring-border/40"
                     >
-                      <Logo class="size-4" />
+                      <Logo class="size-6" />
                     </div>
                     <div class="min-w-0 flex-1">
                       <div class="text-[13px] font-semibold text-foreground">
@@ -777,6 +799,25 @@
                     </Button>
                   </div>
                 </div>
+              </section>
+
+              <!-- Device & diagnostics. Encoder availability is probed live
+                   against this machine's GPU (not just "compiled in"), so the
+                   matrix reflects what Recast can actually use here — handy in
+                   bug reports and for users wondering why capture is on CPU. -->
+              <section id="settings-device" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <Cpu class="size-3 text-primary" />
+                    Device & diagnostics
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    Your platform and which video encoders this device supports.
+                  </p>
+                </div>
+                <DeviceCapabilities />
               </section>
         </Tabs.Content>
       </Tabs.Root>

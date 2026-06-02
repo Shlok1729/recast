@@ -194,7 +194,7 @@ export function recastObjectKey(workspaceId: string, recastId: string): string {
 }
 
 export function posterObjectKey(workspaceId: string, recastId: string): string {
-	return `workspace/${workspaceId}/${recastId}.poster.jpg`;
+	return `workspace/${workspaceId}/${recastId}.poster.webp`;
 }
 
 /**

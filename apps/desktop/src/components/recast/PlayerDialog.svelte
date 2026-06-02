@@ -71,7 +71,13 @@
       </Button>
     </header>
 
-    <RecastPlayer {src} title={entry.filename} autoplay />
+    <!-- autohide={-1} pins the control bar. This is a framed inspect-the-
+         recording dialog, and WebView2 actually honours `autoplay` (a browser
+         blocks the un-muted play and leaves the video paused with controls
+         showing). media-chrome's controller starts in `user-inactive`, so once
+         the clip is playing and the pointer hasn't moved yet the whole bar is
+         hidden — reads as "the player has no controls". -->
+    <RecastPlayer {src} title={entry.filename} autoplay autohide={-1} />
 
     <footer
       class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 text-xs text-muted-foreground"
