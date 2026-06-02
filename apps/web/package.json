@@ -29,7 +29,7 @@
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
     "portless": "^0.10.3",
-    "svelte": "^5.51.0",
+    "svelte": "^5.56.1",
     "svelte-check": "^4.4.2",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
