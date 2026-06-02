@@ -76,12 +76,14 @@ export interface AutosaveState {
 
 //  System commands
 
-/** One H.264 encoder candidate and whether it really initializes here.
- *  Mirrors the Rust `EncoderAvailability` struct (`probe_video_encoders`). */
+/** One encoder candidate (H.264 or HEVC) and whether it really initializes
+ *  here. Mirrors the Rust `EncoderAvailability` struct (`probe_video_encoders`). */
 export interface EncoderAvailability {
 	name: string;
 	label: string;
 	vendor: string;
+	/** Codec family — "H.264" or "HEVC" — used to group the matrix. */
+	family: string;
 	hardware: boolean;
 	available: boolean;
 	active: boolean;
@@ -108,6 +110,31 @@ export function probeVideoEncoders(): Promise<EncoderAvailability[]> {
 /** Resolved ffmpeg paths, version, and which export codecs are present. */
 export function diagnoseFfmpeg(): Promise<FfmpegDiagnostics> {
 	return invoke<FfmpegDiagnostics>("diagnose_ffmpeg");
+}
+
+/**
+ * Lock a window's resize to a fixed aspect ratio and cap its width at a
+ * fraction of its monitor. On Windows this is a real-time WM_SIZING constraint
+ * (proportional while dragging); other platforms no-op and rely on the JS
+ * snap-to-aspect fallback. Re-call when the ratio changes.
+ *
+ * @param minWidthPx minimum width in *physical* pixels (the OS drag rect is
+ *   physical too) — pass `logicalMin * devicePixelRatio`.
+ */
+export function setWindowAspectRatio(
+	label: string,
+	aspectWidth: number,
+	aspectHeight: number,
+	maxScreenFraction: number,
+	minWidthPx: number,
+): Promise<void> {
+	return invoke("set_window_aspect_ratio", {
+		label,
+		aspectWidth,
+		aspectHeight,
+		maxScreenFraction,
+		minWidthPx,
+	});
 }
 
 export function getOutputDir(): Promise<string> {

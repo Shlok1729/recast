@@ -10,6 +10,7 @@
     Cpu,
     Minus,
     MonitorCog,
+    MonitorPlay,
     RefreshCw,
     Sparkles,
     X,
@@ -25,6 +26,10 @@
   let osLabel = $state("Unknown");
   let osVersion = $state("");
   let osArch = $state("");
+  // Raw platform key ("windows" / "macos" / …) kept alongside the display
+  // label so the capture-support row can key off it without string-matching
+  // the localized label. Empty until loadOsInfo resolves.
+  let platform = $state("");
 
   let diagnostics = $state<FfmpegDiagnostics | null>(null);
   let encoders = $state<EncoderAvailability[]>([]);
@@ -44,6 +49,7 @@
       const os = await import("@tauri-apps/plugin-os");
       try {
         const p = os.platform();
+        platform = p;
         osLabel = PLATFORM_LABEL[p] ?? p;
       } catch {
         /* leave default */

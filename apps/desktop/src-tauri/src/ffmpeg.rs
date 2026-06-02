@@ -290,55 +290,60 @@ pub struct EncoderAvailability {
     pub label: String,
     /// Vendor family, e.g. `NVIDIA` / `AMD` / `Intel` / `Software`.
     pub vendor: String,
+    /// Codec family the row belongs to — `H.264` or `HEVC`. Lets the
+    /// diagnostics UI group the matrix into sections.
+    pub family: String,
     /// Hardware-accelerated (GPU) vs software (CPU) path.
     pub hardware: bool,
     /// Whether a 1-frame encode actually succeeded on this machine.
     pub available: bool,
     /// The encoder the recorder/export will pick — the highest-priority
-    /// available one (mirrors `preferred_h264_encoder`).
+    /// available one (mirrors `preferred_h264_encoder`). Only ever set on
+    /// an H.264 row, since the recording pipeline is H.264-only today; the
+    /// HEVC rows are informational (which HEVC encoders this GPU exposes).
     pub active: bool,
 }
 
-/// Probe every H.264 encoder candidate for real init success on this
-/// device, in the same NVIDIA → AMD → Intel → CPU priority order the
-/// recorder selects from. The first one that initializes is flagged
-/// `active` (libx264 is the always-present software fallback, so there's
-/// always exactly one active entry). Each hardware probe spawns FFmpeg
-/// (~300–500 ms cold); callers should run this off the UI thread.
-pub fn probe_h264_encoders() -> Vec<EncoderAvailability> {
-    let candidates: [(&str, &str, &str, bool, &[&str]); 4] = [
-        (
-            "h264_nvenc",
-            "NVIDIA NVENC",
-            "NVIDIA",
-            true,
-            &["-preset", "p1"],
-        ),
-        ("h264_amf", "AMD AMF", "AMD", true, &["-quality", "speed"]),
-        (
-            "h264_qsv",
-            "Intel Quick Sync",
-            "Intel",
-            true,
-            &["-preset", "veryfast"],
-        ),
-        ("libx264", "x264 (CPU)", "Software", false, &[]),
+/// Probe every recordable encoder candidate for real init success on this
+/// device. The H.264 family is listed in the same NVIDIA → AMD → Intel →
+/// CPU priority order the recorder selects from, followed by the HEVC
+/// family in the same order. The first *available H.264* candidate is
+/// flagged `active` — that's what the recorder/export actually picks
+/// (libx264 is the always-present software fallback, so there's always
+/// exactly one active entry, and it's always H.264 since the pipeline is
+/// H.264-only today). HEVC rows are informational. Each hardware probe
+/// spawns FFmpeg (~300–500 ms cold); callers should run this off the UI
+/// thread.
+pub fn probe_recordable_encoders() -> Vec<EncoderAvailability> {
+    // (name, label, vendor, family, hardware, extra_args). H.264 first so
+    // the `active` lookup below lands on the codec the recorder uses.
+    let candidates: [(&str, &str, &str, &str, bool, &[&str]); 8] = [
+        ("h264_nvenc", "NVIDIA NVENC", "NVIDIA", "H.264", true, &["-preset", "p1"]),
+        ("h264_amf", "AMD AMF", "AMD", "H.264", true, &["-quality", "speed"]),
+        ("h264_qsv", "Intel Quick Sync", "Intel", "H.264", true, &["-preset", "veryfast"]),
+        ("libx264", "x264 (CPU)", "Software", "H.264", false, &[]),
+        ("hevc_nvenc", "NVIDIA NVENC", "NVIDIA", "HEVC", true, &["-preset", "p1"]),
+        ("hevc_amf", "AMD AMF", "AMD", "HEVC", true, &["-quality", "speed"]),
+        ("hevc_qsv", "Intel Quick Sync", "Intel", "HEVC", true, &["-preset", "veryfast"]),
+        ("libx265", "x265 (CPU)", "Software", "HEVC", false, &[]),
     ];
 
     let mut list: Vec<EncoderAvailability> = candidates
         .into_iter()
-        .map(|(name, label, vendor, hardware, extra)| {
+        .map(|(name, label, vendor, family, hardware, extra)| {
             // libx264 ships in every bundled build and always initializes —
-            // skip the spawn for the software path.
-            let available = if hardware {
-                probe_encoder(name, extra)
-            } else {
+            // skip the spawn for it. Everything else (hardware paths and
+            // libx265, which isn't guaranteed compiled in) gets a real probe.
+            let available = if name == "libx264" {
                 true
+            } else {
+                probe_encoder(name, extra)
             };
             EncoderAvailability {
                 name: name.to_string(),
                 label: label.to_string(),
                 vendor: vendor.to_string(),
+                family: family.to_string(),
                 hardware,
                 available,
                 active: false,
@@ -346,9 +351,11 @@ pub fn probe_h264_encoders() -> Vec<EncoderAvailability> {
         })
         .collect();
 
-    // First available candidate (priority order preserved above) is what the
-    // recorder picks — identical logic to `preferred_h264_encoder`, computed
-    // here from the probe results so we don't double-probe the whole chain.
+    // First available candidate (H.264 priority order preserved above) is
+    // what the recorder picks — identical logic to `preferred_h264_encoder`,
+    // computed here from the probe results so we don't double-probe the
+    // chain. libx264 is always available, so this always resolves to an
+    // H.264 row before reaching the HEVC section.
     if let Some(idx) = list.iter().position(|e| e.available) {
         list[idx].active = true;
     }

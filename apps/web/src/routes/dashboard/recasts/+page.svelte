@@ -10,12 +10,13 @@
 	import { focusOnMount } from "$lib/dashboard/focus";
 	import { formatBytes } from "$lib/dashboard/format";
 	import { foldersStore, tagsStore } from "$lib/dashboard/library.svelte";
+	import { UPLOAD_ACCEPT, uploadRecastFile, type UploadPhase } from "$lib/dashboard/upload";
 	import {
 	  recastsStore,
-	  settingsStore,
 	  type Recast,
 	  type RecordingSource,
 	} from "$lib/dashboard/store.svelte";
+	import { invalidateAll } from "$app/navigation";
 	import { Chip } from "@recast/ui/chip";
 	import { Archive, Cloud, Film, FolderOpen, HardDrive, Library, LoaderCircle, Plus, Search, Settings2, Upload, Video, X } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
@@ -78,7 +79,19 @@
 	let playing = $state<Recast | null>(null);
 	let renaming = $state<Recast | null>(null);
 	let uploading = $state(false);
+	let uploadPhase = $state<UploadPhase>("preparing");
+	let uploadPct = $state(0);
 	let fileInput = $state<HTMLInputElement | null>(null);
+
+	const uploadLabel = $derived(
+		uploadPhase === "uploading"
+			? `Uploading ${uploadPct}%`
+			: uploadPhase === "finalizing"
+				? "Finalizing…"
+				: uploadPhase === "sharing"
+					? "Creating link…"
+					: "Preparing…",
+	);
 
 	// Inline tag creation in the filter bar.
 	let creatingTag = $state(false);
@@ -162,48 +175,36 @@
 			: [...selectedTagIds, id];
 	}
 
-	function readDuration(url: string): Promise<number> {
-		return new Promise((resolve) => {
-			const v = document.createElement("video");
-			v.preload = "metadata";
-			v.onloadedmetadata = () => resolve(v.duration || 0);
-			v.onerror = () => resolve(0);
-			v.src = url;
-		});
-	}
-
 	async function onFilePicked(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) return;
 		uploading = true;
+		uploadPhase = "preparing";
+		uploadPct = 0;
 		try {
-			await toast.promise(
-				(async () => {
-					const url = URL.createObjectURL(file);
-					const durationSec = await readDuration(url);
-					const destination = settingsStore.value.preferences.defaultDestination;
-					recastsStore.add({
-						id: crypto.randomUUID(),
-						title: file.name.replace(/\.[^.]+$/, "") || "Untitled recast",
-						durationSec,
-						createdAt: Date.now(),
-						sizeBytes: file.size,
-						source: destination,
-						provider: destination === "cloud" ? "Cloudinary" : null,
-						views: 0,
-						folderId: selectedFolder !== "all" && selectedFolder !== "root" ? selectedFolder : null,
-						tags: [],
-						videoUrl: url,
-						posterUrl: "",
-					});
-				})(),
-				{
-					loading: `Adding “${file.name}”…`,
-					success: `“${file.name}” added to your library.`,
-					error: (err) => (err as Error)?.message ?? "Couldn't add that file.",
-				},
+			const result = await uploadRecastFile(file, {
+				workspaceId,
+				onPhase: (p) => (uploadPhase = p),
+				onProgress: (pct) => (uploadPct = pct),
+			});
+			// Pull the real, server-published recast into the list (with its
+			// share slug, poster, signed-on-read video, etc.).
+			await invalidateAll();
+			let copied = false;
+			try {
+				await navigator.clipboard.writeText(result.shareUrl);
+				copied = true;
+			} catch {
+				copied = false;
+			}
+			toast.success(
+				copied
+					? `“${file.name}” uploaded — share link copied to clipboard.`
+					: `“${file.name}” uploaded and shared.`,
 			);
+		} catch (err) {
+			toast.error((err as Error)?.message ?? "Couldn't upload that file.");
 		} finally {
 			uploading = false;
 			input.value = "";
@@ -309,7 +310,7 @@
 	<title>Recasts - Recast Dashboard</title>
 </svelte:head>
 
-<input bind:this={fileInput} type="file" accept="video/*" class="hidden" onchange={onFilePicked} />
+<input bind:this={fileInput} type="file" accept={UPLOAD_ACCEPT} class="hidden" onchange={onFilePicked} />
 
 <!-- Header -->
 <header
@@ -322,7 +323,7 @@
 	</div>
 	<Button class="gap-2" disabled={uploading} onclick={() => fileInput?.click()}>
 		{#if uploading}<LoaderCircle class="size-4 animate-spin" />{:else}<Upload class="size-4" />{/if}
-		{uploading ? "Adding…" : "Upload recast"}
+		{uploading ? uploadLabel : "Upload recast"}
 	</Button>
 </header>
 
@@ -513,10 +514,10 @@
 				</span>
 				{#if !hasRecasts}
 					<h3 class="mt-4 text-sm font-semibold text-foreground">No recasts yet</h3>
-					<p class="mt-1 max-w-xs text-xs text-muted-foreground">Upload a video, or capture one with the Recast desktop app.</p>
+					<p class="mt-1 max-w-xs text-xs text-muted-foreground">Upload an MP4, or capture and export one with the Recast desktop app.</p>
 					<Button size="sm" class="mt-5 gap-2" disabled={uploading} onclick={() => fileInput?.click()}>
 						{#if uploading}<LoaderCircle class="size-3.5 animate-spin" />{:else}<Upload class="size-3.5" />{/if}
-						{uploading ? "Adding…" : "Upload recast"}
+						{uploading ? uploadLabel : "Upload recast"}
 					</Button>
 				{:else if filtersActive}
 					<h3 class="mt-4 text-sm font-semibold text-foreground">No recasts match</h3>

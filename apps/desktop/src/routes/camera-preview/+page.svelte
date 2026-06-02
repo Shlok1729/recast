@@ -18,6 +18,7 @@
     openCameraStream,
   } from "$lib/camera/browser-devices";
   import {
+    setWindowAspectRatio,
     updateCameraPreviewState,
     validateCameraSource,
     type CameraPreviewState,
@@ -232,17 +233,20 @@
   }
 
   /**
-   * Compute and apply OS-level min/max size constraints based on the
-   * primary screen's available logical dimensions. Called once on mount.
-   * The OS handles drag-resize clamping for free once these are set; the
-   * aspect-snap helpers do their own arithmetic clamp on top so that
-   * programmatic setSize calls (cycling aspect) can't punch past the cap.
+   * Compute and apply OS-level min/max size constraints. The cap is keyed off
+   * the screen's available *width* (`MAX_SCREEN_FRACTION` of it) — every aspect
+   * we offer is landscape-or-square (ratio ≥ 1), so height is always ≤ width
+   * and a square max box of side `0.25·screenW` bounds the window by width
+   * without ever clipping the proportional height. Called once on mount; the
+   * aspect-snap helpers clamp against `maxLogicalW/H` on top so programmatic
+   * setSize calls (cycling aspect) can't punch past the cap.
    */
   async function applySizeConstraints() {
     const screenW = Math.max(window.screen.availWidth || 1920, 320);
-    const screenH = Math.max(window.screen.availHeight || 1080, 320);
-    maxLogicalW = Math.floor(screenW * MAX_SCREEN_FRACTION);
-    maxLogicalH = Math.floor(screenH * MAX_SCREEN_FRACTION);
+    const maxW = Math.floor(screenW * MAX_SCREEN_FRACTION);
+    // Square bounding box: width is the binding limit, height follows aspect.
+    maxLogicalW = maxW;
+    maxLogicalH = maxW;
 
     const win = getCurrentWindow();
     try {
@@ -250,6 +254,34 @@
       await win.setMaxSize(new LogicalSize(maxLogicalW, maxLogicalH));
     } catch (e) {
       console.warn("camera preview size constraints failed:", e);
+    }
+
+    // Install (or refresh) the native aspect lock for the current aspect.
+    void applyNativeAspectLock();
+  }
+
+  /**
+   * Hand the current aspect ratio to the Windows-native WM_SIZING constraint so
+   * the window resizes *proportionally while dragging* — you can't pull width
+   * or height independently, and it won't exceed MAX_SCREEN_FRACTION of the
+   * monitor width. No-op off Windows, where the `snapToAspect` handler below is
+   * the fallback. Re-invoked whenever the aspect changes so the ratio stays in
+   * sync. The drag rect is in physical pixels, so the min crosses as such.
+   */
+  async function applyNativeAspectLock() {
+    try {
+      const ratio = ASPECT_RATIO[aspect];
+      const dpr = window.devicePixelRatio || 1;
+      await setWindowAspectRatio(
+        "camera-preview",
+        ratio,
+        1,
+        MAX_SCREEN_FRACTION,
+        Math.round(MIN_LOGICAL_SIZE * dpr),
+      );
+    } catch (e) {
+      // Non-Windows / older build — the JS snap-to-aspect path still applies.
+      console.warn("native aspect lock unavailable:", e);
     }
   }
 
@@ -280,6 +312,9 @@
     opts: { snap?: boolean } = {},
   ) {
     aspect = next;
+    // Keep the native WM_SIZING ratio in lockstep with the chosen aspect so the
+    // next drag is constrained to the new shape, not the previous one.
+    void applyNativeAspectLock();
     if (opts.snap) {
       const win = getCurrentWindow();
       const size = await win.outerSize();

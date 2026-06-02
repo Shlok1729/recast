@@ -446,6 +446,56 @@ pub fn exclude_window_from_capture(app: AppHandle, label: String) -> Result<(), 
     }
 }
 
+/// Lock a window's resize to a fixed aspect ratio and cap its width at a
+/// fraction of its current monitor.
+///
+/// On Windows this installs a `WM_SIZING` subclass so the box stays
+/// proportional *while dragging* (you can't pull width or height
+/// independently) and never exceeds `max_screen_fraction` of the monitor's
+/// work-area width. Re-invoke with a new ratio when the aspect changes (e.g.
+/// the camera bubble cycling 1:1 → 16:9) — the constraint updates in place.
+///
+/// No-op on other platforms; callers there keep the JS snap-to-aspect
+/// fallback. `min_width_px` is in physical pixels (the OS drag rect is too),
+/// so callers pass `logical * devicePixelRatio`.
+#[tauri::command]
+pub fn set_window_aspect_ratio(
+    app: AppHandle,
+    label: String,
+    aspect_width: f64,
+    aspect_height: f64,
+    max_screen_fraction: f64,
+    min_width_px: f64,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("window '{label}' not found"))?;
+    let ratio = if aspect_height > 0.0 {
+        aspect_width / aspect_height
+    } else {
+        1.0
+    };
+    #[cfg(windows)]
+    {
+        let hwnd = window
+            .hwnd()
+            .map_err(|e| format!("hwnd lookup failed for '{label}': {e}"))?;
+        crate::window_aspect::apply(
+            &app,
+            hwnd.0 as isize,
+            ratio,
+            max_screen_fraction,
+            min_width_px.round() as i32,
+        );
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, ratio, max_screen_fraction, min_width_px);
+        Ok(())
+    }
+}
+
 /// List available camera/video capture devices.
 #[tauri::command]
 pub async fn get_camera_devices() -> Result<Vec<CameraDeviceInfo>, String> {
@@ -993,7 +1043,7 @@ pub fn rename_file(path: String, new_name: String) -> Result<String, String> {
 /// thread on Linux (same rationale as `get_displays`).
 #[tauri::command]
 pub async fn probe_video_encoders() -> Result<Vec<crate::ffmpeg::EncoderAvailability>, String> {
-    tauri::async_runtime::spawn_blocking(crate::ffmpeg::probe_h264_encoders)
+    tauri::async_runtime::spawn_blocking(crate::ffmpeg::probe_recordable_encoders)
         .await
         .map_err(|e| format!("probe_video_encoders join error: {e}"))
 }

@@ -14,6 +14,7 @@ mod render;
 mod silence;
 mod telemetry;
 mod tray;
+mod window_aspect;
 
 use commands::system::load_config;
 use commands::types::AppState;
@@ -242,6 +243,7 @@ pub fn run() {
             commands::validate_camera_source,
             commands::update_camera_preview_state,
             commands::exclude_window_from_capture,
+            commands::set_window_aspect_ratio,
             commands::autosave_project,
             commands::save_project_edits,
             commands::clear_autosave,
