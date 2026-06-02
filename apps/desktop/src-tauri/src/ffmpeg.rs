@@ -318,13 +318,55 @@ pub fn probe_recordable_encoders() -> Vec<EncoderAvailability> {
     // (name, label, vendor, family, hardware, extra_args). H.264 first so
     // the `active` lookup below lands on the codec the recorder uses.
     let candidates: [(&str, &str, &str, &str, bool, &[&str]); 8] = [
-        ("h264_nvenc", "NVIDIA NVENC", "NVIDIA", "H.264", true, &["-preset", "p1"]),
-        ("h264_amf", "AMD AMF", "AMD", "H.264", true, &["-quality", "speed"]),
-        ("h264_qsv", "Intel Quick Sync", "Intel", "H.264", true, &["-preset", "veryfast"]),
+        (
+            "h264_nvenc",
+            "NVIDIA NVENC",
+            "NVIDIA",
+            "H.264",
+            true,
+            &["-preset", "p1"],
+        ),
+        (
+            "h264_amf",
+            "AMD AMF",
+            "AMD",
+            "H.264",
+            true,
+            &["-quality", "speed"],
+        ),
+        (
+            "h264_qsv",
+            "Intel Quick Sync",
+            "Intel",
+            "H.264",
+            true,
+            &["-preset", "veryfast"],
+        ),
         ("libx264", "x264 (CPU)", "Software", "H.264", false, &[]),
-        ("hevc_nvenc", "NVIDIA NVENC", "NVIDIA", "HEVC", true, &["-preset", "p1"]),
-        ("hevc_amf", "AMD AMF", "AMD", "HEVC", true, &["-quality", "speed"]),
-        ("hevc_qsv", "Intel Quick Sync", "Intel", "HEVC", true, &["-preset", "veryfast"]),
+        (
+            "hevc_nvenc",
+            "NVIDIA NVENC",
+            "NVIDIA",
+            "HEVC",
+            true,
+            &["-preset", "p1"],
+        ),
+        (
+            "hevc_amf",
+            "AMD AMF",
+            "AMD",
+            "HEVC",
+            true,
+            &["-quality", "speed"],
+        ),
+        (
+            "hevc_qsv",
+            "Intel Quick Sync",
+            "Intel",
+            "HEVC",
+            true,
+            &["-preset", "veryfast"],
+        ),
         ("libx265", "x265 (CPU)", "Software", "HEVC", false, &[]),
     ];
 
@@ -371,8 +413,15 @@ fn probe_encoder(name: &str, extra_args: &[&str]) -> bool {
         "error",
         "-f",
         "lavfi",
+        // 320x240, NOT a tiny 64x64. NVENC enforces a minimum frame size
+        // (H.264 ~145x49, HEVC larger) and rejects anything smaller with
+        // "Frame Dimension less than the minimum supported value" — which
+        // made this probe report every NVENC-capable GPU as unavailable and
+        // silently dropped the recorder to CPU x264 on machines that have a
+        // working NVIDIA encoder. 320x240 clears every hardware encoder's
+        // minimum while staying cheap to init.
         "-i",
-        "nullsrc=s=64x64:d=0.04",
+        "nullsrc=s=320x240:d=0.04",
         "-c:v",
         name,
     ]);

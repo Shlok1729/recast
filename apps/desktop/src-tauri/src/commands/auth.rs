@@ -27,6 +27,7 @@
 //! Token storage uses `keyring` — DPAPI on Windows, Keychain on macOS,
 //! SecretService on Linux. Service name is the bundle identifier.
 
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 use keyring::Entry;
@@ -34,20 +35,64 @@ use reqwest::header;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
+use super::system::save_config;
 use super::types::AppState;
 
 const KEYRING_SERVICE: &str = "com.nexonauts.recast";
 const KEYRING_ENTRY: &str = "cloud-session-token";
 const CLIENT_ID: &str = "recast-desktop";
-const DEFAULT_CLOUD_API_URL: &str = "https://recast.nexonauts.com";
+const DEFAULT_CLOUD_API_URL: &str = "https://recast.li";
 
-/// Resolves the cloud API base URL. In debug builds the `CLOUD_API_URL`
-/// env var is honored so dev work can point at a local SvelteKit server
-/// without recompiling. Release builds ignore the env var deliberately:
-/// the desktop has no settings UI for this and we don't want a malicious
-/// or accidentally-injected env to silently redirect auth/sync traffic to
-/// an attacker-controlled host. Trailing slashes are stripped.
+/// Self-hosting override for the cloud API base URL, cached in-process so the
+/// no-arg `cloud_api_url()` resolver (called from many sites that don't carry
+/// `AppState`) can read it without threading state everywhere. Mirrors
+/// `AppConfig.cloud_api_url`: seeded from disk on startup via
+/// `init_cloud_api_override`, updated by the `set_cloud_api_url` command.
+static CLOUD_API_OVERRIDE: RwLock<Option<String>> = RwLock::new(None);
+
+/// Validate + normalize a user-supplied self-host URL. Accepts only an
+/// absolute `http`/`https` URL with a non-empty host; returns the
+/// trailing-slash-stripped form. `None` for anything malformed — the caller
+/// treats that as "no usable override" (setter rejects it; resolver ignores
+/// it and falls back to the default endpoint).
+pub(crate) fn normalize_api_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parsed = reqwest::Url::parse(trimmed).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+    if parsed.host_str().map(str::is_empty).unwrap_or(true) {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// Seed the in-process override from persisted config at startup. Called once
+/// during app setup after the config is loaded.
+pub(crate) fn init_cloud_api_override(value: Option<String>) {
+    *CLOUD_API_OVERRIDE.write().unwrap() = value;
+}
+
+/// Resolves the cloud API base URL. Resolution order:
+///   1. The self-host override the user set in Settings → Cloud, if present
+///      and still valid. This is deliberate user action, so unlike an
+///      injected env var it's honored in release builds too — it's how
+///      self-hosters point the desktop at their own server.
+///   2. In debug builds only, the `CLOUD_API_URL` env var (dev convenience —
+///      lets `pnpm tauri dev` target a local SvelteKit server). Release
+///      builds skip this so a stray/injected env can't silently redirect
+///      auth traffic to an attacker host.
+///   3. The bundled default endpoint.
+/// Trailing slashes are stripped at every layer.
 pub(crate) fn cloud_api_url() -> String {
+    if let Some(raw) = CLOUD_API_OVERRIDE.read().unwrap().clone() {
+        if let Some(valid) = normalize_api_url(&raw) {
+            return valid;
+        }
+    }
     #[cfg(debug_assertions)]
     let raw = std::env::var("CLOUD_API_URL").unwrap_or_else(|_| DEFAULT_CLOUD_API_URL.to_string());
     #[cfg(not(debug_assertions))]
@@ -618,6 +663,86 @@ pub async fn auth_sign_out() -> Result<(), String> {
         }
     }
     delete_session_token()
+}
+
+/// Current cloud-endpoint configuration, surfaced to Settings → Cloud so a
+/// self-hoster can see what's in effect and what the built-in default is.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudApiConfig {
+    /// The base URL actually used for cloud requests right now.
+    effective: String,
+    /// The user's saved self-host override, or `None` when using the default.
+    override_url: Option<String>,
+    /// The bundled default endpoint — shown as the fallback / placeholder.
+    default_url: String,
+    /// Whether `effective` differs from the bundled default (i.e. a custom
+    /// self-host endpoint is in effect).
+    is_custom: bool,
+}
+
+/// Read the current cloud endpoint configuration for the Settings UI.
+#[tauri::command]
+pub fn get_cloud_api_config(state: State<'_, AppState>) -> CloudApiConfig {
+    let override_url = state.config.lock().cloud_api_url.clone();
+    let effective = cloud_api_url();
+    CloudApiConfig {
+        is_custom: effective != DEFAULT_CLOUD_API_URL,
+        effective,
+        override_url,
+        default_url: DEFAULT_CLOUD_API_URL.to_string(),
+    }
+}
+
+/// Set (or clear) the self-host cloud API override.
+///
+/// Passing an empty/whitespace string or `null` clears the override and
+/// reverts to the bundled default. A non-empty value must be a valid absolute
+/// http(s) URL — otherwise this returns an error and nothing is persisted (the
+/// "fall back to the default" behavior the resolver guarantees only kicks in
+/// for already-stored values; we reject bad input up front so the user gets a
+/// clear message instead of a silent revert).
+///
+/// Because a session token is only valid against the server that issued it,
+/// changing the effective endpoint clears the locally-stored token so the UI
+/// shows signed-out and the user re-authenticates against the new server
+/// rather than firing a stale token at it.
+#[tauri::command]
+pub fn set_cloud_api_url(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    url: Option<String>,
+) -> Result<CloudApiConfig, String> {
+    let normalized = match url {
+        Some(raw) if !raw.trim().is_empty() => Some(normalize_api_url(&raw).ok_or_else(|| {
+            "Enter a valid http(s) URL, e.g. https://recast.example.com".to_string()
+        })?),
+        _ => None,
+    };
+
+    let previous_effective = cloud_api_url();
+
+    {
+        let mut config = state.config.lock();
+        config.cloud_api_url = normalized.clone();
+        save_config(&app, &config);
+    }
+    init_cloud_api_override(normalized.clone());
+
+    // If the endpoint actually moved, drop the old server's token locally so
+    // we don't carry a now-invalid session across servers.
+    if cloud_api_url() != previous_effective {
+        let _ = delete_session_token();
+    }
+
+    let override_url = normalized;
+    let effective = cloud_api_url();
+    Ok(CloudApiConfig {
+        is_custom: effective != DEFAULT_CLOUD_API_URL,
+        effective,
+        override_url,
+        default_url: DEFAULT_CLOUD_API_URL.to_string(),
+    })
 }
 
 /// Returns the stored bearer token for downstream cloud-API calls (sync,

@@ -1,5 +1,6 @@
 <script lang="ts">
   import Logo from "$components/logo.svelte";
+  import CloudEndpoint from "$components/settings/CloudEndpoint.svelte";
   import CloudSignIn from "$components/settings/CloudSignIn.svelte";
   import DeviceCapabilities from "$components/settings/DeviceCapabilities.svelte";
   import GoogleDriveConnection from "$components/settings/GoogleDriveConnection.svelte";
@@ -19,6 +20,7 @@
     Monitor,
     Moon,
     Navigation,
+    Server,
     Settings as SettingsIcon,
     Shield,
     SlidersHorizontal as SlidersIcon,
@@ -46,7 +48,12 @@
 
   type Theme = "light" | "dark" | "system";
   type EditorBehavior = "navigate" | "new-window";
-  type SettingsTab = "general" | "recording" | "cloud" | "privacy" | "about";
+  type SettingsTab =
+    | "general"
+    | "recording"
+    | "cloud"
+    | "experimental"
+    | "about";
 
   let outputDir = $state("");
   let currentTheme = $state<Theme>("system");
@@ -198,11 +205,14 @@
     </header>
 
     <!-- Tabs, grouped by concern:
-           General   — appearance + window behavior
-           Recording — storage, editor, capture profiles (daily-use)
-           Cloud     — Recast Cloud + Google Drive (network integrations)
-           Privacy   — telemetry consent + experimental flags
-           About     — version, links, and device/encoder diagnostics
+           General      — appearance, window behavior + telemetry consent
+           Recording    — storage, editor, capture profiles (daily-use)
+           Cloud        — Recast Cloud + Google Drive (network integrations)
+           Experimental — opt-in unfinished features
+           About        — version, links, and device/encoder diagnostics
+         Telemetry lives under General (it's a small, two-toggle consent
+         block, not its own surface); Experimental gets a dedicated tab so
+         its growing flag list doesn't crowd anything else.
          Each panel slides/fades in via tw-animate-css inside Tabs.Content. -->
     <div
       in:fly={{ y: 12, duration: 320, delay: 80, easing: cubicOut }}
@@ -229,9 +239,9 @@
             <Cloud class="size-3.5" />
             <span class="text-[12px] font-semibold">Cloud</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="privacy" class="gap-1.5 px-2">
-            <Shield class="size-3.5" />
-            <span class="text-[12px] font-semibold">Privacy</span>
+          <Tabs.Trigger value="experimental" class="gap-1.5 px-2">
+            <FlaskConical class="size-3.5" />
+            <span class="text-[12px] font-semibold">Experimental</span>
           </Tabs.Trigger>
           <Tabs.Trigger value="about" class="gap-1.5 px-2">
             <Info class="size-3.5" />
@@ -449,6 +459,41 @@
                 </div>
               </section>
 
+              <!-- Self-hosting server endpoint. Gated behind the `selfHosting`
+                   experimental flag (Settings → Experimental) because Recast
+                   Cloud's server isn't shipped yet — there's nothing to point
+                   at by default, so this stays hidden for everyone except
+                   early self-hosters who opt in. When enabled, the Rust
+                   resolver validates the URL and falls back to the bundled
+                   default, so a bad value can't break sign-in. -->
+              {#if experimentalStore.isEnabled("selfHosting")}
+                <section id="settings-cloud-endpoint" class="flex flex-col gap-3">
+                  <div class="px-1">
+                    <h2
+                      class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                    >
+                      <Server class="size-3 text-primary" />
+                      Self-hosting
+                      <span
+                        class="inline-flex items-center gap-1 rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-500"
+                      >
+                        <FlaskConical class="size-2.5" />
+                        Experimental
+                      </span>
+                    </h2>
+                    <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                      Run your own Recast Cloud server? Set its address here.
+                      Everyone else can leave this on the default.
+                    </p>
+                  </div>
+                  <div
+                    class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                  >
+                    <CloudEndpoint />
+                  </div>
+                </section>
+              {/if}
+
               <!-- Google Drive connection. Independent of the cloud Account
                    section above: signing into Recast Cloud and connecting
                    Google Drive are separate authentications. Both belong on
@@ -580,9 +625,7 @@
                   </div>
                 </div>
               </section>
-        </Tabs.Content>
 
-        <Tabs.Content value="privacy" class="flex min-w-0 flex-col gap-8">
               <!-- Privacy & Telemetry. Two independent, locally-stored opt-ins:
                    usage analytics (strictly opt-in, default off) and crash
                    reports (default on). Both anonymous; crash reports are
@@ -673,7 +716,9 @@
                   </div>
                 </div>
               </section>
+        </Tabs.Content>
 
+        <Tabs.Content value="experimental" class="flex min-w-0 flex-col gap-8">
               <!-- Experimental features -->
               <section id="settings-experimental" class="flex flex-col gap-3">
                 <div class="px-1">

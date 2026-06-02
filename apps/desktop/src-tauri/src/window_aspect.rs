@@ -36,12 +36,19 @@ mod imp {
 
     #[derive(Clone, Copy)]
     struct Constraint {
-        /// width / height.
+        /// Aspect ratio of the *video* region (width / height) — not the whole
+        /// window, which also carries `chrome` rows of controls below it.
         ratio: f64,
         /// Max width as a fraction of the window's monitor work-area width.
         max_fraction: f64,
         /// Minimum width in physical pixels.
         min_w: i32,
+        /// Fixed, non-scaling vertical extent (physical px) reserved at the
+        /// bottom of the window for the control bar that lives *outside* the
+        /// rounded video so it never gets clipped. `ratio` applies to
+        /// `height - chrome`, so the visible bubble keeps its aspect while the
+        /// window is `chrome` px taller. 0 == video fills the window.
+        chrome: i32,
     }
 
     /// HWND pointer value → its live aspect constraint. The subclass proc runs
@@ -56,14 +63,26 @@ mod imp {
     /// `WM_SIZING` subclass is installed. Updating an existing window's ratio
     /// (e.g. the user cycling 1:1 → 16:9) just rewrites the registry entry —
     /// the already-installed subclass picks it up on the next drag.
-    pub fn apply(app: &AppHandle, hwnd_raw: isize, ratio: f64, max_fraction: f64, min_w: i32) {
+    pub fn apply(
+        app: &AppHandle,
+        hwnd_raw: isize,
+        ratio: f64,
+        max_fraction: f64,
+        min_w: i32,
+        chrome: i32,
+    ) {
         if !(ratio.is_finite() && ratio > 0.0) {
             return;
         }
         let constraint = Constraint {
             ratio,
-            max_fraction: if max_fraction > 0.0 { max_fraction } else { 0.25 },
+            max_fraction: if max_fraction > 0.0 {
+                max_fraction
+            } else {
+                0.25
+            },
             min_w: min_w.max(1),
+            chrome: chrome.max(0),
         };
 
         let first = {
@@ -107,18 +126,22 @@ mod imp {
         let cur_w = (rect.right - rect.left).max(1);
         let cur_h = (rect.bottom - rect.top).max(1);
 
+        // The control strip is fixed height; only the video region scales with
+        // the ratio, so strip it off before the aspect math and add it back to
+        // the final window height.
+        let chrome = c.chrome.max(0);
         let max_w = max_w.max(c.min_w);
-        let max_h = ((max_w as f64) / c.ratio).round() as i32;
-        let min_h = ((c.min_w as f64) / c.ratio).round() as i32;
+        let max_vid_h = ((max_w as f64) / c.ratio).round() as i32;
+        let min_vid_h = (((c.min_w as f64) / c.ratio).round() as i32).max(1);
 
         // Vertical-only edges (top/bottom) are height-led; everything else
         // (left/right + all four corners) is width-led.
         let (new_w, new_h) = if edge == WMSZ_TOP || edge == WMSZ_BOTTOM {
-            let h = cur_h.clamp(min_h.max(1), max_h.max(1));
-            ((h as f64 * c.ratio).round() as i32, h)
+            let vid_h = (cur_h - chrome).clamp(min_vid_h, max_vid_h.max(min_vid_h));
+            ((vid_h as f64 * c.ratio).round() as i32, vid_h + chrome)
         } else {
             let w = cur_w.clamp(c.min_w, max_w);
-            (w, ((w as f64) / c.ratio).round() as i32)
+            (w, (((w as f64) / c.ratio).round() as i32) + chrome)
         };
 
         // Anchor the edge opposite the one under the cursor.
@@ -176,5 +199,12 @@ pub use imp::apply;
 /// No-op on platforms without a native aspect lock — the JS snap-to-aspect
 /// fallback handles resizing there.
 #[cfg(not(windows))]
-pub fn apply(_app: &tauri::AppHandle, _hwnd_raw: isize, _ratio: f64, _max_fraction: f64, _min_w: i32) {
+pub fn apply(
+    _app: &tauri::AppHandle,
+    _hwnd_raw: isize,
+    _ratio: f64,
+    _max_fraction: f64,
+    _min_w: i32,
+    _chrome: i32,
+) {
 }

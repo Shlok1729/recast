@@ -94,10 +94,49 @@
     void loadEngine();
   });
 
+  // `os.version()` returns the raw NT version on Windows — "10.0.26200" —
+  // because Windows 11 still reports kernel 10.0; only the build number
+  // (≥22000) distinguishes 11 from 10. Surface the marketing name + build
+  // instead of the bare NT string so the panel reads "Windows 11 (Build
+  // 26200)" rather than the confusing "10.0.26200".
+  function windowsBuild(v: string): number | null {
+    const m = /^\d+\.\d+\.(\d+)/.exec(v);
+    return m ? Number(m[1]) : null;
+  }
+
+  const osName = $derived.by(() => {
+    if (platform === "windows") {
+      const build = windowsBuild(osVersion);
+      if (build !== null) return build >= 22000 ? "Windows 11" : "Windows 10";
+    }
+    if (platform === "macos" && osVersion) return `macOS ${osVersion}`;
+    return osLabel;
+  });
+
+  // Second fact row: the build (Windows) or raw version (kernel/Darwin
+  // elsewhere). Labeled "Build" on Windows since that's the meaningful number.
+  const osDetail = $derived.by(() => {
+    if (platform === "windows") {
+      const build = windowsBuild(osVersion);
+      return build !== null ? String(build) : osVersion;
+    }
+    return osVersion;
+  });
+
+  // Screen capture is only wired up on Windows today (DXGI Desktop
+  // Duplication); the macOS/Linux capture subsystems aren't shipped yet, so
+  // be honest about that rather than implying every platform records.
+  const capture = $derived.by(() => {
+    if (platform === "") return { ok: false, pending: true, label: "Detecting…" };
+    if (platform === "windows")
+      return { ok: true, pending: false, label: "Supported" };
+    return { ok: false, pending: false, label: `Not yet supported on ${osLabel}` };
+  });
+
   const facts = $derived(
     [
-      { label: "Operating system", value: osLabel },
-      { label: "OS version", value: osVersion },
+      { label: "Operating system", value: osName },
+      { label: platform === "windows" ? "Build" : "Version", value: osDetail },
       { label: "Architecture", value: osArch },
       {
         label: "FFmpeg",
@@ -106,6 +145,22 @@
       },
     ].filter((f) => f.value),
   );
+
+  // Group the probed encoders by codec family ("H.264" / "HEVC") so the
+  // matrix renders a labeled section per codec instead of one flat list.
+  // Order follows first-appearance in the probe result (H.264 then HEVC).
+  const encoderGroups = $derived.by(() => {
+    const groups: { family: string; items: EncoderAvailability[] }[] = [];
+    for (const enc of encoders) {
+      let group = groups.find((g) => g.family === enc.family);
+      if (!group) {
+        group = { family: enc.family, items: [] };
+        groups.push(group);
+      }
+      group.items.push(enc);
+    }
+    return groups;
+  });
 </script>
 
 <div class="flex flex-col gap-3">
@@ -130,6 +185,39 @@
         </div>
       {/each}
     </dl>
+  </div>
+
+  <!-- Capture support — whether this platform's screen-recording path is
+       wired up. Windows-only today (DXGI); honest about the rest. -->
+  <div
+    class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+  >
+    <div class="flex items-center gap-2 border-b border-border/40 px-4 py-2.5">
+      <MonitorPlay class="size-3.5 text-muted-foreground" />
+      <span class="text-[11px] font-semibold text-foreground">
+        Capture support
+      </span>
+    </div>
+    <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+      <dt class="text-[11.5px] text-muted-foreground">Screen capture</dt>
+      <span
+        class={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
+          capture.pending
+            ? "bg-foreground/5 text-muted-foreground/70 ring-1 ring-inset ring-border/40"
+            : capture.ok
+              ? "bg-emerald-500/12 text-emerald-500 ring-1 ring-inset ring-emerald-500/20"
+              : "bg-amber-500/12 text-amber-500 ring-1 ring-inset ring-amber-500/20",
+        )}
+      >
+        {#if capture.ok}
+          <Check class="size-3" />
+        {:else if !capture.pending}
+          <X class="size-3" />
+        {/if}
+        {capture.label}
+      </span>
+    </div>
   </div>
 
   <!-- Hardware acceleration / encoder matrix -->
@@ -168,65 +256,77 @@
         {/each}
       </div>
     {:else}
-      <ul class="divide-y divide-border/30">
-        {#each encoders as enc (enc.name)}
-          <li class="flex items-center justify-between gap-3 px-4 py-2.5">
-            <div class="flex min-w-0 items-center gap-2.5">
-              <div
-                class={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
-                  enc.available
-                    ? "bg-primary/10 text-primary ring-primary/20"
-                    : "bg-foreground/5 text-muted-foreground/60 ring-border/40",
-                )}
-              >
-                {#if enc.hardware}
-                  <Zap class="size-3.5" />
-                {:else}
-                  <Cpu class="size-3.5" />
-                {/if}
-              </div>
-              <div class="min-w-0">
-                <div class="flex items-center gap-1.5">
-                  <span class="truncate text-[12px] font-semibold text-foreground">
-                    {enc.label}
-                  </span>
-                  {#if enc.active}
-                    <span
-                      class="inline-flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary"
-                    >
-                      <Sparkles class="size-2.5" />
-                      In use
-                    </span>
+      {#each encoderGroups as group (group.family)}
+        <div
+          class="flex items-center gap-2 border-b border-border/30 bg-muted/20 px-4 py-1.5"
+        >
+          <span
+            class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/70"
+          >
+            {group.family}
+          </span>
+        </div>
+        <ul class="divide-y divide-border/30">
+          {#each group.items as enc (enc.name)}
+            <li class="flex items-center justify-between gap-3 px-4 py-2.5">
+              <div class="flex min-w-0 items-center gap-2.5">
+                <div
+                  class={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
+                    enc.available
+                      ? "bg-primary/10 text-primary ring-primary/20"
+                      : "bg-foreground/5 text-muted-foreground/60 ring-border/40",
+                  )}
+                >
+                  {#if enc.hardware}
+                    <Zap class="size-3.5" />
+                  {:else}
+                    <Cpu class="size-3.5" />
                   {/if}
                 </div>
-                <div class="truncate font-mono text-[10px] text-muted-foreground">
-                  {enc.name} · {enc.vendor}
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <span class="truncate text-[12px] font-semibold text-foreground">
+                      {enc.label}
+                    </span>
+                    {#if enc.active}
+                      <span
+                        class="inline-flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary"
+                      >
+                        <Sparkles class="size-2.5" />
+                        In use
+                      </span>
+                    {/if}
+                  </div>
+                  <div class="truncate font-mono text-[10px] text-muted-foreground">
+                    {enc.name} · {enc.vendor}
+                  </div>
                 </div>
               </div>
-            </div>
-            <span
-              class={cn(
-                "inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium",
-                enc.available ? "text-emerald-500" : "text-muted-foreground/70",
-              )}
-            >
-              {#if enc.available}
-                <Check class="size-3.5" />
-                Available
-              {:else}
-                <X class="size-3.5" />
-                Unsupported
-              {/if}
-            </span>
-          </li>
-        {/each}
-      </ul>
+              <span
+                class={cn(
+                  "inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium",
+                  enc.available ? "text-emerald-500" : "text-muted-foreground/70",
+                )}
+              >
+                {#if enc.available}
+                  <Check class="size-3.5" />
+                  Available
+                {:else}
+                  <X class="size-3.5" />
+                  Unsupported
+                {/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {/each}
       <p class="border-t border-border/30 px-4 py-2.5 text-[10.5px] leading-relaxed text-muted-foreground/80">
         <Minus class="mr-0.5 inline size-3 -translate-y-px" />
-        Recast records with the highest-priority available encoder. Hardware
-        encoders (GPU) keep capture smooth on weaker CPUs; x264 is the always-on
-        software fallback.
+        Recast records with the highest-priority available H.264 encoder.
+        Hardware encoders (GPU) keep capture smooth on weaker CPUs; x264 is the
+        always-on software fallback. HEVC rows are informational — which HEVC
+        encoders this device exposes.
       </p>
     {/if}
   </div>

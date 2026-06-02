@@ -456,8 +456,14 @@ pub fn exclude_window_from_capture(app: AppHandle, label: String) -> Result<(), 
 /// the camera bubble cycling 1:1 → 16:9) — the constraint updates in place.
 ///
 /// No-op on other platforms; callers there keep the JS snap-to-aspect
-/// fallback. `min_width_px` is in physical pixels (the OS drag rect is too),
-/// so callers pass `logical * devicePixelRatio`.
+/// fallback. `min_width_px` and `chrome_px` are in physical pixels (the OS
+/// drag rect is too), so callers pass `logical * devicePixelRatio`.
+///
+/// `chrome_px` is fixed, non-scaling vertical space reserved at the bottom of
+/// the window for a control bar that sits *outside* the rounded video — the
+/// aspect ratio applies to `height - chrome_px`, so the visible bubble keeps
+/// its shape while the window is that much taller. Pass 0 for a video-only
+/// window.
 #[tauri::command]
 pub fn set_window_aspect_ratio(
     app: AppHandle,
@@ -466,6 +472,7 @@ pub fn set_window_aspect_ratio(
     aspect_height: f64,
     max_screen_fraction: f64,
     min_width_px: f64,
+    chrome_px: f64,
 ) -> Result<(), String> {
     let window = app
         .get_webview_window(&label)
@@ -486,12 +493,13 @@ pub fn set_window_aspect_ratio(
             ratio,
             max_screen_fraction,
             min_width_px.round() as i32,
+            chrome_px.round() as i32,
         );
         Ok(())
     }
     #[cfg(not(windows))]
     {
-        let _ = (window, ratio, max_screen_fraction, min_width_px);
+        let _ = (window, ratio, max_screen_fraction, min_width_px, chrome_px);
         Ok(())
     }
 }

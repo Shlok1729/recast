@@ -135,6 +135,13 @@ pub struct AppConfig {
     pub telemetry_errors: bool,
     #[serde(default)]
     pub install_id: Option<String>,
+    /// Self-hosting override for the Recast Cloud API base URL. `None` (the
+    /// default) means "use the bundled default endpoint". Set by self-hosters
+    /// in Settings → Cloud; validated to an absolute http(s) URL before it's
+    /// stored, and the resolver (`auth::cloud_api_url`) falls back to the
+    /// default if it's ever absent or malformed.
+    #[serde(default)]
+    pub cloud_api_url: Option<String>,
 }
 
 fn default_close_to_tray() -> bool {
@@ -154,6 +161,7 @@ impl Default for AppConfig {
             telemetry_product: false,
             telemetry_errors: true,
             install_id: None,
+            cloud_api_url: None,
         }
     }
 }

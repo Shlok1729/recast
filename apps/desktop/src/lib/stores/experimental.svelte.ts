@@ -10,7 +10,7 @@
  * wiring.
  */
 
-export type ExperimentalFlag = "silenceDetection";
+export type ExperimentalFlag = "silenceDetection" | "selfHosting";
 
 interface FlagMeta {
 	key: ExperimentalFlag;
@@ -25,10 +25,17 @@ export const FLAG_META: FlagMeta[] = [
 		description:
 			"Detect dead air (quiet audio + still cursor) and skip it during playback/export. Hidden when off.",
 	},
+	{
+		key: "selfHosting",
+		label: "Self-hosting server endpoint",
+		description:
+			"Point the app at your own Recast Cloud server. Recast Cloud isn't ready yet, so this is for early self-hosters only — leave off to use the default.",
+	},
 ];
 
 const DEFAULTS: Record<ExperimentalFlag, boolean> = {
 	silenceDetection: false,
+	selfHosting: false,
 };
 
 const STORAGE_KEY = "recast-experimental-flags";

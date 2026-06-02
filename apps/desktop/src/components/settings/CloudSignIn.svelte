@@ -261,6 +261,15 @@
 					toast.error(`Sign-in error: ${event.payload}`);
 					view = { kind: "signed-out" };
 				}),
+				// Self-host endpoint changed (Settings → Cloud → Server endpoint).
+				// The Rust side dropped the old server's token, so re-check status
+				// against the new endpoint — this flips the card back to
+				// signed-out without a full reload.
+				listen("cloud:endpoint-changed", () => {
+					if (view.kind === "waiting") cancelSignIn();
+					view = { kind: "loading" };
+					loadStatus();
+				}),
 			]);
 			// If onDestroy fired while the listens were resolving, we'd leak
 			// these handles forever — call them immediately instead.

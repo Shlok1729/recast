@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { invalidateAll } from "$app/navigation";
 	import * as api from "$lib/dashboard/api";
 	import ArchivedCard, { type ArchivedRecast } from "$lib/dashboard/components/ArchivedCard.svelte";
 	import FolderRail, { type FolderSelection } from "$lib/dashboard/components/FolderRail.svelte";
@@ -10,16 +11,15 @@
 	import { focusOnMount } from "$lib/dashboard/focus";
 	import { formatBytes } from "$lib/dashboard/format";
 	import { foldersStore, tagsStore } from "$lib/dashboard/library.svelte";
-	import { UPLOAD_ACCEPT, uploadRecastFile, type UploadPhase } from "$lib/dashboard/upload";
 	import {
 	  recastsStore,
 	  type Recast,
 	  type RecordingSource,
 	} from "$lib/dashboard/store.svelte";
-	import { invalidateAll } from "$app/navigation";
-	import { Chip } from "@recast/ui/chip";
+	import { UPLOAD_ACCEPT, uploadRecastFile, type UploadPhase } from "$lib/dashboard/upload";
 	import { Archive, Cloud, Film, FolderOpen, HardDrive, Library, LoaderCircle, Plus, Search, Settings2, Upload, Video, X } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
+	import { Chip } from "@recast/ui/chip";
 	import * as Select from "@recast/ui/select";
 	import { toast } from "@recast/ui/sonner";
 	import { untrack } from "svelte";
@@ -260,7 +260,7 @@
 
 	async function copyLink(rec: Recast) {
 		try {
-			await navigator.clipboard.writeText(`https://recast.nexonauts.com/v/${rec.id}`);
+			await navigator.clipboard.writeText(`https://recast.li/share/${rec.id}`);
 			toast.success("Share link copied to clipboard.");
 		} catch {
 			toast.error("Couldn't access the clipboard.");

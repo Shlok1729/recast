@@ -120,6 +120,9 @@ export function diagnoseFfmpeg(): Promise<FfmpegDiagnostics> {
  *
  * @param minWidthPx minimum width in *physical* pixels (the OS drag rect is
  *   physical too) — pass `logicalMin * devicePixelRatio`.
+ * @param chromePx fixed, non-scaling vertical space (physical px) reserved at
+ *   the bottom of the window for a control bar outside the video. The aspect
+ *   applies to `height - chromePx`. Pass 0 for a video-only window.
  */
 export function setWindowAspectRatio(
 	label: string,
@@ -127,6 +130,7 @@ export function setWindowAspectRatio(
 	aspectHeight: number,
 	maxScreenFraction: number,
 	minWidthPx: number,
+	chromePx: number,
 ): Promise<void> {
 	return invoke("set_window_aspect_ratio", {
 		label,
@@ -134,6 +138,7 @@ export function setWindowAspectRatio(
 		aspectHeight,
 		maxScreenFraction,
 		minWidthPx,
+		chromePx,
 	});
 }
 
@@ -638,11 +643,16 @@ export async function openCameraPreviewWindow() {
   }
 
   const previewSize = 320;
+  // The window is the square video bubble plus a control strip below it. Keep
+  // this strip height in sync with `CONTROL_BAR_HEIGHT` in
+  // `routes/camera-preview/+page.svelte` so the window opens at the right size
+  // and doesn't visibly resize itself once the aspect lock kicks in on mount.
+  const CONTROL_BAR_HEIGHT = 40;
   const previewWin = new WebviewWindow("camera-preview", {
     url: "/camera-preview",
     title: "Camera",
     width: previewSize,
-    height: previewSize,
+    height: previewSize + CONTROL_BAR_HEIGHT,
     decorations: false,
     transparent: true,
     shadow: false,
@@ -650,7 +660,7 @@ export async function openCameraPreviewWindow() {
     resizable: true,
     skipTaskbar: true,
     x: Math.round(window.screen.availWidth - previewSize - 40),
-    y: Math.round(window.screen.availHeight - previewSize - 40),
+    y: Math.round(window.screen.availHeight - previewSize - CONTROL_BAR_HEIGHT - 40),
   });
 
   previewWin.once("tauri://error", (e) => console.error(e));
