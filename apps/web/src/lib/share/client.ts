@@ -6,6 +6,8 @@
  * heard of Recast.
  */
 
+import { safeStorage } from "@recast/ui/persisted-state";
+
 const SID_KEY = "recast.share.sid";
 const NAME_KEY = "recast.share.name";
 
@@ -33,26 +35,25 @@ export type Engagement = {
 	myReactions: string[];
 };
 
-/** Stable anonymous fingerprint for this browser. Created lazily. */
+/** Stable anonymous fingerprint for this browser. Created lazily. Returns ""
+ *  during SSR (no window) so the server render stays identity-free. */
 export function shareSessionId(): string {
-	if (typeof localStorage === "undefined") return "";
-	let sid = localStorage.getItem(SID_KEY);
+	if (typeof window === "undefined") return "";
+	let sid = safeStorage.get<string>(SID_KEY, "");
 	if (!sid) {
 		sid = crypto.randomUUID();
-		localStorage.setItem(SID_KEY, sid);
+		safeStorage.set(SID_KEY, sid);
 	}
 	return sid;
 }
 
 export function storedViewerName(): string {
-	if (typeof localStorage === "undefined") return "";
-	return localStorage.getItem(NAME_KEY) ?? "";
+	return safeStorage.get<string>(NAME_KEY, "");
 }
 
 export function rememberViewerName(name: string): void {
-	if (typeof localStorage === "undefined") return;
 	const trimmed = name.trim();
-	if (trimmed) localStorage.setItem(NAME_KEY, trimmed);
+	if (trimmed) safeStorage.set(NAME_KEY, trimmed);
 }
 
 const EMPTY: Engagement = {

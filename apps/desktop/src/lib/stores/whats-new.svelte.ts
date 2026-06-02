@@ -1,22 +1,18 @@
+import { safeStorage } from "@recast/ui/persisted-state";
 import { config } from "$constants/app";
 import { LATEST_RELEASE } from "$constants/changelog";
 
 const STORAGE_KEY = "recast-last-seen-version";
 
-function readSeen(): string | null {
-	try {
-		return localStorage.getItem(STORAGE_KEY);
-	} catch {
-		return null;
-	}
+// Stored as a raw version string (not JSON) — `safeStorage` infers the
+// string serializer from the "" fallback, preserving the existing on-disk
+// format and returning "" (never equal to a real version) when unset.
+function readSeen(): string {
+	return safeStorage.get<string>(STORAGE_KEY, "");
 }
 
 function writeSeen(v: string) {
-	try {
-		localStorage.setItem(STORAGE_KEY, v);
-	} catch {
-		/* localStorage unavailable — silently degrade */
-	}
+	safeStorage.set(STORAGE_KEY, v);
 }
 
 function createWhatsNewStore() {

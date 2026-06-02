@@ -11,6 +11,7 @@
     Cpu,
     Minus,
     MonitorCog,
+    MonitorOff,
     MonitorPlay,
     RefreshCw,
     Sparkles,
@@ -128,10 +129,8 @@
   // Duplication); the macOS/Linux capture subsystems aren't shipped yet, so
   // be honest about that rather than implying every platform records.
   const capture = $derived.by(() => {
-    if (platform === "") return { ok: false, pending: true, label: "Detecting…" };
-    if (platform === "windows")
-      return { ok: true, pending: false, label: "Supported" };
-    return { ok: false, pending: false, label: `Not yet supported on ${osLabel}` };
+    if (platform === "") return { ok: false, pending: true };
+    return { ok: platform === "windows", pending: false };
   });
 
   const facts = $derived(
@@ -206,26 +205,62 @@
         Capture support
       </span>
     </div>
-    <div class="flex items-center justify-between gap-3 px-4 py-2.5">
-      <dt class="text-[11.5px] text-muted-foreground">Screen capture</dt>
-      <span
-        class={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold",
-          capture.pending
-            ? "bg-foreground/5 text-muted-foreground/70 ring-1 ring-inset ring-border/40"
-            : capture.ok
-              ? "bg-emerald-500/12 text-emerald-500 ring-1 ring-inset ring-emerald-500/20"
-              : "bg-amber-500/12 text-amber-500 ring-1 ring-inset ring-amber-500/20",
-        )}
-      >
-        {#if capture.ok}
-          <Check class="size-3" />
-        {:else if !capture.pending}
-          <X class="size-3" />
-        {/if}
-        {capture.label}
-      </span>
-    </div>
+
+    {#if capture.pending}
+      <div class="flex items-center gap-3 px-4 py-3.5">
+        <div class="size-9 shrink-0 animate-pulse rounded-full bg-foreground/5"></div>
+        <div class="flex-1 space-y-1.5">
+          <div class="h-3 w-36 animate-pulse rounded bg-foreground/5"></div>
+          <div class="h-2.5 w-full max-w-60 animate-pulse rounded bg-foreground/5"></div>
+        </div>
+      </div>
+    {:else}
+      <!-- Plain-language verdict: can this machine actually record its screen? -->
+      <div class="flex items-start gap-3 px-4 py-3.5">
+        <div
+          class={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-full ring-1 ring-inset",
+            capture.ok
+              ? "bg-primary/15 text-primary ring-primary/25"
+              : "bg-amber-500/12 text-amber-500 ring-1 ring-amber-500/25",
+          )}
+        >
+          {#if capture.ok}
+            <MonitorPlay class="size-5" />
+          {:else}
+            <MonitorOff class="size-5" />
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span class="text-[13px] font-semibold text-foreground">
+              {capture.ok
+                ? "Screen recording is ready"
+                : "Screen recording isn't available here"}
+            </span>
+            <span
+              class={cn(
+                "inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ring-1 ring-inset",
+                capture.ok
+                  ? "bg-primary/15 text-primary ring-primary/25"
+                  : "bg-amber-500/12 text-amber-500 ring-amber-500/25",
+              )}
+            >
+              {capture.ok ? "Ready" : "Windows only"}
+            </span>
+          </div>
+          <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            {#if capture.ok}
+              Recast can record your whole screen, a single window, or a
+              selected area on this PC.
+            {:else}
+              Screen recording is Windows-only for now — the {osLabel} capture
+              path isn't shipped yet. Editing, sharing, and playback still work.
+            {/if}
+          </p>
+        </div>
+      </div>
+    {/if}
   </div>
 
   <!-- Hardware acceleration / encoder matrix -->

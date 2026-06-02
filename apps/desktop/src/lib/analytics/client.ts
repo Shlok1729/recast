@@ -23,7 +23,9 @@ import { desktopConsent } from "$lib/stores/consent.svelte";
 
 export const analytics: AnalyticsClient = createAnalytics({
 	provider: createPostHogBrowserProvider(),
-	enabled: Boolean(POSTHOG_KEY),
+	// Dev builds never track — only packaged/production output emits analytics,
+	// so `tauri dev` and `vite dev` don't pollute the PostHog project.
+	enabled: !import.meta.env.DEV && Boolean(POSTHOG_KEY),
 	initialConsent: {
 		product: desktopConsent.product,
 		errors: desktopConsent.errors,

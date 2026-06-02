@@ -68,10 +68,17 @@ export function isStorageConfigured(): boolean {
 			return Boolean(
 				env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET,
 			);
-		case "azure":
+		case "azure": {
+			const account = env.AZURE_STORAGE_ACCOUNT ?? "";
+			// A connection string carries its own key, so the separate
+			// AZURE_STORAGE_KEY is only required when `account` is a bare name.
+			const isConnString = /(^|;)\s*AccountName=/i.test(account);
 			return Boolean(
-				env.AZURE_STORAGE_ACCOUNT && env.AZURE_STORAGE_KEY && env.AZURE_BLOB_CONTAINER,
+				account &&
+					env.AZURE_BLOB_CONTAINER &&
+					(isConnString || env.AZURE_STORAGE_KEY),
 			);
+		}
 		case "gcs":
 			return Boolean(env.GCS_BUCKET && env.GCS_SERVICE_ACCOUNT_JSON);
 		default:
@@ -140,11 +147,20 @@ async function buildFiles(): Promise<{
 
 		case "azure": {
 			const { azure } = await import("files-sdk/azure");
+			// Accept either bare credentials (account name + key) OR a full
+			// connection string pasted into AZURE_STORAGE_ACCOUNT — a common
+			// footgun, since the portal hands you the connection string. When
+			// it's a connection string we parse the account name / key out of
+			// it (the separate AZURE_STORAGE_KEY then becomes optional).
+			const { accountName, accountKey } = resolveAzureCredentials(
+				env.AZURE_STORAGE_ACCOUNT!,
+				env.AZURE_STORAGE_KEY,
+			);
 			return {
 				files: new Files({
 					adapter: azure({
-						accountName: env.AZURE_STORAGE_ACCOUNT!,
-						accountKey: env.AZURE_STORAGE_KEY!,
+						accountName,
+						accountKey,
 						container: env.AZURE_BLOB_CONTAINER!,
 					}),
 				}),
@@ -286,6 +302,34 @@ export function publicObjectUrl(key: string): string | null {
 	const base = cached.publicBaseUrl;
 	if (!base) return null;
 	return `${base.replace(/\/$/, "")}/${encodeURI(key)}`;
+}
+
+/**
+ * Resolve Azure credentials from env, tolerating a full connection string
+ * pasted into the "account" slot (the portal hands you a connection string,
+ * not a bare account name — an easy mistake). Returns the account name + key
+ * the adapter needs. For a plain account name, the separate `keyRaw` is used.
+ */
+function resolveAzureCredentials(
+	accountRaw: string,
+	keyRaw: string | undefined,
+): { accountName: string; accountKey: string } {
+	// Connection string: "Key=Value;Key=Value;..." with AccountName= +
+	// AccountKey= pairs. The base64 AccountKey contains "=" but never ";",
+	// so splitting on ";" and the first "=" is safe.
+	if (/(^|;)\s*AccountName=/i.test(accountRaw)) {
+		const parts: Record<string, string> = {};
+		for (const seg of accountRaw.split(";")) {
+			const eq = seg.indexOf("=");
+			if (eq <= 0) continue;
+			parts[seg.slice(0, eq).trim().toLowerCase()] = seg.slice(eq + 1).trim();
+		}
+		return {
+			accountName: parts.accountname ?? accountRaw,
+			accountKey: parts.accountkey ?? keyRaw ?? "",
+		};
+	}
+	return { accountName: accountRaw, accountKey: keyRaw ?? "" };
 }
 
 function isNotFoundError(err: unknown): boolean {

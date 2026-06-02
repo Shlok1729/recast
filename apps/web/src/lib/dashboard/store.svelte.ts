@@ -1,4 +1,4 @@
-import { browser } from "$app/environment";
+import { safeStorage } from "@recast/ui/persisted-state";
 
 /**
  * Dashboard data layer.
@@ -59,16 +59,6 @@ function seedRecordings(): Recast[] {
 	].map((r) => ({ folderId: null, tags: [] as string[], ...r })) as Recast[];
 }
 
-function readJSON<T>(key: string, fallback: T): T {
-	if (!browser) return fallback;
-	try {
-		const raw = localStorage.getItem(key);
-		return raw ? (JSON.parse(raw) as T) : fallback;
-	} catch {
-		return fallback;
-	}
-}
-
 /** Blob URLs don't survive a reload — fall back to sample media so the
  *  recording stays playable rather than becoming a dead entry. */
 function reconcile(r: Recast): Recast {
@@ -83,7 +73,7 @@ class RecordingsStore {
 	hydrated = $state(false);
 
 	constructor() {
-		const stored = readJSON<Recast[] | null>(REC_KEY, null);
+		const stored = safeStorage.get<Recast[] | null>(REC_KEY, null);
 		// Until `hydrate()` is called we show the last cached server list,
 		// or — if we've never seen one — the dummy seed so the design
 		// surface stays explorable on logged-out previews.
@@ -102,7 +92,7 @@ class RecordingsStore {
 	}
 
 	private persist() {
-		if (browser) localStorage.setItem(REC_KEY, JSON.stringify(this.items));
+		safeStorage.set(REC_KEY, this.items);
 	}
 
 	get usedBytes(): number {
@@ -220,7 +210,7 @@ class SettingsStore {
 	value = $state<DashboardSettings>(defaultSettings);
 
 	constructor() {
-		const s = readJSON<Partial<DashboardSettings>>(SET_KEY, {});
+		const s = safeStorage.get<Partial<DashboardSettings>>(SET_KEY, {});
 		this.value = {
 			profile: { ...defaultSettings.profile, ...s.profile },
 			cloudinary: { ...defaultSettings.cloudinary, ...s.cloudinary },
@@ -229,7 +219,7 @@ class SettingsStore {
 	}
 
 	save() {
-		if (browser) localStorage.setItem(SET_KEY, JSON.stringify(this.value));
+		safeStorage.set(SET_KEY, this.value);
 	}
 
 	get initials(): string {

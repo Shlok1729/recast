@@ -7,12 +7,14 @@
  *   - `errors`  (crash / error reporting):          ON  — default opt-in, with
  *     an explicit toggle to turn it off.
  *
- * Clones the `experimental.svelte.ts` pattern: a localStorage-backed `$state`
- * rune with cross-window `storage` sync (Tauri v2 webviews share a localStorage
- * origin, so flipping a toggle in the settings window reaches open editor
- * windows without a reload).
+ * Backed by the shared `PersistedState` primitive (`@recast/ui/persisted-state`)
+ * for localStorage persistence + cross-window `storage` sync (Tauri v2 webviews
+ * share a localStorage origin, so flipping a toggle in the settings window
+ * reaches open editor windows without a reload), with the Rust mirror layered
+ * on top in the setters.
  */
 
+import { PersistedState, safeStorage } from "@recast/ui/persisted-state";
 import { getInstallId } from "$lib/analytics/identity";
 
 export interface DesktopConsent {
@@ -25,28 +27,13 @@ const DEFAULTS: DesktopConsent = { product: false, errors: true };
 const STORAGE_KEY = "recast-telemetry-consent";
 const SEEN_KEY = "recast-consent-seen";
 
-function load(): DesktopConsent {
-	if (typeof localStorage === "undefined") return { ...DEFAULTS };
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return { ...DEFAULTS };
-		const parsed = JSON.parse(raw) as Partial<DesktopConsent>;
-		return { ...DEFAULTS, ...parsed };
-	} catch {
-		return { ...DEFAULTS };
-	}
-}
-
-function persist(consent: DesktopConsent) {
-	if (typeof localStorage !== "undefined") {
-		try {
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(consent));
-		} catch {
-			// Quota / private mode — best effort.
-		}
-	}
-	// Mirror into Rust so the panic hook / error reporter can read `errors`
-	// and attribute crashes to the same anonymous install id as JS events.
+/**
+ * Mirror consent into Rust so the panic hook / error reporter can read
+ * `errors` and attribute crashes to the same anonymous install id as JS
+ * events. Called on every explicit toggle (not on cross-window re-reads — the
+ * window that made the change already mirrored it to the shared backend).
+ */
+function mirrorToRust(consent: DesktopConsent) {
 	void import("@tauri-apps/api/core")
 		.then(({ invoke }) =>
 			invoke("set_telemetry_consent", {
@@ -61,42 +48,36 @@ function persist(consent: DesktopConsent) {
 }
 
 function createConsentStore() {
-	let consent = $state<DesktopConsent>(load());
-
-	if (typeof window !== "undefined") {
-		window.addEventListener("storage", (e) => {
-			if (e.key !== STORAGE_KEY) return;
-			consent = load();
-		});
-	}
+	// localStorage-backed reactive consent with cross-window `storage` sync:
+	// flipping a toggle in the settings window reaches open editor windows
+	// without a reload. The JSON value is merged over DEFAULTS, so a consent
+	// key added in a future build keeps its default for existing users.
+	const consent = new PersistedState<DesktopConsent>(STORAGE_KEY, DEFAULTS);
 
 	return {
 		get product() {
-			return consent.product;
+			return consent.current.product;
 		},
 		get errors() {
-			return consent.errors;
+			return consent.current.errors;
 		},
 		/** Has the first-run privacy moment been shown + dismissed yet? */
 		get hasSeenFirstRun() {
-			if (typeof localStorage === "undefined") return true;
-			return localStorage.getItem(SEEN_KEY) === "1";
+			// During SSR / no-window previews, treat as seen so the prompt never
+			// flashes before storage is readable.
+			if (typeof window === "undefined") return true;
+			return safeStorage.get<string>(SEEN_KEY, "") === "1";
 		},
 		markFirstRunSeen() {
-			if (typeof localStorage === "undefined") return;
-			try {
-				localStorage.setItem(SEEN_KEY, "1");
-			} catch {
-				/* best effort */
-			}
+			safeStorage.set(SEEN_KEY, "1");
 		},
 		setProduct(value: boolean) {
-			consent = { ...consent, product: value };
-			persist(consent);
+			consent.current = { ...consent.current, product: value };
+			mirrorToRust(consent.current);
 		},
 		setErrors(value: boolean) {
-			consent = { ...consent, errors: value };
-			persist(consent);
+			consent.current = { ...consent.current, errors: value };
+			mirrorToRust(consent.current);
 		},
 	};
 }

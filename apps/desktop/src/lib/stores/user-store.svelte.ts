@@ -1,3 +1,4 @@
+import { safeStorage } from "@recast/ui/persisted-state";
 
 export type User = {
     // --- Identification & Telemetry ---
@@ -24,12 +25,13 @@ export type User = {
 
 export function createUserStore() {
     // Attempt to load an existing install ID to track returning anonymous users,
-    // or generate a new persistent one.
-    const storedInstallId = typeof localStorage !== 'undefined' ? localStorage.getItem('trace_install_id') : null;
+    // or generate a new persistent one. Shares the `trace_install_id` key with
+    // `analytics/identity` and the Rust crash reporter.
+    const storedInstallId = safeStorage.get<string>('trace_install_id', '');
     const installId = storedInstallId || crypto.randomUUID();
-    
-    if (typeof localStorage !== 'undefined' && !storedInstallId) {
-        localStorage.setItem('trace_install_id', installId);
+
+    if (!storedInstallId) {
+        safeStorage.set('trace_install_id', installId);
     }
 
     let user = $state<User>({

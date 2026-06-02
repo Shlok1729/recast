@@ -7,18 +7,19 @@
  * Standalone module (no analytics/posthog imports) so both the consent store and
  * the analytics client can read it without an import cycle.
  */
+import { safeStorage } from "@recast/ui/persisted-state";
+
 const INSTALL_ID_KEY = "trace_install_id";
 
 export function getInstallId(): string {
-	if (typeof localStorage === "undefined") return "anonymous-desktop";
-	let id = localStorage.getItem(INSTALL_ID_KEY);
+	// Keep the explicit sentinel for the truly storage-less case so the crash
+	// reporter still has a stable id during prerender / no-window contexts.
+	if (typeof window === "undefined") return "anonymous-desktop";
+	let id = safeStorage.get<string>(INSTALL_ID_KEY, "");
 	if (!id) {
 		id = crypto.randomUUID();
-		try {
-			localStorage.setItem(INSTALL_ID_KEY, id);
-		} catch {
-			// private mode / quota — fall back to the ephemeral id for this run.
-		}
+		// Best-effort persist; on quota/private-mode the ephemeral id is used.
+		safeStorage.set(INSTALL_ID_KEY, id);
 	}
 	return id;
 }

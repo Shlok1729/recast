@@ -3,6 +3,8 @@
 // follows them, not the file. Synced to localStorage on every commit so
 // restarts preserve the list. Capped to 12 entries.
 
+import { safeStorage } from "@recast/ui/persisted-state";
+
 const STORAGE_KEY = "recast.annotations.recentColors";
 const MAX = 12;
 
@@ -10,30 +12,16 @@ let cache: string[] | null = null;
 
 function read(): string[] {
 	if (cache) return cache;
-	if (typeof localStorage === "undefined") {
-		cache = [];
-		return cache;
-	}
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		const parsed = raw ? JSON.parse(raw) : [];
-		cache = Array.isArray(parsed)
-			? parsed.filter((c) => typeof c === "string").slice(0, MAX)
-			: [];
-	} catch {
-		cache = [];
-	}
+	// `safeStorage` handles missing key, no-window, malformed JSON, and the
+	// array-shape guard; we still string-filter + cap defensively.
+	const parsed = safeStorage.get<string[]>(STORAGE_KEY, []);
+	cache = parsed.filter((c) => typeof c === "string").slice(0, MAX);
 	return cache;
 }
 
 function write(next: string[]) {
 	cache = next;
-	if (typeof localStorage === "undefined") return;
-	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-	} catch {
-		// Ignore quota errors — recents are best-effort.
-	}
+	safeStorage.set(STORAGE_KEY, next);
 }
 
 export function getRecentColors(): string[] {
