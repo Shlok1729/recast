@@ -98,7 +98,7 @@
     class="flex items-center justify-between border-b border-border-subtle px-4 h-10 shrink-0"
     data-tauri-drag-region
   >
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2" data-tauri-drag-region>
       <SlidersIcon size={11} class="text-muted-foreground" />
       <span
         class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
@@ -199,16 +199,14 @@
               <kbd
                 class={cn(
                   "rounded border border-border/40 px-1 text-[9.5px] font-mono",
-                  active ? "bg-card text-foreground" : "bg-muted/40 text-muted-foreground",
-                )}
-              >⌘{i + 1}</kbd>
+                  active
+                    ? "bg-card text-foreground"
+                    : "bg-muted/40 text-muted-foreground",
+                )}>⌘{i + 1}</kbd
+              >
             {/if}
             {#if profile.id === initialSelected}
-              <Check
-                size={12}
-                strokeWidth={3}
-                class="shrink-0 text-primary"
-              />
+              <Check size={12} strokeWidth={3} class="shrink-0 text-primary" />
             {/if}
           </button>
         {/each}
@@ -218,6 +216,7 @@
 
   <!-- Footer hint -->
   <footer
+    data-tauri-drag-region
     class="flex items-center justify-between border-t border-border-subtle bg-card/50 px-3 h-9 shrink-0"
   >
     <span class="text-[10px] font-medium text-muted-foreground/80">

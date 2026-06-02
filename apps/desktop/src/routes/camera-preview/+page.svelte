@@ -56,9 +56,13 @@
   // that size. 25% of either axis is comfortably visible without dominating
   // the frame.
   const MAX_SCREEN_FRACTION = 0.25;
-  // Floor: small enough to tuck into a corner, large enough that the live
-  // feed remains intelligible. ~120 logical px ≈ a thumbnail.
-  const MIN_LOGICAL_SIZE = 120;
+  // Floor on the video width. Small enough to tuck into a corner, but bounded
+  // below by the control bar: the window width equals the video width, and the
+  // controls pill (aspect chip + shape + mirror + close, widest at the "16:9"
+  // label) is ~150px wide. Going narrower than that clipped the centered pill
+  // on both sides, so we floor at a width that always fits it.
+  const CONTROL_BAR_MIN_WIDTH = 168;
+  const MIN_LOGICAL_SIZE = CONTROL_BAR_MIN_WIDTH;
 
   // Fixed-height strip reserved at the *bottom* of the window for the control
   // bar. The bar lives outside the rounded/overflow-hidden video bubble so it

@@ -26,6 +26,7 @@
     SlidersHorizontal as SlidersIcon,
     Sparkles,
     Sun,
+    Timer,
     Video,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
@@ -48,6 +49,10 @@
 
   type Theme = "light" | "dark" | "system";
   type EditorBehavior = "navigate" | "new-window";
+  type CountdownSeconds = 0 | 3 | 5 | 10;
+  // localStorage key shared with the recording panel (panel/+page.svelte),
+  // which reads it to decide how long to count down before capture starts.
+  const COUNTDOWN_KEY = "recast-recording-countdown";
   type SettingsTab =
     | "general"
     | "recording"
@@ -58,6 +63,7 @@
   let outputDir = $state("");
   let currentTheme = $state<Theme>("system");
   let editorWindow = $state<EditorBehavior>("navigate");
+  let countdown = $state<CountdownSeconds>(3);
   let closeToTray = $state(true);
   // Land on Recording — the daily-use panel (output directory, profiles,
   // editor behavior) — rather than the leftmost General tab, matching how
@@ -75,6 +81,11 @@
       "recast-editor-window",
     ) as EditorBehavior | null;
     if (storedEditor) editorWindow = storedEditor;
+    const storedCountdown = localStorage.getItem(COUNTDOWN_KEY);
+    if (storedCountdown !== null) {
+      const n = Number.parseInt(storedCountdown, 10);
+      if (n === 0 || n === 3 || n === 5 || n === 10) countdown = n;
+    }
   });
 
   function toggleProfilesEnabled() {
@@ -142,6 +153,18 @@
     editorWindow = value;
     localStorage.setItem("recast-editor-window", value);
   }
+
+  function updateCountdown(value: CountdownSeconds) {
+    countdown = value;
+    localStorage.setItem(COUNTDOWN_KEY, String(value));
+  }
+
+  const countdownOptions: { value: CountdownSeconds; label: string }[] = [
+    { value: 0, label: "Off" },
+    { value: 3, label: "3s" },
+    { value: 5, label: "5s" },
+    { value: 10, label: "10s" },
+  ];
 
   async function pickDirectory() {
     const { open } = await import("@tauri-apps/plugin-dialog");
@@ -295,6 +318,63 @@
                         <FolderOpen class="size-3.5" />
                         Change
                       </Button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Countdown before recording. Read by the recording panel
+                   (panel/+page.svelte) via the shared COUNTDOWN_KEY localStorage
+                   entry. Recording profiles can override it per-profile for
+                   quick access. -->
+              <section id="settings-countdown" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <Timer class="size-3 text-primary" />
+                    Countdown
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    Wait a beat before capture starts — time to switch windows.
+                  </p>
+                </div>
+                <div
+                  class="rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Countdown before recording
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {countdown === 0
+                          ? "Recording starts immediately."
+                          : `A ${countdown}-second countdown shows in the panel first.`}
+                      </div>
+                    </div>
+                    <div
+                      class="flex items-center gap-1 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+                      role="radiogroup"
+                      aria-label="Countdown before recording"
+                    >
+                      {#each countdownOptions as o (o.value)}
+                        {@const active = countdown === o.value}
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onclick={() => updateCountdown(o.value)}
+                          class={cn(
+                            "flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold tabular-nums transition-all duration-200",
+                            active
+                              ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      {/each}
                     </div>
                   </div>
                 </div>

@@ -54,8 +54,9 @@
   import { emit, listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
+  import { fade } from "svelte/transition";
 
   // The panel window is too small to host its own Sonner Toaster; the
   // main window's layout listens for `ui:toast` events and renders
@@ -88,6 +89,33 @@
   let isRecording = $state(false);
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
+
+  // Countdown-before-recording. `countdownSeconds` is the user's setting
+  // (Settings → Recording, or a profile override), mirrored from localStorage.
+  // `countdownValue` is the live tick — non-null only while counting down, so
+  // it drives the transient "countdown" panel phase between the Record click
+  // and the real capture start.
+  const COUNTDOWN_KEY = "recast-recording-countdown";
+  let countdownSeconds = $state(3);
+  let countdownValue = $state<number | null>(null);
+  let countdownInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Panel window dimensions. Idle shows the full control set (matches the
+  // launch size in ipc.ts); while recording we collapse to just
+  // Stop+timer / Pause / Close and shrink the window to fit so the rest of
+  // the bar isn't an invisible click-catcher over the desktop.
+  const PANEL_W_IDLE = 520;
+  const PANEL_W_RECORDING = 224;
+  const PANEL_H = 72;
+  // Monotonic token so a newer width animation cancels any in-flight one.
+  let widthAnimToken = 0;
+
+  // Three visual phases. `idle` = full controls; `countdown` = big number +
+  // cancel; `recording` = collapsed transport. Derived so the markup can
+  // switch on a single value.
+  const phase = $derived<"idle" | "countdown" | "recording">(
+    isRecording ? "recording" : countdownValue !== null ? "countdown" : "idle",
+  );
 
   // Mirror the recording flag to the system tray so its "Start/Stop
   // Recording" label and any tray-driven UX stays accurate. Best-effort:
@@ -196,6 +224,15 @@
     const timer = window.setInterval(() => {
       if (isRecording) now = Date.now();
     }, 1000);
+
+    // Countdown setting, mirrored from localStorage. Re-read on `storage`
+    // events so changing it in the Settings window updates the panel live
+    // (Tauri webviews share a localStorage origin), without a relaunch.
+    readCountdownSetting();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === COUNTDOWN_KEY) readCountdownSetting();
+    };
+    window.addEventListener("storage", onStorage);
 
     const unlistenSource = listen<TargetSource>("source-selected", (event) => {
       selectedSource = event.payload;
@@ -320,6 +357,8 @@
     return () => {
       window.clearInterval(timer);
       if (profileFlashTimer) clearTimeout(profileFlashTimer);
+      clearCountdown();
+      window.removeEventListener("storage", onStorage);
       unlistenSource.then((fn) => fn());
       unlistenDevice.then((fn) => fn());
       unlistenProfile.then((fn) => fn());
@@ -440,6 +479,14 @@
   }
 
   function handleGlobalShortcut(e: KeyboardEvent) {
+    // Esc aborts an in-progress countdown.
+    if (countdownValue !== null) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelCountdown();
+      }
+      return;
+    }
     if (isRecording) return;
     const meta = e.metaKey || e.ctrlKey;
     if (!meta || e.shiftKey || e.altKey) return;
@@ -574,71 +621,176 @@
     }
   }
 
-  async function toggleRecording() {
-    if (isRecording) {
-      try {
-        await stopRecording();
-      } catch (e) {
-        // Show the actual error, not a misleading "ffmpeg not installed"
-        // suffix. By the time stop runs, start has already succeeded —
-        // FFmpeg was available, so a stop failure is something else
-        // (encoder thread panic, disk full, codec mismatch in the
-        // bundled binary, etc.). Misattributing to FFmpeg sent users
-        // chasing missing-binary red herrings on bundles where FFmpeg
-        // was actually present.
-        notify("error", `Stop failed: ${e}`, 10000);
-      } finally {
-        // ALWAYS reset client-side state, even on stop failure. The Rust
-        // `RecordingManager::stop()` does `guard.take()` as its first
-        // operation — once that succeeds, the session is gone from the
-        // manager regardless of what later fails. Leaving `isRecording`
-        // stuck at `true` traps the user into clicking Stop again, which
-        // then errors with "recording is not running" because the session
-        // is already gone. Resetting here lets the user start a new
-        // recording immediately.
-        isRecording = false;
-        recordingStartTime = null;
-        isPaused = false;
-        pausedAccumMs = 0;
-        pausedSince = null;
-        emit("camera-recording-stopped");
-        emit("refresh-recordings");
+  function readCountdownSetting() {
+    try {
+      const raw = localStorage.getItem(COUNTDOWN_KEY);
+      const n = raw !== null ? Number.parseInt(raw, 10) : 3;
+      countdownSeconds = n === 0 || n === 3 || n === 5 || n === 10 ? n : 3;
+    } catch {
+      countdownSeconds = 3;
+    }
+  }
+
+  function clearCountdown() {
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+    }
+    countdownValue = null;
+  }
+
+  function cancelCountdown() {
+    clearCountdown();
+  }
+
+  /**
+   * Start path for the Record button. With a countdown configured, tick it
+   * down in the panel first (cancelable via Esc or the Cancel button), then
+   * fire the real capture. With countdown off, start immediately.
+   */
+  function beginRecording() {
+    if (!selectedSource || isRecording || countdownValue !== null) return;
+    if (countdownSeconds <= 0) {
+      void startActualRecording();
+      return;
+    }
+    countdownValue = countdownSeconds;
+    countdownInterval = setInterval(() => {
+      if (countdownValue === null) return;
+      countdownValue -= 1;
+      if (countdownValue <= 0) {
+        clearCountdown();
+        void startActualRecording();
       }
-    } else {
-      if (!selectedSource) return;
-      const options: RecordingOptions = {
-        systemAudio: systemAudioOn,
-        microphone: micOn,
-        microphoneDeviceId: micOn ? selectedMicId : null,
-        camera: cameraOn,
-        // Rust feeds this directly to FFmpeg dshow as a DirectShow friendly
-        // name — pass the label, not the browser deviceId hash.
-        cameraDeviceId: cameraOn ? selectedCameraName : null,
+    }, 1000);
+  }
+
+  /**
+   * Animate the panel window's width to `to` (logical px) with an eased rAF
+   * tween. Shrinks from the right (top-left origin fixed) so the collapsed
+   * controls — which are left-packed during recording — stay put while the
+   * empty space folds away. Honors prefers-reduced-motion by snapping.
+   */
+  async function animatePanelWidth(to: number) {
+    const win = getCurrentWindow();
+    const token = ++widthAnimToken;
+
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      await win.setSize(new LogicalSize(to, PANEL_H)).catch(() => {});
+      return;
+    }
+
+    let from = to;
+    try {
+      const [size, factor] = await Promise.all([
+        win.innerSize(),
+        win.scaleFactor(),
+      ]);
+      from = size.width / factor;
+    } catch {
+      /* fall back to a snap if we can't read the current size */
+    }
+    if (token !== widthAnimToken) return;
+    if (Math.round(from) === Math.round(to)) return;
+
+    const duration = 300;
+    const start = performance.now();
+    await new Promise<void>((resolve) => {
+      const frame = (t: number) => {
+        if (token !== widthAnimToken) return resolve();
+        const p = Math.min(1, (t - start) / duration);
+        const eased = 1 - Math.pow(1 - p, 3); // cubicOut, matches morph.ts
+        const w = Math.round(from + (to - from) * eased);
+        win.setSize(new LogicalSize(w, PANEL_H)).catch(() => {});
+        if (p < 1) requestAnimationFrame(frame);
+        else resolve();
       };
-      try {
-        const result = await startRecording(
-          selectedSource.type,
-          selectedSource.id,
-          options,
-          selectedSource.type === "region" && selectedSource.region
-            ? selectedSource.region
-            : null,
-        );
-        isRecording = true;
-        now = Date.now();
-        recordingStartTime = now;
-        isPaused = false;
-        pausedAccumMs = 0;
-        pausedSince = null;
-        if (cameraOn) {
-          emit("camera-recording-started", { startedAtUnixMs: now });
-        }
-        if (result.warnings.length > 0) {
-          notify("warning", result.warnings.join("\n"), 8000);
-        }
-      } catch (e) {
-        notify("error", `Recording failed: ${e}`, 10000);
+      requestAnimationFrame(frame);
+    });
+  }
+
+  async function toggleRecording() {
+    // While counting down, the Record button isn't shown — but a tray toggle
+    // or shortcut could still land here; treat it as "cancel the countdown".
+    if (countdownValue !== null) {
+      cancelCountdown();
+      return;
+    }
+    if (!isRecording) {
+      beginRecording();
+      return;
+    }
+    try {
+      await stopRecording();
+    } catch (e) {
+      // Show the actual error, not a misleading "ffmpeg not installed"
+      // suffix. By the time stop runs, start has already succeeded —
+      // FFmpeg was available, so a stop failure is something else
+      // (encoder thread panic, disk full, codec mismatch in the
+      // bundled binary, etc.). Misattributing to FFmpeg sent users
+      // chasing missing-binary red herrings on bundles where FFmpeg
+      // was actually present.
+      notify("error", `Stop failed: ${e}`, 10000);
+    } finally {
+      // ALWAYS reset client-side state, even on stop failure. The Rust
+      // `RecordingManager::stop()` does `guard.take()` as its first
+      // operation — once that succeeds, the session is gone from the
+      // manager regardless of what later fails. Leaving `isRecording`
+      // stuck at `true` traps the user into clicking Stop again, which
+      // then errors with "recording is not running" because the session
+      // is already gone. Resetting here lets the user start a new
+      // recording immediately.
+      isRecording = false;
+      recordingStartTime = null;
+      isPaused = false;
+      pausedAccumMs = 0;
+      pausedSince = null;
+      emit("camera-recording-stopped");
+      emit("refresh-recordings");
+      // Expand the panel back to its full control set.
+      void animatePanelWidth(PANEL_W_IDLE);
+    }
+  }
+
+  async function startActualRecording() {
+    if (!selectedSource) return;
+    const options: RecordingOptions = {
+      systemAudio: systemAudioOn,
+      microphone: micOn,
+      microphoneDeviceId: micOn ? selectedMicId : null,
+      camera: cameraOn,
+      // Rust feeds this directly to FFmpeg dshow as a DirectShow friendly
+      // name — pass the label, not the browser deviceId hash.
+      cameraDeviceId: cameraOn ? selectedCameraName : null,
+    };
+    try {
+      const result = await startRecording(
+        selectedSource.type,
+        selectedSource.id,
+        options,
+        selectedSource.type === "region" && selectedSource.region
+          ? selectedSource.region
+          : null,
+      );
+      isRecording = true;
+      now = Date.now();
+      recordingStartTime = now;
+      isPaused = false;
+      pausedAccumMs = 0;
+      pausedSince = null;
+      // Collapse the panel to the compact recording transport.
+      void animatePanelWidth(PANEL_W_RECORDING);
+      if (cameraOn) {
+        emit("camera-recording-started", { startedAtUnixMs: now });
       }
+      if (result.warnings.length > 0) {
+        notify("warning", result.warnings.join("\n"), 8000);
+      }
+    } catch (e) {
+      notify("error", `Recording failed: ${e}`, 10000);
     }
   }
 
@@ -754,6 +906,42 @@
     <GripVertical size={12} strokeWidth={2} class="pointer-events-none" />
   </div>
 
+  {#if phase === "countdown"}
+    <!-- Countdown phase: big ticking number + Cancel, in place of the full
+         control set. The panel stays full-width here; it only collapses once
+         capture actually starts. Esc also cancels (see handleGlobalShortcut). -->
+    <div
+      class="flex w-full items-center gap-2.5 pr-1"
+      data-tauri-drag-region
+      in:fade={{ duration: 120 }}
+    >
+      <div
+        class="relative flex size-7 shrink-0 items-center justify-center"
+        aria-live="assertive"
+      >
+        <span class="absolute inset-0 rounded-full ring-2 ring-primary/25"></span>
+        <span
+          class="font-mono text-[15px] font-bold leading-none tabular-nums text-primary"
+        >
+          {countdownValue}
+        </span>
+      </div>
+      <span class="text-[12px] font-semibold tracking-tight text-foreground/80">
+        Starting in {countdownValue}s…
+      </span>
+      <Button
+        onclick={cancelCountdown}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        size="sm"
+        variant="ghost"
+        class="ml-auto h-7 gap-1.5"
+        title="Cancel (Esc)"
+      >
+        <X size={12} strokeWidth={2.5} class="text-destructive" />
+        <span class="text-[11px] font-semibold">Cancel</span>
+      </Button>
+    </div>
+  {:else}
   <ButtonGroup>
     <!-- Record / Stop -->
     <Button
@@ -803,7 +991,9 @@
     {/if}
   </ButtonGroup>
 
-  <!-- Source -->
+  <!-- Source. Hidden once recording starts — the source is locked in, so the
+       selector just takes space; dropping it is part of the collapse. -->
+  {#if !isRecording}
   <Button
     size="sm"
     disabled={isRecording}
@@ -811,6 +1001,7 @@
     onmousedown={(e: MouseEvent) => e.stopPropagation()}
     variant="ghost"
     class="group/source hover:scale-none"
+    out:fade={{ duration: 120 }}
   >
     {#if selectedSource?.type === "window"}
       <AppWindow
@@ -844,8 +1035,18 @@
       />
     {/if}
   </Button>
+  {/if}
 
-  <div class="shrink-0 px-1 ml-auto inline-flex items-center gap-1">
+  <!-- Right cluster. While recording, the profile switcher and device toggles
+       are hidden and `ml-auto` is dropped so the remaining Close button packs
+       in tight next to the transport — the panel collapses to just the
+       essentials. -->
+  <div
+    class="shrink-0 px-1 inline-flex items-center gap-1"
+    class:ml-auto={!isRecording}
+  >
+    {#if !isRecording}
+    <div class="inline-flex items-center gap-1" out:fade={{ duration: 120 }}>
     <!-- Profile switcher button. Opens a separate Tauri window (like the
          device-pickers) instead of a popover — the panel window is too
          short to host an in-place dropdown without changing its height,
@@ -940,6 +1141,8 @@
         {/if}
       </Button>
     </ButtonGroup>
+    </div>
+    {/if}
     <!-- Close -->
     <Button
       onclick={closePanel}
@@ -951,5 +1154,6 @@
       <X size={10} strokeWidth={2} class="shrink-0 text-destructive" />
     </Button>
   </div>
+  {/if}
 </div>
 </div>
