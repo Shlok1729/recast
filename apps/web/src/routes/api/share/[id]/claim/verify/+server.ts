@@ -4,6 +4,7 @@ import { dev } from "$app/environment";
 import { getDb } from "$lib/db";
 import { share, shareMember } from "$lib/db/schema";
 import {
+	constantTimeEquals,
 	grantCookieName,
 	grantCookieValue,
 	grantToken,
@@ -31,8 +32,9 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	if (!email || !token) redirect(303, `${sharePath}?claim=invalid`);
 
 	const expected = await grantToken(slug, email);
-	// Length-equal compare; tokens are fixed-length hex so this is fine.
-	if (token.length !== expected.length || token !== expected) {
+	// Constant-time compare — this validates an HMAC-derived capability token,
+	// so avoid leaking a timing side-channel on the prefix match.
+	if (!constantTimeEquals(token, expected)) {
 		redirect(303, `${sharePath}?claim=invalid`);
 	}
 

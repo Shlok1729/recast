@@ -70,13 +70,16 @@ export function isStorageConfigured(): boolean {
 			);
 		case "azure": {
 			const account = env.AZURE_STORAGE_ACCOUNT ?? "";
-			// A connection string carries its own key, so the separate
-			// AZURE_STORAGE_KEY is only required when `account` is a bare name.
-			const isConnString = /(^|;)\s*AccountName=/i.test(account);
+			// A connection string is only self-sufficient when it carries BOTH
+			// AccountName= and AccountKey=. A SAS-based string has AccountName=
+			// but no key, so it still needs the separate AZURE_STORAGE_KEY —
+			// otherwise we'd report "configured" and then auth with an empty key.
+			const hasInlineKey =
+				/(^|;)\s*AccountName=/i.test(account) && /(^|;)\s*AccountKey=/i.test(account);
 			return Boolean(
 				account &&
 					env.AZURE_BLOB_CONTAINER &&
-					(isConnString || env.AZURE_STORAGE_KEY),
+					(hasInlineKey || env.AZURE_STORAGE_KEY),
 			);
 		}
 		case "gcs":

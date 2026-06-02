@@ -55,11 +55,7 @@
   import { emit, listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-  import {
-    getCurrentWindow,
-    LogicalPosition,
-    LogicalSize,
-  } from "@tauri-apps/api/window";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import { Tween } from "svelte/motion";
   import { cubicOut } from "svelte/easing";
@@ -115,25 +111,23 @@
   // the *measured* natural width of its content (the same morph technique as
   // ExportFlowDialog) — buttery, rAF-driven, and consistent with the rest of
   // the app's motion. The content declares its own size via `w-fit`; the bar
-  // just follows. The Tauri window is then snapped once to hug the bar so the
-  // desktop behind isn't left with an invisible click-catcher. Idle width
-  // matches the launch size in ipc.ts.
-  const PANEL_W_IDLE = 520;
-  const PANEL_H = 72;
-  const WRAPPER_PAD = 32; // outer px-4 → 16px each side
-  const BAR_W_IDLE = PANEL_W_IDLE - WRAPPER_PAD; // 488
+  // just follows.
+  //
+  // Crucially, the Tauri window is left at its fixed launch size (520×72, sized
+  // in ipc.ts to hug the full idle bar with room for the drop shadow) and is
+  // NOT resized per phase. A centered, always-on-top window can't be resized
+  // and repositioned in a single atomic frame, so snapping it mid-morph made
+  // the bar visibly drift sideways. Instead the bar just morphs *centered
+  // inside the fixed window* — the transparent margins on either side double as
+  // a drag region. This mirrors ExportFlowDialog, which morphs a DOM element
+  // within a fixed viewport and never touches the window.
+  const BAR_W_IDLE = 488;
 
   let barContentEl = $state<HTMLElement | null>(null);
   let measuredBarW = $state(BAR_W_IDLE);
-  const barWidth = new Tween(BAR_W_IDLE, { duration: 320, easing: cubicOut });
+  const barWidth = new Tween(BAR_W_IDLE, { duration: 340, easing: cubicOut });
   // Snap the very first measurement instead of animating from the seed value.
   let barFirstMeasure = true;
-  // The window always hugs the bar (bar width + shadow padding). We grow the
-  // window immediately when the bar is about to expand (so it has room) and
-  // shrink it only after the bar tween settles (so it never clips). This
-  // tracks the last size we applied, and the timer defers the shrink.
-  let lastSyncedWin = PANEL_W_IDLE;
-  let winSyncTimer: ReturnType<typeof setTimeout> | null = null;
   const prefersReducedMotion =
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -157,37 +151,18 @@
 
   $effect(() => {
     if (measuredBarW <= 0) return;
-    const targetWin = measuredBarW + WRAPPER_PAD;
 
     if (barFirstMeasure) {
-      // First paint: size the bar + window to the content with no animation.
+      // First paint: size the bar to the content with no animation.
       barWidth.set(measuredBarW, { duration: 0 });
       barFirstMeasure = false;
-      lastSyncedWin = targetWin;
-      void setPanelWindowWidth(targetWin);
       return;
     }
 
     // Tween the bar to the new measured width (instant under reduced motion).
+    // The window never moves — the bar morphs centered within it.
     if (prefersReducedMotion) barWidth.set(measuredBarW, { duration: 0 });
     else barWidth.target = measuredBarW;
-
-    // Keep the window hugging the bar. Grow now so the bar can expand into the
-    // new space; defer shrink until the tween has settled so nothing clips.
-    if (winSyncTimer) {
-      clearTimeout(winSyncTimer);
-      winSyncTimer = null;
-    }
-    if (targetWin > lastSyncedWin || prefersReducedMotion) {
-      lastSyncedWin = targetWin;
-      void setPanelWindowWidth(targetWin);
-    } else if (targetWin < lastSyncedWin) {
-      winSyncTimer = setTimeout(() => {
-        winSyncTimer = null;
-        lastSyncedWin = targetWin;
-        void setPanelWindowWidth(targetWin);
-      }, 360);
-    }
   });
 
   // Three visual phases. `idle` = full controls; `countdown` = big number +
@@ -428,7 +403,6 @@
     return () => {
       window.clearInterval(timer);
       if (profileFlashTimer) clearTimeout(profileFlashTimer);
-      if (winSyncTimer) clearTimeout(winSyncTimer);
       clearCountdown();
       unlistenSource.then((fn) => fn());
       unlistenDevice.then((fn) => fn());
@@ -730,41 +704,6 @@
     }, 1000);
   }
 
-  /**
-   * Snap the panel window to `to` (logical px) in a single step, keeping it
-   * centered on its current center. Size and position are issued together
-   * (not awaited sequentially) so the backend applies them in one tick — a
-   * centered window can't be resized + repositioned in two visible frames
-   * without hopping, and firing both at once avoids that. This is cosmetic
-   * cleanup of the window bounds *after* the CSS bar-morph has already moved
-   * the visible pixels, so any residual is at most a single frame.
-   */
-  async function setPanelWindowWidth(to: number) {
-    const win = getCurrentWindow();
-    try {
-      const [size, pos, factor] = await Promise.all([
-        win.innerSize(),
-        win.outerPosition(),
-        win.scaleFactor(),
-      ]);
-      const fromW = size.width / factor;
-      const topY = pos.y / factor;
-      const centerX = pos.x / factor + fromW / 2;
-      await Promise.all([
-        win.setSize(new LogicalSize(to, PANEL_H)),
-        win.setPosition(
-          new LogicalPosition(Math.round(centerX - to / 2), Math.round(topY)),
-        ),
-      ]);
-    } catch {
-      try {
-        await win.setSize(new LogicalSize(to, PANEL_H));
-      } catch {
-        /* best effort */
-      }
-    }
-  }
-
   async function toggleRecording() {
     // While counting down, the Record button isn't shown — but a tray toggle
     // or shortcut could still land here; treat it as "cancel the countdown".
@@ -802,8 +741,8 @@
       pausedSince = null;
       emit("camera-recording-stopped");
       emit("refresh-recordings");
-      // Back to "idle" phase — the effect grows the window and expands the bar
-      // back to the full control set.
+      // Back to "idle" phase — the ResizeObserver → Tween effect expands the
+      // bar back out to the full control set (centered in the fixed window).
       isRecording = false;
     }
   }
@@ -835,8 +774,8 @@
       pausedAccumMs = 0;
       pausedSince = null;
       // Flipping to the "recording" phase swaps in the compact transport; the
-      // ResizeObserver → Tween effect collapses the bar and the window follows
-      // it automatically. Nothing to do here.
+      // ResizeObserver → Tween effect collapses the bar (centered in the fixed
+      // window) automatically. Nothing to do here.
       if (cameraOn) {
         emit("camera-recording-started", { startedAtUnixMs: now });
       }
@@ -953,7 +892,7 @@
     node.style.height = `${h}px`;
     node.style.transform = "translate(-50%, -50%)";
     return {
-      duration: 160,
+      duration: 220,
       easing: cubicOut,
       css: (t: number) => `opacity: ${t}`,
     };
@@ -987,7 +926,7 @@
     <div
       class="flex w-fit items-center gap-2.5"
       data-tauri-drag-region
-      in:fade={{ duration: 180, delay: 140, easing: cubicOut }}
+      in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
       out:phaseOut
     >
       <div
@@ -1023,7 +962,7 @@
          Close — crossfaded in and centered by the bar. -->
     <div
       class="flex w-fit items-center gap-1"
-      in:fade={{ duration: 180, delay: 140, easing: cubicOut }}
+      in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
       out:phaseOut
     >
       <ButtonGroup>
@@ -1077,7 +1016,7 @@
     <!-- Idle phase: full control set. Crossfades with the others. -->
     <div
       class="flex w-fit items-center gap-1"
-      in:fade={{ duration: 180, delay: 140, easing: cubicOut }}
+      in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
       out:phaseOut
     >
       <!-- Drag handle: explicit affordance for moving the panel. The whole
