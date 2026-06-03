@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { generateActivity } from "$lib/dashboard/activity";
 	import RecentActivity from "$lib/dashboard/components/RecentActivity.svelte";
 	import StatCard from "$lib/dashboard/components/StatCard.svelte";
 	import TopRecasts from "$lib/dashboard/components/TopRecasts.svelte";
@@ -55,7 +54,8 @@
 		recastsStore.items.reduce((s, r) => s + r.views, 0),
 	);
 
-	const activity = $derived(generateActivity(recastsStore.items));
+	// Real viewer events from `share_view` (server-loaded), newest first.
+	const activity = $derived(data.activity);
 
 	const usedBytes = $derived(
 		quotaStore.value?.usage.storageBytes ?? recastsStore.usedBytes,

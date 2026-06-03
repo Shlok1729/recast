@@ -9,6 +9,7 @@ import {
 	unlockCookieName,
 	unlockToken,
 } from "$lib/share/password";
+import { resolveShareManage } from "$lib/share/manage";
 
 /**
  * Shared visibility/password gate for share sub-resources (comments,
@@ -133,16 +134,13 @@ export async function gateShareAccess(
 		}
 	}
 
-	// Manage = owner or global admin. We only re-read the role when the
-	// caller isn't the owner and we haven't already resolved admin above.
-	let canManage = isOwner;
-	if (!canManage && session?.user) {
-		const [u] = await db
-			.select({ role: user.role })
-			.from(user)
-			.where(eq(user.id, session.user.id))
-			.limit(1);
-		canManage = u?.role === "admin";
+	// Manage = share owner, an owner/admin of the recast's workspace, or a
+	// global admin — see `resolveShareManage` (shared with the page loader and
+	// the settings/access endpoints so all four agree on who can moderate).
+	let canManage = false;
+	if (session?.user) {
+		const mng = await resolveShareManage(s.slug, session.user.id);
+		canManage = mng?.canManage ?? false;
 	}
 
 	return {

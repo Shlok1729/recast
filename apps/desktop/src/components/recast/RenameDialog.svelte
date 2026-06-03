@@ -117,7 +117,7 @@
 				bind:value
 				onkeydown={handleKeydown}
 				disabled={busy}
-				class="h-8 rounded-md border border-input bg-input/30 px-2.5 text-[12px] text-foreground outline-none focus:border-primary disabled:opacity-50"
+				class="h-8 rounded-md border border-input bg-input px-2.5 text-[12px] text-foreground outline-none focus:border-primary disabled:opacity-50"
 			/>
 			{#if error}
 				<p class="text-[11px] text-destructive">{error}</p>

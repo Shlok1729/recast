@@ -38,7 +38,7 @@
     type BrowserCamera,
   } from "$lib/camera/browser-devices";
   import { getAudioDevices, type AudioDeviceInfo } from "$lib/ipc";
-  import type { RecordingProfile } from "$lib/profiles";
+  import { COUNTDOWN_OPTIONS, type RecordingProfile } from "$lib/profiles";
   import { profilesStore } from "$lib/stores/profiles.svelte";
 
   // mode = 'create' means draft is not yet in the store; mode = 'edit' means
@@ -56,14 +56,43 @@
   let cameras = $state<BrowserCamera[]>([]);
   let devicesLoading = $state(false);
 
-  // Device-aware combination math: cap is 2 × (2+#mics) × (2+#cams) — each
-  // attached mic / camera unlocks a new "audio + this mic + that cam" slot.
-  // With zero mics + zero cams, this collapses to the original 2³ = 8.
+  // Device-aware combination math: cap is #countdowns × 2 × (2+#mics) ×
+  // (2+#cams) — each attached mic / camera unlocks a new "audio + this mic +
+  // that cam" slot, and each countdown override (Default/Off/3/5/10s) is its
+  // own dimension. With zero mics + zero cams this is 5 × 8 = 40.
   const totalCombinations = $derived(
     profilesStore.maxCombinations(mics, cameras),
   );
   const remainingSlots = $derived(profilesStore.freeSlots(mics, cameras));
   const isFull = $derived(remainingSlots === 0);
+
+  // ---- Editor dialog layout. The device pickers (the rows that make the
+  // dialog tall once mic + camera are on) live in a side panel that slides out
+  // when a device capability is enabled, so the dialog grows *wider* instead of
+  // *taller* — the same move the export dialog makes for GIF settings. Below
+  // `sm` the panel can't fit beside the form, so the pickers fall back inline.
+  const DIALOG_MAIN_W = 408;
+  const DIALOG_ASIDE_W = 300;
+  let viewportWidth = $state(
+    typeof window !== "undefined" ? window.innerWidth : 1280,
+  );
+  $effect(() => {
+    const onResize = () => (viewportWidth = window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
+  const isCompactDialog = $derived(viewportWidth < 640);
+  const showDevicePanel = $derived(
+    !isCompactDialog && !!draft && (draft.microphone || draft.camera),
+  );
+  const dialogWidth = $derived(
+    isCompactDialog
+      ? Math.min(440, viewportWidth - 32)
+      : showDevicePanel
+        ? DIALOG_MAIN_W + DIALOG_ASIDE_W
+        : DIALOG_MAIN_W,
+  );
 
   onMount(() => {
     profilesStore.hydrate();
@@ -119,6 +148,10 @@
       camera: combo.camera,
       cameraDeviceId: combo.cameraDeviceId,
       cameraLabel: camDevice?.label ?? null,
+      // Carry the auto-picked countdown slot so the saved profile lands on the
+      // free combo (otherwise it always serializes as "inherit" and collides
+      // once the walk starts pinning countdowns to fill the space).
+      countdown: combo.countdown,
       isDefault: profilesStore.profiles.length === 0,
     };
     openDialog("create", draftProfile);
@@ -264,14 +297,14 @@
   }
 
   // Per-profile countdown override. `null` = inherit the global Settings →
-  // Recording countdown; `0` = no countdown for this profile.
-  const countdownChoices: { value: number | null; label: string }[] = [
-    { value: null, label: "Default" },
-    { value: 0, label: "Off" },
-    { value: 3, label: "3s" },
-    { value: 5, label: "5s" },
-    { value: 10, label: "10s" },
-  ];
+  // Recording countdown; `0` = no countdown for this profile. Derived from the
+  // shared `COUNTDOWN_OPTIONS` so the picker and the combination math (which
+  // treats each value as its own slot) can never drift apart.
+  const countdownChoices: { value: number | null; label: string }[] =
+    COUNTDOWN_OPTIONS.map((value) => ({
+      value,
+      label: value == null ? "Default" : value === 0 ? "Off" : `${value}s`,
+    }));
 
   function setDraftCountdown(value: number | null) {
     if (!draft) return;
@@ -403,10 +436,10 @@
                   >No combinations left</span
                 >
                 <span class="text-muted-foreground">
-                  Profiles are unique by audio · mic · camera, including which
-                  specific device is picked. All {totalCombinations} combinations
-                  for your current devices are taken — plug in another mic or
-                  camera, or edit an existing profile to free a slot.
+                  Profiles are unique by audio · mic · camera · countdown,
+                  including which specific device is picked. All {totalCombinations}
+                  combinations for your current devices are taken — plug in another
+                  mic or camera, or edit an existing profile to free a slot.
                 </span>
               </div>
             {:else}
@@ -844,6 +877,38 @@
   </div>
 {/snippet}
 
+<!-- Device picker rows, factored so they can render either inline (compact) or
+     inside the slide-out panel (wide) without duplicating the option mapping. -->
+{#snippet micPicker()}
+  {@render deviceRow(
+    Mic,
+    "Microphone device",
+    "If unavailable at recording time, the system default is used.",
+    mics.map((m) => ({
+      value: m.id,
+      label: m.name + (m.isDefault ? " (default)" : ""),
+    })),
+    draft?.micDeviceId ?? null,
+    setMicSelection,
+    "No microphones detected",
+  )}
+{/snippet}
+
+{#snippet camPicker()}
+  {@render deviceRow(
+    Camera,
+    "Camera device",
+    "Saved by name; falls back to first non-virtual cam if missing.",
+    cameras.map((c) => ({
+      value: c.deviceId,
+      label: c.label + (c.isVirtual ? " (virtual)" : ""),
+    })),
+    draft?.cameraDeviceId ?? null,
+    setCameraSelection,
+    "No cameras detected",
+  )}
+{/snippet}
+
 {#if mode !== null && draft}
   <Dialog.Root
     open={true}
@@ -853,7 +918,8 @@
   >
     <Dialog.Content
       showCloseButton={false}
-      class="block! w-[calc(100%-2rem)] gap-0! overflow-hidden rounded-2xl p-0! ring-1 ring-border/60 shadow-(--shadow-craft-inset-strong) sm:max-w-md!"
+      style="width: {dialogWidth}px; max-width: calc(100vw - 2rem);"
+      class="block! gap-0! overflow-hidden rounded-2xl p-0! ring-1 ring-border/60 shadow-(--shadow-craft-inset-strong) transition-[width] duration-300 ease-out"
     >
       <header
         class="flex items-center justify-between gap-3 border-b border-border/40 px-5 py-4"
@@ -880,6 +946,8 @@
         {/if}
       </header>
 
+      <!-- Name spans the full width above the columns so the form column and
+           the device panel both start at the same Y. -->
       <div class="border-b border-border/30 px-5 py-4">
         <label
           for="profile-name-input"
@@ -893,106 +961,126 @@
           bind:value={draft.name}
           onkeydown={handleDialogKeydown}
           placeholder="My profile"
-          class="h-9 w-full rounded-lg border border-border/50 bg-background px-3 text-[13px] font-medium text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+          class="h-9 w-full rounded-lg border border-border/50 bg-input px-3 text-[13px] font-medium text-foreground outline-none transition-all placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
         />
       </div>
 
-      <div class="divide-y divide-border/30">
-        {@render toggleRow(
-          "isDefault",
-          Star,
-          "Default profile",
-          "Use this profile automatically on launch",
-        )}
-        {@render toggleRow(
-          "systemAudio",
-          Volume2,
-          "System audio",
-          "Capture sounds playing on your device",
-        )}
-        {@render toggleRow(
-          "microphone",
-          Mic,
-          "Microphone",
-          "Record your voice from the default input",
-        )}
-        {#if draft.microphone}
-          {@render deviceRow(
+      <div class="flex items-stretch">
+        <!-- Form column: capability toggles + countdown. Fixed width on wide
+             screens so it doesn't reflow when the device panel slides in;
+             fluid on compact where the pickers fall back inline. -->
+        <div
+          class="flex min-w-0 flex-col divide-y divide-border/30"
+          style={isCompactDialog
+            ? "flex: 1 1 0; min-width: 0;"
+            : `width: ${DIALOG_MAIN_W}px; flex: 0 0 ${DIALOG_MAIN_W}px;`}
+        >
+          {@render toggleRow(
+            "isDefault",
+            Star,
+            "Default profile",
+            "Use this profile automatically on launch",
+          )}
+          {@render toggleRow(
+            "systemAudio",
+            Volume2,
+            "System audio",
+            "Capture sounds playing on your device",
+          )}
+          {@render toggleRow(
+            "microphone",
             Mic,
-            "Microphone device",
-            "If unavailable at recording time, the system default is used.",
-            mics.map((m) => ({
-              value: m.id,
-              label: m.name + (m.isDefault ? " (default)" : ""),
-            })),
-            draft.micDeviceId,
-            setMicSelection,
-            "No microphones detected",
+            "Microphone",
+            "Record your voice from the default input",
           )}
-        {/if}
-        {@render toggleRow(
-          "camera",
-          Camera,
-          "Camera",
-          "Overlay webcam feed onto the recording",
-        )}
-        {#if draft.camera}
-          {@render deviceRow(
+          {#if isCompactDialog && draft.microphone}
+            {@render micPicker()}
+          {/if}
+          {@render toggleRow(
+            "camera",
             Camera,
-            "Camera device",
-            "Saved by name; falls back to first non-virtual cam if missing.",
-            cameras.map((c) => ({
-              value: c.deviceId,
-              label: c.label + (c.isVirtual ? " (virtual)" : ""),
-            })),
-            draft.cameraDeviceId,
-            setCameraSelection,
-            "No cameras detected",
+            "Camera",
+            "Overlay webcam feed onto the recording",
           )}
-        {/if}
+          {#if isCompactDialog && draft.camera}
+            {@render camPicker()}
+          {/if}
 
-        <!-- Countdown override. "Default" inherits the global Settings →
-             Recording countdown; the rest pin a per-profile value for quick
-             access when switching profiles. -->
-        <div class="flex items-center gap-3 px-5 py-3">
-          <span
-            class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background/70 text-muted-foreground ring-1 ring-inset ring-border/40"
-            aria-hidden="true"
-          >
-            <Timer size={14} />
-          </span>
-          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span class="truncate text-[12.5px] font-semibold text-foreground">
-              Countdown
+          <!-- Countdown override. "Default" inherits the global Settings →
+               Recording countdown; the rest pin a per-profile value for quick
+               access when switching profiles. -->
+          <div class="flex items-center gap-3 px-5 py-3">
+            <span
+              class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background/70 text-muted-foreground ring-1 ring-inset ring-border/40"
+              aria-hidden="true"
+            >
+              <Timer size={14} />
             </span>
-            <span class="truncate text-[11px] font-medium text-muted-foreground">
-              Seconds before capture starts.
-            </span>
-          </span>
-          <div
-            class="flex items-center gap-0.5 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
-            role="radiogroup"
-            aria-label="Countdown before recording"
-          >
-            {#each countdownChoices as c (c.label)}
-              {@const active = (draft.countdown ?? null) === c.value}
-              <button
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onclick={() => setDraftCountdown(c.value)}
-                class={cn(
-                  "flex h-6 items-center rounded-lg px-2 text-[10.5px] font-semibold tabular-nums transition-all duration-200",
-                  active
-                    ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
+            <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span class="truncate text-[12.5px] font-semibold text-foreground">
+                Countdown
+              </span>
+              <span
+                class="truncate text-[11px] font-medium text-muted-foreground"
               >
-                {c.label}
-              </button>
-            {/each}
+                Seconds before capture starts.
+              </span>
+            </span>
+            <div
+              class="flex items-center gap-0.5 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+              role="radiogroup"
+              aria-label="Countdown before recording"
+            >
+              {#each countdownChoices as c (c.label)}
+                {@const active = (draft.countdown ?? null) === c.value}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onclick={() => setDraftCountdown(c.value)}
+                  class={cn(
+                    "flex h-6 items-center rounded-lg px-2 text-[10.5px] font-semibold tabular-nums transition-all duration-200",
+                    active
+                      ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {c.label}
+                </button>
+              {/each}
+            </div>
           </div>
         </div>
+
+        <!-- Device panel: slides out on wide screens when a device capability
+             is on. Holds the mic/camera selectors so the form column stays
+             short. The dialog's width transition does the morph; the fly adds
+             the lateral reveal. -->
+        {#if showDevicePanel}
+          <aside
+            in:fly={{ x: 20, duration: 260, easing: cubicOut }}
+            out:fly={{ x: 20, duration: 220, easing: cubicOut }}
+            style="width: {DIALOG_ASIDE_W}px;"
+            class="flex shrink-0 flex-col border-l border-border/40 bg-muted/15"
+          >
+            <div class="flex items-center gap-2 border-b border-border/30 px-5 py-3">
+              <SlidersIcon size={12} class="text-muted-foreground" />
+              <span
+                class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground"
+              >
+                Devices
+              </span>
+            </div>
+            <div class="flex flex-col divide-y divide-border/30">
+              {#if draft.microphone}
+                {@render micPicker()}
+              {/if}
+              {#if draft.camera}
+                {@render camPicker()}
+              {/if}
+            </div>
+          </aside>
+        {/if}
       </div>
 
       <footer

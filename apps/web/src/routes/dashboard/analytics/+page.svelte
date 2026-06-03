@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		avgWatchPct,
-		generateActivity,
 		uniqueViewers,
 		viewsByDay,
 	} from "$lib/dashboard/activity";
@@ -10,10 +9,33 @@
 	import StatCard from "$lib/dashboard/components/StatCard.svelte";
 	import TopRecasts from "$lib/dashboard/components/TopRecasts.svelte";
 	import { formatCount } from "$lib/dashboard/format";
-	import { recastsStore } from "$lib/dashboard/store.svelte";
+	import { recastsStore, type Recast } from "$lib/dashboard/store.svelte";
 	import { BarChart3, Eye, Percent, Share2, Users } from "@lucide/svelte";
+	import { untrack } from "svelte";
 	import { cubicOut } from "svelte/easing";
 	import { fly } from "svelte/transition";
+
+	let { data } = $props();
+
+	// Hydrate the local store with the server-loaded recasts so "Top recasts"
+	// and the shared-count stat reflect this workspace (not the design seed).
+	$effect(() => {
+		const mapped: Recast[] = data.recasts.map((r) => ({
+			id: r.id,
+			title: r.title,
+			durationSec: r.durationSec,
+			createdAt: r.createdAt,
+			sizeBytes: r.sizeBytes,
+			source: r.source as Recast["source"],
+			provider: r.provider,
+			views: r.views,
+			folderId: null,
+			tags: [],
+			videoUrl: "",
+			posterUrl: r.posterUrl ?? "",
+		}));
+		untrack(() => recastsStore.hydrate(mapped));
+	});
 
 	type Range = "7d" | "30d" | "all";
 	let range = $state<Range>("7d");
@@ -24,7 +46,8 @@
 		{ label: "All time", value: "all", days: 365 },
 	];
 
-	const allActivity = $derived(generateActivity(recastsStore.items));
+	// Real viewer events from `share_view`, newest first (server-loaded).
+	const allActivity = $derived(data.activity);
 	const days = $derived(
 		ranges.find((r) => r.value === range)?.days ?? 7,
 	);

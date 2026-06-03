@@ -10,7 +10,7 @@ import {
 	unlockCookieName,
 	unlockToken,
 } from "$lib/share/password";
-import { isStorageConfigured, signDownloadUrl } from "$lib/storage";
+import { isStorageConfigured, resolvePlaybackUrl, signDownloadUrl } from "$lib/storage";
 import type { PageServerLoad } from "./$types";
 
 /**
@@ -44,6 +44,8 @@ const DEMO: DemoOrResolved = {
 		poster:
 			"https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg",
 		durationSec: 596,
+		width: 1280,
+		height: 720,
 		sharedBy: "Recast Demo",
 		sharedAt: Date.now() - 1000 * 60 * 60 * 6,
 	},
@@ -136,6 +138,12 @@ export const load: PageServerLoad = async ({ params, request, cookies }) => {
 			access.recast.src = "";
 		}
 	}
+
+	// Poster is stored as a bare key too — sign it the same way so the player
+	// shows the thumbnail before playback (otherwise the <video poster> 404s
+	// and the hero is just a black box until the first frame decodes).
+	// `resolvePlaybackUrl` no-ops on empty/absolute values and never throws.
+	access.recast.poster = await resolvePlaybackUrl(access.recast.poster, 60 * 60);
 
 	return { access, customSeo: true };
 };

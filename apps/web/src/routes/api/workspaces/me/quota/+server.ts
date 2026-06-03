@@ -1,9 +1,7 @@
 import { error, json } from "@sveltejs/kit";
-import { and, eq } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
-import { getDb } from "$lib/db";
-import { member } from "$lib/db/schema";
 import { getQuotaSnapshot, storagePctUsed } from "$lib/storage/quota";
+import { assertWorkspaceMember } from "$lib/workspace/guard";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = {
@@ -33,18 +31,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		url.searchParams.get("workspaceId") ?? session.user.activeOrganizationId;
 	if (!workspaceId) error(400, "No active workspace");
 
-	const db = getDb();
-	const [m] = await db
-		.select({ id: member.id })
-		.from(member)
-		.where(
-			and(
-				eq(member.userId, session.user.id),
-				eq(member.organizationId, workspaceId),
-			),
-		)
-		.limit(1);
-	if (!m) error(403, "Not a member of this workspace");
+	await assertWorkspaceMember(session.user.id, workspaceId);
 
 	const snap = await getQuotaSnapshot(workspaceId);
 	if (!snap) error(404, "Workspace not found");

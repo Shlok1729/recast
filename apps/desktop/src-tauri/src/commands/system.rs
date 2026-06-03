@@ -1056,6 +1056,226 @@ pub async fn probe_video_encoders() -> Result<Vec<crate::ffmpeg::EncoderAvailabi
         .map_err(|e| format!("probe_video_encoders join error: {e}"))
 }
 
+/// One capture-input capability and whether the *running* build can do it on
+/// *this* device. `backend` names the native API actually used (DXGI, PipeWire,
+/// AVFoundation, …) so the Settings panel can be specific instead of vague.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureCapability {
+    /// Stable key the UI keys icons/order off: "screen" | "window" | "region"
+    /// | "systemAudio" | "microphone" | "camera" | "cursor".
+    pub key: String,
+    pub label: String,
+    pub supported: bool,
+    pub backend: String,
+    /// Optional caveat — permission requirement, fallback path, OS limitation.
+    pub note: Option<String>,
+}
+
+/// Capture-support matrix for the current OS. Replaces the old hardcoded
+/// "Windows only" banner: every row is computed from the backend the compiled
+/// platform actually wires up plus a cheap runtime check, so the panel tells
+/// the truth on Windows, macOS, and Linux alike.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureCapabilities {
+    /// Raw platform key — "windows" | "macos" | "linux" | "other".
+    pub platform: String,
+    /// Short name of the active screen-capture backend (the headline).
+    pub screen_backend: String,
+    pub capabilities: Vec<CaptureCapability>,
+}
+
+fn cap(
+    key: &str,
+    label: &str,
+    supported: bool,
+    backend: &str,
+    note: Option<&str>,
+) -> CaptureCapability {
+    CaptureCapability {
+        key: key.to_string(),
+        label: label.to_string(),
+        supported,
+        backend: backend.to_string(),
+        note: note.map(str::to_string),
+    }
+}
+
+/// Build the capture-support matrix for whichever platform this binary was
+/// compiled for. Each `#[cfg]` block is the function's tail expression on its
+/// target — the same dispatch pattern as `capture::platform::create_source`.
+fn build_capture_capabilities() -> CaptureCapabilities {
+    #[cfg(windows)]
+    {
+        let screen_backend = "DXGI Desktop Duplication";
+        CaptureCapabilities {
+            platform: "windows".into(),
+            screen_backend: screen_backend.into(),
+            capabilities: vec![
+                cap(
+                    "screen",
+                    "Full-screen recording",
+                    true,
+                    screen_backend,
+                    Some("Falls back to GDI capture (xcap) if GPU duplication is unavailable."),
+                ),
+                cap("window", "Window capture", true, screen_backend, None),
+                cap("region", "Region capture", true, screen_backend, None),
+                cap("systemAudio", "System audio", true, "WASAPI loopback", None),
+                cap("microphone", "Microphone", true, "WASAPI", None),
+                cap("camera", "Webcam", true, "DirectShow (FFmpeg)", None),
+                cap(
+                    "cursor",
+                    "Cursor tracking",
+                    true,
+                    "Win32 GetCursorInfo",
+                    None,
+                ),
+            ],
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // The AVFoundation device listing is cached after the first probe. A
+        // "Capture screen" pseudo-device in it means the bundled FFmpeg has
+        // avfoundation support wired — the prerequisite for the native macOS
+        // path. (Screen Recording *permission* is enforced at record time,
+        // not at listing time, so its presence here only proves the API is
+        // reachable, which is exactly the "is it supported" question.)
+        let listing = crate::ffmpeg::cached_avfoundation_devices();
+        let has_avf = !listing.is_empty();
+        let has_screen = listing.to_ascii_lowercase().contains("capture screen");
+        let screen_backend = "FFmpeg AVFoundation";
+        CaptureCapabilities {
+            platform: "macos".into(),
+            screen_backend: screen_backend.into(),
+            capabilities: vec![
+                cap(
+                    "screen",
+                    "Full-screen recording",
+                    has_screen,
+                    screen_backend,
+                    Some("Requires Screen Recording permission (System Settings → Privacy & Security)."),
+                ),
+                cap(
+                    "window",
+                    "Window capture",
+                    has_screen,
+                    screen_backend,
+                    Some("Captured as a screen region; placement is approximate on Retina displays."),
+                ),
+                cap("region", "Region capture", has_screen, screen_backend, None),
+                cap(
+                    "systemAudio",
+                    "System audio",
+                    has_avf,
+                    "ScreenCaptureKit",
+                    Some("Falls back to a virtual device (e.g. BlackHole) when the system tap is unavailable."),
+                ),
+                cap("microphone", "Microphone", has_avf, "AVFoundation", None),
+                cap("camera", "Webcam", has_avf, "AVFoundation", None),
+                cap("cursor", "Cursor tracking", true, "CoreGraphics", None),
+            ],
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Session-type dispatch mirrors `capture::platform::create_source`:
+        // prefer Wayland (PipeWire portal) when present, else X11, else the
+        // software fallback. WAYLAND_DISPLAY is checked first because XWayland
+        // sets both.
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+        let x11 = std::env::var_os("DISPLAY").is_some();
+        let (screen_backend, screen_note): (&str, Option<&str>) = if wayland {
+            (
+                "PipeWire (xdg-desktop-portal)",
+                Some("Approve the screen-share prompt at the start of each recording."),
+            )
+        } else if x11 {
+            ("X11 (XGetImage)", None)
+        } else {
+            (
+                "xcap (software)",
+                Some("No display server detected — capture falls back to the slow software path."),
+            )
+        };
+        // device_query reads the pointer through X11/xcb; a pure-Wayland
+        // session (no XWayland) blocks global pointer reads, so cursor
+        // tracking is best-effort there.
+        let cursor_note = if wayland && !x11 {
+            Some("Limited under Wayland — global cursor position may be unavailable.")
+        } else {
+            None
+        };
+        CaptureCapabilities {
+            platform: "linux".into(),
+            screen_backend: screen_backend.into(),
+            capabilities: vec![
+                cap(
+                    "screen",
+                    "Full-screen recording",
+                    true,
+                    screen_backend,
+                    screen_note,
+                ),
+                cap("window", "Window capture", true, screen_backend, None),
+                cap("region", "Region capture", true, screen_backend, None),
+                cap(
+                    "systemAudio",
+                    "System audio",
+                    true,
+                    "PulseAudio / PipeWire",
+                    Some("Uses a PulseAudio monitor source; needs PulseAudio or PipeWire-Pulse."),
+                ),
+                cap(
+                    "microphone",
+                    "Microphone",
+                    true,
+                    "PulseAudio (FFmpeg)",
+                    None,
+                ),
+                cap("camera", "Webcam", true, "V4L2", None),
+                cap("cursor", "Cursor tracking", true, "X11 (xcb)", cursor_note),
+            ],
+        }
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let unsupported = "Not implemented";
+        CaptureCapabilities {
+            platform: "other".into(),
+            screen_backend: unsupported.into(),
+            capabilities: vec![
+                cap(
+                    "screen",
+                    "Full-screen recording",
+                    false,
+                    unsupported,
+                    Some("Screen capture isn't implemented for this platform yet."),
+                ),
+                cap("window", "Window capture", false, unsupported, None),
+                cap("region", "Region capture", false, unsupported, None),
+                cap("systemAudio", "System audio", false, unsupported, None),
+                cap("microphone", "Microphone", false, unsupported, None),
+                cap("camera", "Webcam", false, unsupported, None),
+                cap("cursor", "Cursor tracking", false, unsupported, None),
+            ],
+        }
+    }
+}
+
+/// Report which capture inputs this device's native APIs support. Drives the
+/// Settings → "Capture support" panel. async + spawn_blocking because on macOS
+/// the first call may spawn the FFmpeg AVFoundation device listing — keeping it
+/// off the UI thread matches the other probe commands.
+#[tauri::command]
+pub async fn capture_capabilities() -> Result<CaptureCapabilities, String> {
+    tauri::async_runtime::spawn_blocking(build_capture_capabilities)
+        .await
+        .map_err(|e| format!("capture_capabilities join error: {e}"))
+}
+
 #[derive(Debug, Serialize)]
 pub struct FfmpegDiagnostics {
     pub ffmpeg_path: String,

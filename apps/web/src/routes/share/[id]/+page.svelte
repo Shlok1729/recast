@@ -30,6 +30,7 @@
 	  Sun,
 	  Trash2,
 	  User,
+	  UserCheck,
 	  Users,
 	  Film,
 	} from "@lucide/svelte";
@@ -101,6 +102,13 @@
 	}
 	const shareMeta = $derived(okAccess?.share);
 	const canManage = $derived(okAccess?.canManage ?? false);
+	// Exact source aspect ratio, when the recast row carries its dimensions.
+	// Passing this to the player reserves the precise box before metadata loads
+	// → zero layout shift. Null on legacy rows, where the player falls back to
+	// its 16/9 placeholder and adjusts once the real dimensions decode.
+	const playerAspect = $derived(
+		recast?.width && recast?.height ? `${recast.width} / ${recast.height}` : null,
+	);
 	const slug = $derived(shareMeta?.slug ?? recast?.id ?? "");
 	const isDemo = $derived(slug === "demo");
 
@@ -167,32 +175,38 @@
 		}
 	}
 
-	// This dropdown only writes the legacy {public, team, private} triplet
-	// — the new {workspace, selected} scopes come from a richer share modal
-	// that isn't on this page yet. Coerce incoming server values into the
-	// triplet so old + new shares both render: `workspace` folds to `team`,
-	// `selected` to `private` so it visibly reads as "restricted".
+	// The toggle below writes the standard {public, team, private} scopes
+	// (`workspace` shows as "team", its alias). The richer `selected`
+	// specific-people allowlist is created from the share dialog, not here —
+	// but we surface it ACCURATELY (instead of masking it as "Only me") so the
+	// owner sees the real scope and can switch off it.
 	type LegacyVisibility = "public" | "team" | "private";
 	const toLegacyVisibility = (v: string): LegacyVisibility => {
 		if (v === "public") return "public";
 		if (v === "team" || v === "workspace") return "team";
 		return "private";
 	};
-	let visibility = $state<LegacyVisibility>(
-		untrack(() =>
-			data.access.ok ? toLegacyVisibility(data.access.share.visibility) : "public",
-		),
+	// The share's true current scope (full enum), synced from the server and
+	// updated optimistically on toggle.
+	let currentScope = $state<string>(
+		untrack(() => (data.access.ok ? data.access.share.visibility : "public")),
+	);
+	$effect(() => {
+		if (access.ok) currentScope = access.share.visibility;
+	});
+	const isSelectedScope = $derived(currentScope === "selected");
+	// Which toggle row reads as active — none while on the specific-people
+	// allowlist, so "selected" no longer masquerades as "Only me".
+	const activeScope: LegacyVisibility | null = $derived(
+		isSelectedScope ? null : toLegacyVisibility(currentScope),
 	);
 	let updatingVisibility = $state(false);
-	$effect(() => {
-		if (access.ok) visibility = toLegacyVisibility(access.share.visibility);
-	});
 
 	async function updateVisibility(next: "public" | "team" | "private") {
 		if (!shareMeta || !canManage || updatingVisibility) return;
-		if (next === visibility) return;
-		const previous = visibility;
-		visibility = next;
+		if (next === activeScope) return;
+		const previous = currentScope;
+		currentScope = next;
 		updatingVisibility = true;
 		try {
 			await toast.promise(
@@ -219,7 +233,7 @@
 				},
 			);
 		} catch {
-			visibility = previous;
+			currentScope = previous;
 		} finally {
 			updatingVisibility = false;
 		}
@@ -980,23 +994,38 @@
 								<Code class="size-3.5 text-muted-foreground" />
 								Copy embed code
 							</DropdownMenu.Item>
-							<DropdownMenu.Separator />
-							<DropdownMenu.Item onclick={() => browser && recast && window.open(recast.src, "_blank")} class="gap-2.5">
-								<Download class="size-3.5 text-muted-foreground" />
-								Download original
-							</DropdownMenu.Item>
-
 							{#if canManage}
+								<!-- Downloading the original master is an owner/admin
+								     action only — viewers stream but can't pull the file. -->
+								<DropdownMenu.Separator />
+								<DropdownMenu.Item onclick={() => browser && recast && window.open(recast.src, "_blank")} class="gap-2.5">
+									<Download class="size-3.5 text-muted-foreground" />
+									Download original
+								</DropdownMenu.Item>
 								<DropdownMenu.Separator />
 								<DropdownMenu.Label class="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
 									Who can view
 								</DropdownMenu.Label>
+								{#if isSelectedScope}
+									<!-- Current scope is the specific-people allowlist. It's set
+									     up from the share dialog (not editable inline), so we show
+									     it as the active state and let the owner switch to a
+									     standard scope below. -->
+									<div class="flex items-center gap-2.5 rounded-md px-2 py-1.5">
+										<UserCheck class="size-3.5 text-primary" />
+										<div class="flex-1 min-w-0">
+											<div class="text-xs font-medium text-foreground">Specific people</div>
+											<div class="text-[10px] text-muted-foreground">Only invited people can view</div>
+										</div>
+										<Check class="size-3.5 text-primary" />
+									</div>
+								{/if}
 								{#each [
 									{ id: "public" as const, label: "Anyone with the link", icon: Globe },
 									{ id: "team" as const, label: "Only my team", icon: Users },
 									{ id: "private" as const, label: "Only me", icon: Lock },
 								] as opt (opt.id)}
-									{@const active = visibility === opt.id}
+									{@const active = activeScope === opt.id}
 									<DropdownMenu.Item
 										disabled={updatingVisibility}
 										onSelect={(e) => {
@@ -1088,7 +1117,7 @@
 								</DropdownMenu.Item>
 							</DropdownMenu.Content>
 						</DropdownMenu.Root>
-					{:else if visibility !== "public"}
+					{:else if currentScope !== "public"}
 						<!-- Strangers on a public link have nothing to gain from
 						     signing in, so the nudge only shows on team/private
 						     links where an account could unlock access. -->
@@ -1113,6 +1142,7 @@
 							src={recast.src}
 							poster={recast.poster}
 							title={recast.title}
+							aspectRatio={playerAspect}
 							onengagement={onEngagement}
 						/>
 					{:else}

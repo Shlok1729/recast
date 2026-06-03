@@ -261,6 +261,7 @@ pub fn run() {
             commands::hydrate_cached_assets,
             commands::diagnose_ffmpeg,
             commands::probe_video_encoders,
+            commands::capture_capabilities,
             commands::auth_start,
             commands::auth_status,
             commands::auth_sign_out,

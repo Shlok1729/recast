@@ -196,10 +196,17 @@
 	const installSteps: Record<Exclude<OS, "Unknown">, PlatformGuide> = {
 		macOS: {
 			intro:
-				"We're not yet Apple-notarized, so Gatekeeper needs one Terminal command on first launch. After that, Recast opens normally from Launchpad.",
+				"macOS is in beta. The smoothest path is Homebrew (step 1) — one line that grabs the right build for your chip and clears Gatekeeper for you. Prefer the .dmg? Steps 2–5 cover the manual install; macOS just needs one Terminal command on first launch until we're Apple-notarized.",
 			steps: [
 				{
-					title: "Pick the right build",
+					title: "Fastest: install with Homebrew",
+					body:
+						"One line installs the right build for your Mac and removes the Gatekeeper quarantine automatically — no \"is damaged\" error, and brew keeps it updated. Tap once if you'd rather use the short name: brew tap kanakkholwal/recast, then brew install --cask recast.",
+					code: "brew install --cask kanakkholwal/recast/recast",
+					hint: "Installed this way? You're done — skip the manual .dmg steps below.",
+				},
+				{
+					title: "Or download the .dmg — pick the right build",
 					body:
 						"Apple Silicon for M1/M2/M3/M4 Macs. Intel for older models. Check via   → About This Mac if you're unsure.",
 				},
@@ -455,7 +462,7 @@
 							class="mt-1 inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-amber-600 transition-colors hover:text-amber-500 dark:text-amber-400"
 						>
 							<TriangleAlert class="size-3" />
-							macOS first launch needs a one-time Terminal step
+							macOS: install with Homebrew, or clear Gatekeeper with one Terminal step
 						</a>
 					{/if}
 				</div>
@@ -786,8 +793,9 @@
 												<TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
 												<span>
 													<span class="font-semibold text-foreground">Heads up:</span>
-													until we ship Apple notarization, step 3 above is required
-													— pasting <span class="font-mono text-foreground/85">"Recast is damaged"</span>
+													until we ship Apple notarization, the quarantine step above is
+													required on the .dmg path — or just install with Homebrew, which
+													clears it for you. Pasting <span class="font-mono text-foreground/85">"Recast is damaged"</span>
 													into Google brought you here.
 												</span>
 											</div>

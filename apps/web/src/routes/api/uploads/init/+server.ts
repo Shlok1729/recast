@@ -1,9 +1,10 @@
 import { error, json } from "@sveltejs/kit";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
-import { member, recast } from "$lib/db/schema";
+import { recast } from "$lib/db/schema";
+import { assertWorkspaceMember } from "$lib/workspace/guard";
 import {
 	checkUploadAllowed,
 	getQuotaSnapshot,
@@ -80,17 +81,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	// alone — a stale active-org pointer (e.g. after being kicked from a
 	// team) should fail closed, not silently let the user upload into a
 	// workspace they're no longer in.
-	const [m] = await db
-		.select({ id: member.id })
-		.from(member)
-		.where(
-			and(
-				eq(member.userId, session.user.id),
-				eq(member.organizationId, workspaceId),
-			),
-		)
-		.limit(1);
-	if (!m) error(403, "Not a member of this workspace");
+	await assertWorkspaceMember(session.user.id, workspaceId);
 
 	const snapshot = await getQuotaSnapshot(workspaceId);
 	if (!snapshot) error(404, "Workspace not found");

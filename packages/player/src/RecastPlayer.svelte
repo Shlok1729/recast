@@ -164,9 +164,15 @@
 	});
 	const playerStyle = $derived.by(() => {
 		const vars = [
+			// Before metadata loads we don't know the true ratio, but `auto`
+			// collapses a slotted <video> to its 300×150 default — so the hero
+			// renders short, then jumps to the real ratio once dimensions
+			// arrive (a visible layout shift). Reserve 16/9 (the overwhelmingly
+			// common screen-recording ratio) as the placeholder: zero shift for
+			// 16:9, and a single small adjust for the rare portrait clip.
 			resolvedAspectRatio
 				? `--recast-player-aspect-ratio: ${resolvedAspectRatio};`
-				: "--recast-player-aspect-ratio: auto;",
+				: "--recast-player-aspect-ratio: 16 / 9;",
 			`--recast-player-object-fit: ${objectFit};`,
 		];
 		return vars.join(" ");

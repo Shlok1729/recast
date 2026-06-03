@@ -107,6 +107,34 @@ export function probeVideoEncoders(): Promise<EncoderAvailability[]> {
 	return invoke<EncoderAvailability[]>("probe_video_encoders");
 }
 
+/** One capture-input capability and whether this device's native API supports
+ *  it. Mirrors the Rust `CaptureCapability` struct (`capture_capabilities`). */
+export interface CaptureCapability {
+	/** "screen" | "window" | "region" | "systemAudio" | "microphone" |
+	 *  "camera" | "cursor". */
+	key: string;
+	label: string;
+	supported: boolean;
+	/** Native API in use — e.g. "DXGI Desktop Duplication", "FFmpeg AVFoundation". */
+	backend: string;
+	note: string | null;
+}
+
+/** Capture-support matrix for the current OS. Mirrors the Rust
+ *  `CaptureCapabilities` struct (`capture_capabilities`). */
+export interface CaptureCapabilities {
+	platform: string;
+	screenBackend: string;
+	capabilities: CaptureCapability[];
+}
+
+/** Report which capture inputs this device's native APIs support, computed
+ *  from the running build's backend plus cheap runtime checks (macOS device
+ *  listing, Linux session type). Powers Settings → "Capture support". */
+export function captureCapabilities(): Promise<CaptureCapabilities> {
+	return invoke<CaptureCapabilities>("capture_capabilities");
+}
+
 /** Resolved ffmpeg paths, version, and which export codecs are present. */
 export function diagnoseFfmpeg(): Promise<FfmpegDiagnostics> {
 	return invoke<FfmpegDiagnostics>("diagnose_ffmpeg");

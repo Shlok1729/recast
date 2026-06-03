@@ -75,7 +75,12 @@
 
   --border: oklch(96.115% 0.00011 271.152);
   --border-subtle: oklch(0% 0 0 / 0.05);
-  --input: oklch(.922 0 0);
+  /* Input surface — used as the fill for text fields and the off-state track
+     for toggles. Sits ~5% below the white card/popover surfaces so a field reads
+     as a subtle recess (not a hard gray pill) while a toggle track is still
+     legible. The old .922 was ~8% under white, which looked heavy on light
+     dialogs; going much lighter than this fades the toggle track out. */
+  --input: oklch(0.945 0 0);
   --ring: var(--primary);
 
   --radius: 0.75rem;
@@ -173,7 +178,10 @@
 
   --border: oklch(23.929% 0.00003 271.152);
   --border-subtle: oklch(100% 0.00011 271.152 / 0.05);
-  --input: oklch(30.118% 0.00003 271.152);
+  /* Input surface — lifted above the card (0.27) and popover (0.205) surfaces so
+     a filled field reads clearly in dark dialogs. The old 0.301 sat ~3% over the
+     card, which all but vanished; 0.34 keeps a visible recess without glowing. */
+  --input: oklch(0.34 0 0);
   --ring: var(--primary);
 
   --noise-bg: linear-gradient(oklch(33.881% 0.00279 16.535), oklch(22.213% 0.00003 271.152));

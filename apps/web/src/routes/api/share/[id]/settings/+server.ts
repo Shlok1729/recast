@@ -2,7 +2,8 @@ import { error, json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
-import { share, user } from "$lib/db/schema";
+import { share } from "$lib/db/schema";
+import { resolveShareManage } from "$lib/share/manage";
 import { hashSharePassword } from "$lib/share/password";
 import type { RequestHandler } from "./$types";
 
@@ -46,26 +47,11 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	}
 
 	const db = getDb();
-	const [row] = await db
-		.select({ ownerId: share.ownerId })
-		.from(share)
-		.where(eq(share.slug, params.id))
-		.limit(1);
-	if (!row) error(404, "Share not found");
-
-	// Authorize: owner OR global admin. Re-read the role so a role change
-	// takes effect immediately rather than waiting on session re-issue.
-	const isOwner = row.ownerId === session.user.id;
-	let isAdmin = false;
-	if (!isOwner) {
-		const [u] = await db
-			.select({ role: user.role })
-			.from(user)
-			.where(eq(user.id, session.user.id))
-			.limit(1);
-		isAdmin = u?.role === "admin";
-	}
-	if (!isOwner && !isAdmin) error(403, "Not allowed to change this share");
+	// Authorize: share owner, an owner/admin of the recast's workspace, or a
+	// global admin. Roles are re-read from the DB so changes take effect at once.
+	const manage = await resolveShareManage(params.id, session.user.id);
+	if (!manage) error(404, "Share not found");
+	if (!manage.canManage) error(403, "Not allowed to change this share");
 
 	const patch: {
 		ctaLabel?: string | null;

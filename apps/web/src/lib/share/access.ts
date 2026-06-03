@@ -38,6 +38,11 @@ export type ResolvedShare =
 				src: string;
 				poster: string | null;
 				durationSec: number;
+				/** Intrinsic pixel dimensions of the source video, when known.
+				 *  The player reserves this exact aspect ratio before metadata
+				 *  loads so the hero never shifts. Null on legacy rows. */
+				width: number | null;
+				height: number | null;
 				sharedBy: string;
 				sharedAt: number;
 			};
@@ -65,7 +70,9 @@ type Viewer = {
 	id: string;
 	email: string;
 	role: string;
-	memberOrgIds: Set<string>;
+	/** orgId → the viewer's `member.role` in that org ("owner"|"admin"|"member").
+	 *  Keys double as the set of orgs the viewer belongs to. */
+	memberships: Map<string, string>;
 } | null;
 
 export async function loadViewer(userId: string | null | undefined): Promise<Viewer> {
@@ -78,14 +85,14 @@ export async function loadViewer(userId: string | null | undefined): Promise<Vie
 		.limit(1);
 	if (!u) return null;
 	const memberships = await db
-		.select({ organizationId: member.organizationId })
+		.select({ organizationId: member.organizationId, role: member.role })
 		.from(member)
 		.where(eq(member.userId, userId));
 	return {
 		id: u.id,
 		email: u.email,
 		role: u.role,
-		memberOrgIds: new Set(memberships.map((m) => m.organizationId)),
+		memberships: new Map(memberships.map((m) => [m.organizationId, m.role])),
 	};
 }
 
@@ -115,10 +122,13 @@ export async function resolveShareAccess(
 			ownerEmail: user.email,
 			ownerName: user.name,
 			recastId: recast.id,
+			workspaceId: recast.workspaceId,
 			title: recast.title,
 			videoUrl: recast.videoUrl,
 			posterUrl: recast.posterUrl,
 			durationSec: recast.durationSec,
+			width: recast.width,
+			height: recast.height,
 			createdAt: recast.createdAt,
 		})
 		.from(share)
@@ -133,7 +143,11 @@ export async function resolveShareAccess(
 	const isAdmin = viewer?.role === "admin";
 	const inOrg =
 		row.organizationId != null &&
-		viewer?.memberOrgIds.has(row.organizationId) === true;
+		viewer?.memberships.has(row.organizationId) === true;
+	// Owners/admins of the recast's workspace manage every share in it, not
+	// just the ones they personally created. See `resolveShareManage`.
+	const workspaceRole = viewer?.memberships.get(row.workspaceId);
+	const isWorkspaceManager = workspaceRole === "owner" || workspaceRole === "admin";
 
 	// `selected` adds a per-share email allowlist on top of owner/admin. A
 	// viewer qualifies via their signed-in email OR an account-less grant
@@ -163,7 +177,7 @@ export async function resolveShareAccess(
 		((row.visibility === "team" || row.visibility === "workspace") && inOrg) ||
 		(row.visibility === "selected" && onAllowlist);
 
-	const canManage = isOwner || isAdmin;
+	const canManage = isOwner || isAdmin || isWorkspaceManager;
 
 	if (!canView) {
 		return {
@@ -187,6 +201,8 @@ export async function resolveShareAccess(
 			src: row.videoUrl,
 			poster: row.posterUrl,
 			durationSec: row.durationSec,
+			width: row.width,
+			height: row.height,
 			sharedBy: row.ownerName,
 			sharedAt: row.createdAt.getTime(),
 		},

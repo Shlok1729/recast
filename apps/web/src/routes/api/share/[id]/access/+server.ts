@@ -2,26 +2,34 @@ import { error, json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
-import { share, user } from "$lib/db/schema";
+import { share } from "$lib/db/schema";
+import { resolveShareManage } from "$lib/share/manage";
+import { assertWorkspaceMember } from "$lib/workspace/guard";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = { user: { id: string; role?: string; activeOrganizationId?: string | null } };
 
-const VALID = new Set(["public", "team", "private"] as const);
-type Visibility = "public" | "team" | "private";
+// Scopes settable from the share menu. `workspace` is canonical; `team` is its
+// legacy alias and both are accepted. `selected` is intentionally NOT here:
+// switching to an allowlist needs invitees, which this endpoint can't take —
+// callers create a fresh `selected` link via POST /api/recasts/[id]/share.
+const VALID = new Set(["public", "workspace", "team", "private"] as const);
+type Visibility = "public" | "workspace" | "team" | "private";
 
 /**
  * PATCH /api/share/[id]/access
  *
- * Owner-or-admin endpoint to change a share's visibility. Body:
- *   { visibility: "public" | "team" | "private", organizationId?: string }
+ * Change a share's visibility. Body: { visibility, organizationId? }.
  *
  * Rules:
- *   - Visibility must be one of the three enum values.
- *   - `team` requires an `organizationId`. We pull the caller's active org
- *     from the session as the default, but accept an explicit value so a
- *     future "share to a specific team" picker can override.
- *   - Only the share owner or a global admin may change settings.
+ *   - Visibility ∈ {public, workspace|team, private}. `selected` is rejected
+ *     (use the share dialog to pick people on a new link).
+ *   - workspace/team binds the share to a workspace. It defaults to the
+ *     recast's own workspace; an explicit `organizationId` is allowed ONLY if
+ *     the caller is a member of it (or a global admin) — otherwise a share
+ *     owner could expose the recast to a workspace they're not in.
+ *   - Manageable by the share owner, an owner/admin of the recast's workspace,
+ *     or a global admin (see `resolveShareManage`).
  */
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const session = (await getAuth()
@@ -38,46 +46,36 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	}
 
 	const visibility = typeof body.visibility === "string" ? body.visibility : "";
+	if (visibility === "selected") {
+		error(400, "To share with specific people, create a new link from the share dialog");
+	}
 	if (!VALID.has(visibility as Visibility)) {
 		error(400, "Invalid visibility value");
 	}
-
-	const db = getDb();
-
-	const [row] = await db
-		.select({ ownerId: share.ownerId })
-		.from(share)
-		.where(eq(share.slug, params.id))
-		.limit(1);
-
-	if (!row) error(404, "Share not found");
-
-	// Authorize: owner OR global admin. We re-read the user row instead
-	// of trusting the session's `role` so a role change takes effect on
-	// the next request without waiting for the session to re-issue.
-	const isOwner = row.ownerId === session.user.id;
-	let isAdmin = false;
-	if (!isOwner) {
-		const [u] = await db
-			.select({ role: user.role })
-			.from(user)
-			.where(eq(user.id, session.user.id))
-			.limit(1);
-		isAdmin = u?.role === "admin";
-	}
-	if (!isOwner && !isAdmin) error(403, "Not allowed to change this share");
-
 	const next = visibility as Visibility;
 
+	// Authorize against the share + its recast's workspace in one shared check.
+	const manage = await resolveShareManage(params.id, session.user.id);
+	if (!manage) error(404, "Share not found");
+	if (!manage.canManage) error(403, "Not allowed to change this share");
+
 	let organizationId: string | null = null;
-	if (next === "team") {
+	if (next === "workspace" || next === "team") {
 		const explicit = typeof body.organizationId === "string" ? body.organizationId : null;
-		organizationId = explicit ?? session.user.activeOrganizationId ?? null;
+		// Default to the recast's own workspace — the correct gate, and what
+		// share creation uses. An explicit override must be a workspace the
+		// caller actually belongs to (assertWorkspaceMember lets global admins
+		// through and throws 403 otherwise).
+		organizationId = explicit ?? manage.workspaceId ?? session.user.activeOrganizationId ?? null;
 		if (!organizationId) {
-			error(400, "Team visibility requires an active team");
+			error(400, "Team visibility requires a workspace");
+		}
+		if (organizationId !== manage.workspaceId) {
+			await assertWorkspaceMember(session.user.id, organizationId);
 		}
 	}
 
+	const db = getDb();
 	await db
 		.update(share)
 		.set({ visibility: next, organizationId })
