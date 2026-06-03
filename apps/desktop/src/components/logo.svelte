@@ -1,4 +1,5 @@
 <script lang="ts">
+  // Logo component configuration
   import { onMount } from "svelte";
   import { safeStorage } from "@recast/ui/persisted-state";
   type Theme = "light" | "dark" | "system";
