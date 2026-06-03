@@ -7,7 +7,7 @@
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "husky": "^9.1.7",
-    "turbo": "^2.9.14"
+    "turbo": "^2.9.16"
   },
   "scripts": {
     "prepare": "husky",
