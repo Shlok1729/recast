@@ -5,11 +5,13 @@
 		viewsByDay,
 	} from "$lib/dashboard/activity";
 	import ActivityBarChart from "$lib/dashboard/components/ActivityBarChart.svelte";
+	import PageHeader from "$lib/dashboard/components/PageHeader.svelte";
 	import RecentActivity from "$lib/dashboard/components/RecentActivity.svelte";
-	import StatCard from "$lib/dashboard/components/StatCard.svelte";
+	import StatGrid from "$lib/dashboard/components/StatGrid.svelte";
 	import TopRecasts from "$lib/dashboard/components/TopRecasts.svelte";
 	import { formatCount } from "$lib/dashboard/format";
-	import { recastsStore, type Recast } from "$lib/dashboard/store.svelte";
+	import { mapRecastsForStore } from "$lib/dashboard/hydrate";
+	import { recastsStore } from "$lib/dashboard/store.svelte";
 	import { BarChart3, Eye, Percent, Share2, Users } from "@lucide/svelte";
 	import { untrack } from "svelte";
 	import { cubicOut } from "svelte/easing";
@@ -17,23 +19,14 @@
 
 	let { data } = $props();
 
-	// Hydrate the local store with the server-loaded recasts so "Top recasts"
-	// and the shared-count stat reflect this workspace (not the design seed).
+	// Hydrate the local store so "Top recasts" + the shared-count stat reflect
+	// this workspace. Analytics never plays, so skip the playable URL.
 	$effect(() => {
-		const mapped: Recast[] = data.recasts.map((r) => ({
-			id: r.id,
-			title: r.title,
-			durationSec: r.durationSec,
-			createdAt: r.createdAt,
-			sizeBytes: r.sizeBytes,
-			source: r.source as Recast["source"],
-			provider: r.provider,
-			views: r.views,
-			folderId: null,
-			tags: [],
-			videoUrl: "",
-			posterUrl: r.posterUrl ?? "",
-		}));
+		const mapped = mapRecastsForStore(data.recasts, {
+			videoUrl: false,
+			folders: false,
+			tags: false,
+		});
 		untrack(() => recastsStore.hydrate(mapped));
 	});
 
@@ -80,20 +73,7 @@
 	<title>Analytics - Recast Dashboard</title>
 </svelte:head>
 
-<header
-	class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
-	in:fly={{ y: 12, duration: 500, easing: cubicOut }}
->
-	<div>
-		<div class="flex items-center gap-2">
-			<BarChart3 class="size-5 text-primary" />
-			<h1 class="text-2xl font-semibold tracking-tight text-foreground">Analytics</h1>
-		</div>
-		<p class="mt-1 text-sm text-muted-foreground">
-			How your shared recasts are performing.
-		</p>
-	</div>
-
+<PageHeader icon={BarChart3} title="Analytics" subtitle="How your shared recasts are performing.">
 	<!-- Range selector -->
 	<div class="flex items-center gap-1 rounded-lg border border-border-low/60 bg-card/40 p-1">
 		{#each ranges as r (r.value)}
@@ -110,15 +90,11 @@
 			</button>
 		{/each}
 	</div>
-</header>
+</PageHeader>
 
 <!-- Stats -->
-<div class="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
-	{#each stats as stat, i (stat.label)}
-		<div in:fly={{ y: 12, duration: 480, delay: 80 + i * 60, easing: cubicOut }}>
-			<StatCard icon={stat.icon} label={stat.label} value={stat.value} />
-		</div>
-	{/each}
+<div class="mt-7">
+	<StatGrid {stats} />
 </div>
 
 <!-- Chart + top recasts -->

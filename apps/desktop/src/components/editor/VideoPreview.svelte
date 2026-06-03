@@ -250,6 +250,52 @@
 		return t * t * (3 - 2 * t);
 	}
 
+	// Pinned click-highlight envelope. Returns the CAPTURED click position
+	// (raw source px) and an alpha that rises the instant the click lands,
+	// holds through the press, then fades. Decoupling the ring from the
+	// (smoothed, possibly lagging) cursor is what makes it appear exactly
+	// where AND when the click happened — riding the cursor read as delayed,
+	// off-target feedback under smoothing. Mirrors `click_highlight_at` in
+	// cursor_anim.rs so preview and export agree frame-for-frame.
+	const HIGHLIGHT_FADE_IN_US = 40_000;
+	const HIGHLIGHT_FADE_OUT_US = 220_000;
+	function clickHighlightAt(
+		tsUs: number,
+	): { x: number; y: number; alpha: number } | null {
+		let best: PressEvent | null = null;
+		let bestDt = Infinity;
+		for (let i = 0; i < pressEvents.length; i++) {
+			const ev = pressEvents[i];
+			const holdEnd = Math.max(
+				ev.upUs + PRESS_LINGER_US,
+				ev.downUs + PRESS_MIN_HOLD_US,
+			);
+			if (tsUs < ev.downUs) continue;
+			if (tsUs > holdEnd + HIGHLIGHT_FADE_OUT_US) continue;
+			const dt = tsUs - ev.downUs;
+			if (dt < bestDt) {
+				bestDt = dt;
+				best = ev;
+			}
+		}
+		if (!best) return null;
+		const holdEnd = Math.max(
+			best.upUs + PRESS_LINGER_US,
+			best.downUs + PRESS_MIN_HOLD_US,
+		);
+		let alpha: number;
+		if (tsUs < best.downUs + HIGHLIGHT_FADE_IN_US) {
+			alpha = smoothStep01((tsUs - best.downUs) / HIGHLIGHT_FADE_IN_US);
+		} else if (tsUs <= holdEnd) {
+			alpha = 1;
+		} else {
+			alpha = smoothStep01(
+				(holdEnd + HIGHLIGHT_FADE_OUT_US - tsUs) / HIGHLIGHT_FADE_OUT_US,
+			);
+		}
+		return { x: best.downX, y: best.downY, alpha };
+	}
+
 	// All click-relative state for a given moment. Linear scan — recordings
 	// rarely carry more than a few hundred clicks, and the per-frame cost is
 	// dominated by WebGL state setup anyway. When two events' influence
@@ -373,6 +419,8 @@ uniform float u_cursorRadius;     // pixels (canvas)
 uniform vec4 u_cursorColor;
 uniform vec4 u_highlightColor;
 uniform float u_highlightAlpha;   // 0 if no click highlight
+uniform vec2 u_highlightPos;      // [0..1] video UV, ALREADY zoom-transformed — the
+                                  // captured click point, independent of the cursor
 
 // Drop shadow cast by the video rect onto the background.
 uniform int u_shadowEnabled;      // 0 / 1
@@ -481,6 +529,24 @@ void main() {
 			videoColor = texture(u_video, videoUV);
 		}
 
+		// Click highlight halo — PINNED to the captured click point
+		// (u_highlightPos, already zoom-transformed), drawn under the cursor and
+		// independent of the cursor sprite / its visibility. This is what makes
+		// the ring land exactly where AND when the click happened even with
+		// smoothing on (the smoothed cursor lags, so riding it read as delayed,
+		// off-target feedback). u_highlightPos already carries the same affine
+		// zoom as the cursor, so it tracks the zoomed video.
+		if (u_highlightAlpha > 0.0) {
+			vec2 hlUV = u_highlightPos;
+			if (hlUV.x >= 0.0 && hlUV.x <= 1.0 && hlUV.y >= 0.0 && hlUV.y <= 1.0) {
+				vec2 hlPx = videoMin + hlUV * videoSize;
+				float hdist = length(canvasPx - hlPx);
+				float hr = u_cursorRadius * 6.0;
+				float ha = (1.0 - smoothstep(hr - 4.0, hr, hdist)) * u_highlightAlpha;
+				videoColor = mix(videoColor, u_highlightColor, ha);
+			}
+		}
+
 		// Cursor overlay (drawn on top of video, clipped to rounded video region).
 		if (u_cursorVisible > 0.5) {
 			vec2 cursorUV = u_cursorPos;
@@ -491,12 +557,6 @@ void main() {
 			if (cursorUV.x >= 0.0 && cursorUV.x <= 1.0 && cursorUV.y >= 0.0 && cursorUV.y <= 1.0) {
 				vec2 cursorPx = videoMin + cursorUV * videoSize;
 				float dist = length(canvasPx - cursorPx);
-
-				if (u_highlightAlpha > 0.0) {
-					float hr = u_cursorRadius * 6.0;
-					float ha = (1.0 - smoothstep(hr - 4.0, hr, dist)) * u_highlightAlpha;
-					videoColor = mix(videoColor, u_highlightColor, ha);
-				}
 
 				float cd = 1.0 - smoothstep(u_cursorRadius - 1.5, u_cursorRadius, dist);
 				videoColor = mix(videoColor, u_cursorColor, cd * u_cursorColor.a);
@@ -591,6 +651,7 @@ void main() {
 			"u_cursorColor",
 			"u_highlightColor",
 			"u_highlightAlpha",
+			"u_highlightPos",
 			"u_shadowEnabled",
 			"u_shadowBlurPx",
 			"u_shadowSpreadPx",
@@ -945,8 +1006,18 @@ void main() {
 			phase = Math.max(0, Math.min(1, phase));
 			const eased = atHold ? 1 : bezierY(curve, phase);
 			const scale = 1.0 + (r.scale - 1.0) * eased;
-			const cx = 0.5 + ((r.centerX ?? 0.5) - 0.5) * eased;
-			const cy = 0.5 + ((r.centerY ?? 0.5) - 0.5) * eased;
+			// Focus point is CONSTANT at the target for the whole region — only
+			// the scale eases. The zoom is an affine transform pinned at the
+			// focus: `(uv - c)/scale + c`. At scale≈1 that's the identity (so no
+			// visible offset on the first frame regardless of c), and as the
+			// scale ramps it dollies straight into the target. Easing the centre
+			// from 0.5→target instead (the old behaviour) made the frame grow at
+			// the centre first and then slide to the target — the "scale at
+			// centre, then snap" artifact. Keeping it constant also guarantees
+			// the cursor (which uses the same affine forward transform) stays
+			// glued to its content pixel through the whole ramp.
+			const cx = r.centerX ?? 0.5;
+			const cy = r.centerY ?? 0.5;
 			return { scale, cx, cy, motionBlur: r.motionBlur ?? 0 };
 		}
 		return { scale: 1.0, cx: 0.5, cy: 0.5, motionBlur: 0 };
@@ -1094,6 +1165,8 @@ void main() {
 		const cs = store.cursorSettings;
 		let cursorAlpha = 0;
 		let highlightAlpha = 0;
+		let highlightPosX = 0;
+		let highlightPosY = 0;
 		let cursorPosX = 0;
 		let cursorPosY = 0;
 		let cursorPressed = false;
@@ -1136,14 +1209,26 @@ void main() {
 					cursorPosY = posY / meta.height;
 					cursorPressed = press.pressedSprite;
 					cursorScale = press.scale;
-					// Highlight halo follows the ACTUAL captured click state
-					// (not the preroll), so the WebGL ring fires on the same
-					// frame as the audio click sound, regardless of how long
-					// the SVG sprite has been telegraphing the press.
-					const actualPressActive = !!(pos.leftDown || pos.rightDown);
-					if (cs.highlightClicks && actualPressActive) {
-						highlightAlpha = (cs.highlightOpacity / 100) * baseAlpha;
+				}
+			}
+
+			// Pinned click highlight — computed independent of the cursor's own
+			// visibility and smoothing so the ring lands EXACTLY at the captured
+			// click point and the click instant (riding the smoothed cursor made
+			// it lag behind, reading as delayed/off-target feedback). Uses the
+			// same affine zoom as the cursor so it tracks the zoomed video.
+			if (cs.highlightClicks) {
+				const hl = clickHighlightAt(ts);
+				if (hl) {
+					highlightAlpha = (cs.highlightOpacity / 100) * hl.alpha;
+					let hlUvX = hl.x / meta.width;
+					let hlUvY = hl.y / meta.height;
+					if (zoom.scale > 1.0001) {
+						hlUvX = (hlUvX - zoom.cx) * zoom.scale + zoom.cx;
+						hlUvY = (hlUvY - zoom.cy) * zoom.scale + zoom.cy;
 					}
+					highlightPosX = hlUvX;
+					highlightPosY = hlUvY;
 				}
 			}
 		}
@@ -1195,6 +1280,7 @@ void main() {
 		const [hr, hg, hb] = hexToRgba(cs.highlightColor || "#3b82f6");
 		gl.uniform4fv(uniforms.u_highlightColor, [hr, hg, hb, 1]);
 		gl.uniform1f(uniforms.u_highlightAlpha, highlightAlpha);
+		gl.uniform2f(uniforms.u_highlightPos, highlightPosX, highlightPosY);
 
 		// Drop shadow — offsets/blur/spread expressed in "video pixels" so the
 		// look scales consistently with the canvas at different container

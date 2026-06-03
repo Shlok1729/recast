@@ -31,6 +31,10 @@
 		recast,
 		folders,
 		tags,
+		selectable = false,
+		selected = false,
+		selectionMode = false,
+		onToggleSelect,
 		onplay,
 		onrename,
 		oncopylink,
@@ -42,6 +46,12 @@
 		recast: Recast;
 		folders: Folder[];
 		tags: Tag[];
+		/** Show the selection checkbox (on hover / when in selection mode). */
+		selectable?: boolean;
+		selected?: boolean;
+		/** When any card is selected, clicking a card toggles it instead of playing. */
+		selectionMode?: boolean;
+		onToggleSelect?: () => void;
 		onplay: () => void;
 		onrename: () => void;
 		oncopylink: () => void;
@@ -77,13 +87,35 @@
 <article
 	draggable="true"
 	ondragstart={onDragStart}
-	class="glass-card group/card relative flex h-full cursor-grab flex-col overflow-hidden rounded-xl transition-shadow duration-300 hover:shadow-craft-lg active:cursor-grabbing"
+	class="glass-card group/card relative flex h-full cursor-grab flex-col overflow-hidden rounded-xl transition-shadow duration-300 hover:shadow-craft-lg active:cursor-grabbing
+		{selected ? 'ring-2 ring-primary' : ''}"
 >
+	<!-- Selection checkbox — a sibling of the thumbnail button (never nested,
+	     which would be invalid). Visible on hover, or always in selection mode. -->
+	{#if selectable}
+		<button
+			type="button"
+			onclick={(e) => {
+				e.stopPropagation();
+				onToggleSelect?.();
+			}}
+			aria-pressed={selected}
+			aria-label={selected ? "Deselect recast" : "Select recast"}
+			class="absolute left-2.5 top-2.5 z-30 grid size-6 place-items-center rounded-full border shadow-craft-sm transition-all duration-200
+				{selected
+					? 'border-primary bg-primary text-background'
+					: 'border-foreground/40 bg-background/70 text-transparent opacity-0 backdrop-blur-sm group-hover/card:opacity-100'}
+				{selectionMode && !selected ? 'opacity-100' : ''}"
+		>
+			<Check class="size-3.5" />
+		</button>
+	{/if}
+
 	<!-- Thumbnail (fixed height — robust across grid breakpoints) -->
 	<button
 		type="button"
-		onclick={onplay}
-		aria-label="Play {recast.title}"
+		onclick={() => (selectionMode ? onToggleSelect?.() : onplay())}
+		aria-label={selectionMode ? `Toggle selection of ${recast.title}` : `Play ${recast.title}`}
 		class="relative block h-44 w-full shrink-0 overflow-hidden bg-foreground/5"
 	>
 		{#if showPoster}
@@ -129,7 +161,7 @@
 		</span>
 
 		<span
-			class="absolute left-2.5 top-2.5 z-20 flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ring-1 ring-inset backdrop-blur-sm
+			class="absolute bottom-2.5 left-2.5 z-20 flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ring-1 ring-inset backdrop-blur-sm
 				{recast.source === 'cloud'
 				? 'bg-primary/90 text-background ring-primary/40'
 				: 'bg-background/85 text-muted-foreground ring-border-low/50'}"

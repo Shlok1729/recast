@@ -23,10 +23,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::{anyhow, Context, Result};
 use image::{ImageReader, RgbaImage};
 
+use crate::cursor::smoothing::{
+    smooth_cursor_path, smoothing_strength_to_sigma_ms, SmoothedSample,
+};
 use crate::cursor::CursorTrack;
 use crate::render::cursor_anim::{
-    build_press_events_from_iter, click_anchor_at, click_bounce_scale, idle_sway_offset,
-    motion_blur_step_alpha, press_state_at,
+    build_press_events_from_iter, click_anchor_at, click_bounce_scale, click_highlight_at,
+    idle_sway_offset, motion_blur_step_alpha, press_state_at,
 };
 use crate::render::graph::RenderState;
 use crate::render::node_types::{Annotation, AnnotationKind};
@@ -152,6 +155,20 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
             s.right_down,
         )
     }));
+
+    // Smooth the cursor PATH exactly like the WebGL preview. The click timing
+    // and click positions above are taken from the RAW samples and the pinned
+    // highlight, so this only reshapes motion — it can never move where/when a
+    // click lands. Every position lookup below interpolates this smoothed
+    // buffer instead of the raw track; without it the export drew the raw path
+    // while the preview drew the smoothed one, and a zoom magnified the gap
+    // into a visibly off cursor.
+    let smoothed = smooth_cursor_path(
+        &track.samples,
+        smoothing_strength_to_sigma_ms(request.render_state.cursor_smoothing),
+        request.render_state.cursor_snap_to_clicks,
+        request.render_state.cursor_snap_window_ms,
+    );
 
     /// Find the click event nearest `t_secs`. Returns the offset in ms
     /// (`t - click_t`, signed, negative = click is in the future) or None
@@ -322,7 +339,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
         }
 
         // Sample cursor position at this timestamp.
-        let sample = match interpolate_cursor(&track, t_track_us) {
+        let sample = match interpolate_cursor(&smoothed, t_track_us) {
             Some(s) => s,
             None => {
                 // No cursor data — write the empty frame.
@@ -408,7 +425,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
             let velocity_px_per_s = {
                 let lookback_us = 16_000_u64;
                 let past_us = t_track_us.saturating_sub(lookback_us);
-                if let Some(prev) = interpolate_cursor(&track, past_us) {
+                if let Some(prev) = interpolate_cursor(&smoothed, past_us) {
                     let dt = (t_track_us - past_us) as f64 / 1_000_000.0;
                     if dt > 0.0 {
                         ((sample.x - prev.x).powi(2) + (sample.y - prev.y).powi(2)).sqrt() / dt
@@ -480,7 +497,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
                 if past_us < 0 {
                     continue;
                 }
-                let past_sample = match interpolate_cursor(&track, past_us as u64) {
+                let past_sample = match interpolate_cursor(&smoothed, past_us as u64) {
                     Some(s) if s.visible => s,
                     _ => continue,
                 };
@@ -500,24 +517,53 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
             }
         }
 
-        // Click highlight halo — drawn underneath the dot/sprite so both
-        // the soft-dot and macOS sprite share the same press indicator.
-        let show_highlight =
-            request.render_state.cursor_highlight_clicks && (sample.left_down || sample.right_down);
-        if show_highlight {
-            let hr_radius = cursor_radius_canvas * 6.0;
-            draw_filled_circle_soft(
-                &mut frame,
-                canvas_w,
-                canvas_h,
-                cursor_canvas_x,
-                cursor_canvas_y,
-                hr_radius,
-                hr,
-                hg,
-                hb,
-                highlight_alpha_base * idle_alpha,
-            );
+        // Click highlight halo — PINNED to the captured click point + instant
+        // (via `click_highlight_at` on the raw press events), NOT the smoothed
+        // cursor. The ring therefore lands exactly where and when the click
+        // happened, independent of smoothing — riding `cursor_canvas_*` made it
+        // lag behind under smoothing, reading as delayed/off-target feedback.
+        // Drawn underneath the dot/sprite so both share one press indicator.
+        // Mirrors the pinned `u_highlightPos` halo in VideoPreview.svelte.
+        if request.render_state.cursor_highlight_clicks {
+            if let Some((click_x, click_y, hl_env)) =
+                click_highlight_at(t_track_us as i64, &press_events)
+            {
+                // Same affine zoom as the cursor so the ring tracks the
+                // zoomed video; only draw when the click point is inside the
+                // visible (zoomed) source rect.
+                let (mut hx, mut hy) = (click_x, click_y);
+                if let Some((scale, center_x, center_y)) =
+                    active_zoom_at(&request.render_state.zoom_regions, t_track_secs)
+                {
+                    let scx = center_x.clamp(0.0, 1.0) * request.source_width as f64;
+                    let scy = center_y.clamp(0.0, 1.0) * request.source_height as f64;
+                    hx = (hx - scx) * scale + scx;
+                    hy = (hy - scy) * scale + scy;
+                }
+                if hx >= 0.0
+                    && hx <= request.source_width as f64
+                    && hy >= 0.0
+                    && hy <= request.source_height as f64
+                {
+                    let hl_canvas_x = (request.padding as f64 + hx) * scale_canvas;
+                    let hl_canvas_y = (request.padding as f64 + hy) * scale_canvas;
+                    // Ring radius pulses with the press scale to match the
+                    // preview's `u_cursorRadius` (which includes press.scale).
+                    let hr_radius = cursor_radius_canvas * 6.0 * press.scale;
+                    draw_filled_circle_soft(
+                        &mut frame,
+                        canvas_w,
+                        canvas_h,
+                        hl_canvas_x,
+                        hl_canvas_y,
+                        hr_radius,
+                        hr,
+                        hg,
+                        hb,
+                        highlight_alpha_base * hl_env,
+                    );
+                }
+            }
         }
 
         if cursor_sprite_active {
@@ -656,12 +702,17 @@ struct InterpolatedCursor {
     x: f64,
     y: f64,
     visible: bool,
+    // Interpolated button state, kept to mirror the JS `interpolateCursor`
+    // shape. The click halo now keys off the raw press events
+    // (`click_highlight_at`) rather than the per-sample button state, so these
+    // are currently unread on the Rust side.
+    #[allow(dead_code)]
     left_down: bool,
+    #[allow(dead_code)]
     right_down: bool,
 }
 
-fn interpolate_cursor(track: &CursorTrack, timestamp_us: u64) -> Option<InterpolatedCursor> {
-    let samples = &track.samples;
+fn interpolate_cursor(samples: &[SmoothedSample], timestamp_us: u64) -> Option<InterpolatedCursor> {
     if samples.is_empty() {
         return None;
     }
@@ -682,8 +733,8 @@ fn interpolate_cursor(track: &CursorTrack, timestamp_us: u64) -> Option<Interpol
     if idx >= samples.len() {
         let last = samples.last().unwrap();
         return Some(InterpolatedCursor {
-            x: last.x as f64,
-            y: last.y as f64,
+            x: last.x,
+            y: last.y,
             visible: last.visible,
             left_down: last.left_down,
             right_down: last.right_down,
@@ -693,8 +744,8 @@ fn interpolate_cursor(track: &CursorTrack, timestamp_us: u64) -> Option<Interpol
     if idx == 0 || samples[idx].timestamp_us == timestamp_us {
         let s = &samples[idx];
         return Some(InterpolatedCursor {
-            x: s.x as f64,
-            y: s.y as f64,
+            x: s.x,
+            y: s.y,
             visible: s.visible,
             left_down: s.left_down,
             right_down: s.right_down,
@@ -713,8 +764,8 @@ fn interpolate_cursor(track: &CursorTrack, timestamp_us: u64) -> Option<Interpol
     // Linear interpolate position; nearest-neighbor for discrete flags.
     let pick = if t < 0.5 { a } else { b };
     Some(InterpolatedCursor {
-        x: a.x as f64 + (b.x as f64 - a.x as f64) * t,
-        y: a.y as f64 + (b.y as f64 - a.y as f64) * t,
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
         visible: pick.visible,
         left_down: pick.left_down,
         right_down: pick.right_down,

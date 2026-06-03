@@ -16,10 +16,17 @@ export type Activity = {
 	/** Anonymous session fingerprint for view events — the key we count unique
 	 *  viewers by. Absent on non-view rows (e.g. "shared"). */
 	sessionId?: string;
+	/** ISO country code from the edge header, when known (view events only). */
+	country?: string | null;
 	kind: ActivityKind;
 	timestamp: number;
 	watchPct: number;
 };
+
+/** Only the "viewed"/"completed" rows represent an actual play. */
+function viewEvents(activity: Activity[]): Activity[] {
+	return activity.filter((a) => a.kind === "viewed" || a.kind === "completed");
+}
 
 const DAY = 86_400_000;
 

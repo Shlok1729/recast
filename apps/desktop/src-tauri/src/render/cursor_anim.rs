@@ -208,6 +208,53 @@ pub fn click_anchor_at(ts_us: i64, events: &[PressEvent]) -> Option<(f64, f64, f
     Some((ev.down_x, ev.down_y, weight))
 }
 
+/// Fade-in / fade-out of the pinned click highlight, in μs. Mirror of the
+/// `HIGHLIGHT_FADE_*_US` constants in VideoPreview.svelte.
+const HIGHLIGHT_FADE_IN_US: i64 = 40_000;
+const HIGHLIGHT_FADE_OUT_US: i64 = 220_000;
+
+/// Pinned click-highlight envelope. Returns the CAPTURED click position
+/// (source px) and an alpha that rises the instant the click lands, holds
+/// through the press, then fades out. The ring is keyed to the raw click —
+/// NOT the (smoothed) cursor — so it marks exactly where and when the click
+/// happened even with smoothing on; riding the lagging cursor read as delayed,
+/// off-target feedback. Mirrors `clickHighlightAt` in VideoPreview.svelte.
+/// `events` MUST be sorted ascending by `down_us`.
+pub fn click_highlight_at(ts_us: i64, events: &[PressEvent]) -> Option<(f64, f64, f64)> {
+    let mut best: Option<PressEvent> = None;
+    let mut best_dt = i64::MAX;
+    for &ev in events {
+        let down = ev.down_us as i64;
+        let up = ev.up_us as i64;
+        let hold_end = (up + PRESS_LINGER_US).max(down + PRESS_MIN_HOLD_US);
+        if ts_us < down {
+            continue;
+        }
+        if ts_us > hold_end + HIGHLIGHT_FADE_OUT_US {
+            continue;
+        }
+        let dt = ts_us - down;
+        if dt < best_dt {
+            best_dt = dt;
+            best = Some(ev);
+        }
+    }
+    let ev = best?;
+    let down = ev.down_us as i64;
+    let up = ev.up_us as i64;
+    let hold_end = (up + PRESS_LINGER_US).max(down + PRESS_MIN_HOLD_US);
+    let alpha = if ts_us < down + HIGHLIGHT_FADE_IN_US {
+        smooth_step_01((ts_us - down) as f64 / HIGHLIGHT_FADE_IN_US as f64)
+    } else if ts_us <= hold_end {
+        1.0
+    } else {
+        smooth_step_01(
+            (hold_end + HIGHLIGHT_FADE_OUT_US - ts_us) as f64 / HIGHLIGHT_FADE_OUT_US as f64,
+        )
+    };
+    Some((ev.down_x, ev.down_y, alpha))
+}
+
 /// Map a click-bounce sample to a sprite scale multiplier.
 ///
 /// `t_ms` is the signed offset (in ms) from the *nearest* click event:

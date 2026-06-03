@@ -75,6 +75,127 @@ pub fn detect_idle_periods(
     periods
 }
 
+//  Path smoothing (export-side port of smoothing.ts)
+//
+// The WebGL preview smooths the cursor path in `smoothing.ts`
+// (`smoothCursorPath`) but the export compositor historically read the RAW
+// track, so a smoothed preview and a raw export disagreed — and once a zoom
+// magnified that gap it read as the cursor being "way off". This is an EXACT
+// port so the two paths produce the same trajectory frame-for-frame. Click
+// timing/positions are NOT taken from here — those come from the raw press
+// events — so smoothing can never shift where/when a click lands.
+
+/// One smoothed cursor sample. Position is f64 (sub-pixel, matching the
+/// preview); timestamps and button flags are preserved from the raw sample.
+#[derive(Debug, Clone, Copy)]
+pub struct SmoothedSample {
+    pub timestamp_us: u64,
+    pub x: f64,
+    pub y: f64,
+    pub visible: bool,
+    pub left_down: bool,
+    pub right_down: bool,
+}
+
+/// Map the UI strength slider (0..100) to a Gaussian σ in ms. Mirror of
+/// `smoothingStrengthToSigmaMs` in smoothing.ts (× 1.5; 50 → 75 ms).
+pub fn smoothing_strength_to_sigma_ms(strength: f64) -> f64 {
+    strength.clamp(0.0, 100.0) * 1.5
+}
+
+/// Time-weighted Gaussian smoothing of a cursor path, then (optionally) a
+/// cosine-ramped anchor that pulls the curve exactly through each click x/y
+/// inside `snap_window_ms`. EXACT port of `smoothCursorPath` in smoothing.ts.
+pub fn smooth_cursor_path(
+    raw: &[CursorSample],
+    sigma_ms: f64,
+    snap_to_clicks: bool,
+    snap_window_ms: f64,
+) -> Vec<SmoothedSample> {
+    let n = raw.len();
+    let mut out: Vec<SmoothedSample> = raw
+        .iter()
+        .map(|s| SmoothedSample {
+            timestamp_us: s.timestamp_us,
+            x: s.x as f64,
+            y: s.y as f64,
+            visible: s.visible,
+            left_down: s.left_down,
+            right_down: s.right_down,
+        })
+        .collect();
+
+    if n < 2 || sigma_ms <= 0.0 {
+        return out;
+    }
+
+    let sigma_us = sigma_ms * 1000.0;
+    let window_us = (sigma_us * 3.0) as i64; // ±3σ catches ~99.7% of the weight
+    let snap_us = snap_window_ms.max(0.0) * 1000.0;
+    let inv_2sigma2 = 1.0 / (2.0 * sigma_us * sigma_us);
+
+    // Gaussian smoothing with a monotonically-advancing window. Sums read the
+    // RAW positions (never the partially-written output), so writing `out[i]`
+    // in-place is safe and matches the JS exactly.
+    let mut lo = 0usize;
+    let mut hi = 0usize;
+    for i in 0..n {
+        let center_ts = raw[i].timestamp_us as i64;
+        let min_t = center_ts - window_us;
+        let max_t = center_ts + window_us;
+        while lo < n && (raw[lo].timestamp_us as i64) < min_t {
+            lo += 1;
+        }
+        while hi < n && (raw[hi].timestamp_us as i64) <= max_t {
+            hi += 1;
+        }
+        let mut sum_w = 0.0;
+        let mut sum_x = 0.0;
+        let mut sum_y = 0.0;
+        for j in lo..hi {
+            let dt = (raw[j].timestamp_us as i64 - center_ts) as f64;
+            let w = (-(dt * dt) * inv_2sigma2).exp();
+            sum_w += w;
+            sum_x += w * raw[j].x as f64;
+            sum_y += w * raw[j].y as f64;
+        }
+        if sum_w > 0.0 {
+            out[i].x = sum_x / sum_w;
+            out[i].y = sum_y / sum_w;
+        }
+    }
+
+    // Click anchor: cosine ramp from smoothed → click → smoothed inside the
+    // snap window (falloff = 1 at the click timestamp, 0 at the edge), so the
+    // path glides through the exact captured click x/y without a seam.
+    if snap_to_clicks && snap_us > 0.0 {
+        // Rising-edge click anchors detected from RAW samples.
+        let mut anchors: Vec<(i64, f64, f64)> = Vec::new();
+        for i in 1..n {
+            let prev = &raw[i - 1];
+            let curr = &raw[i];
+            let left_edge = !prev.left_down && curr.left_down;
+            let right_edge = !prev.right_down && curr.right_down;
+            if left_edge || right_edge {
+                anchors.push((curr.timestamp_us as i64, curr.x as f64, curr.y as f64));
+            }
+        }
+        for (ats, ax, ay) in anchors {
+            for s in out.iter_mut() {
+                let dt = (s.timestamp_us as i64 - ats).abs() as f64;
+                if dt > snap_us {
+                    continue;
+                }
+                let falloff = 0.5 + 0.5 * ((dt / snap_us) * std::f64::consts::PI).cos();
+                s.x = s.x * (1.0 - falloff) + ax * falloff;
+                s.y = s.y * (1.0 - falloff) + ay * falloff;
+            }
+        }
+    }
+
+    out
+}
+
 //  Zoom trigger detection
 //
 // A zoom should land where the viewer *needs* to look — a deliberate
