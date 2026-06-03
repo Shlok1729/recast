@@ -5,7 +5,6 @@
 	import RecentActivity from "$lib/dashboard/components/RecentActivity.svelte";
 	import RecentRecasts from "$lib/dashboard/components/RecentRecasts.svelte";
 	import StatGrid from "$lib/dashboard/components/StatGrid.svelte";
-	import TopRecasts from "$lib/dashboard/components/TopRecasts.svelte";
 	import UsageMeter from "$lib/dashboard/components/UsageMeter.svelte";
 	import { formatBytes, formatCount } from "$lib/dashboard/format";
 	import { mapRecastsForStore } from "$lib/dashboard/hydrate";
@@ -148,9 +147,6 @@
 
 	<div class="flex flex-col gap-4">
 		<div in:fly={{ y: 12, duration: 480, delay: 420, easing: cubicOut }}>
-			<TopRecasts recasts={recastsStore.items} />
-		</div>
-		<div in:fly={{ y: 12, duration: 480, delay: 480, easing: cubicOut }}>
 			<UsageMeter />
 		</div>
 	</div>

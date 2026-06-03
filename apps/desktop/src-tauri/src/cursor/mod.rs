@@ -301,3 +301,33 @@ pub fn write_cursor_track(path: &Path, track: &CursorTrack) -> Result<()> {
     std::fs::write(path, serde_json::to_vec_pretty(track)?)?;
     Ok(())
 }
+
+/// Shift every timestamp in the track earlier by `offset_us`, clamping at 0.
+///
+/// The cursor clock starts at recording start, but the video timeline is
+/// frame-count based and its first encoded frame is whatever the DXGI
+/// duplication warmup produced first — i.e. video t=0 corresponds to
+/// wall-clock `offset_us`, not 0. Left uncorrected, the whole cursor track
+/// runs ahead of the video by the warmup, so clicks and the click highlight
+/// land that far off from the on-screen action (the ~half-second the user
+/// reported). Subtracting the offset re-bases the cursor track onto the video
+/// clock. Samples captured during the warmup (before the first frame) clamp to
+/// 0 — they have no corresponding video and collapse onto the first frame.
+pub fn shift_cursor_track(track: &mut CursorTrack, offset_us: u64) {
+    if offset_us == 0 {
+        return;
+    }
+    for s in &mut track.samples {
+        s.timestamp_us = s.timestamp_us.saturating_sub(offset_us);
+    }
+    for c in &mut track.clicks {
+        c.timestamp_us = c.timestamp_us.saturating_sub(offset_us);
+    }
+    for p in &mut track.idle_periods {
+        p.start_us = p.start_us.saturating_sub(offset_us);
+        p.end_us = p.end_us.saturating_sub(offset_us);
+    }
+    for z in &mut track.zoom_triggers {
+        z.timestamp_us = z.timestamp_us.saturating_sub(offset_us);
+    }
+}

@@ -14,7 +14,9 @@ use xcap::{Monitor, Window};
 use crate::audio::{
     AudioCaptureConfig, AudioCaptureSession, MicrophoneCaptureConfig, MicrophoneCaptureSession,
 };
-use crate::cursor::{spawn_cursor_capture, write_cursor_track, CursorCaptureFrame, CursorTrack};
+use crate::cursor::{
+    shift_cursor_track, spawn_cursor_capture, write_cursor_track, CursorCaptureFrame, CursorTrack,
+};
 use crate::encoder::{spawn_encoder_loop, EncoderConfig};
 use crate::render::node_types::{CameraMotionSegment, CameraOverlaySettings, CameraPlacement};
 use pipeline::{spawn_capture_loop, PipelineSnapshot, RecordingPipeline};
@@ -411,6 +413,10 @@ struct RecordingSession {
     capture_handle: JoinHandle<Result<()>>,
     encoder_handle: JoinHandle<Result<()>>,
     cursor_handle: JoinHandle<CursorTrack>,
+    /// Wall-clock μs from recording start to the first encoded video frame
+    /// (capture-source warmup). Subtracted from the cursor track at `stop()`
+    /// so cursor t=0 aligns with video frame 0.
+    first_frame_offset_us: Arc<AtomicU64>,
     audio_session: Option<AudioCaptureSession>,
     audio_path: PathBuf,
     microphone_session: Option<MicrophoneCaptureSession>,
@@ -559,6 +565,7 @@ impl RecordingManager {
         let pipeline = RecordingPipeline::new(queue_capacity);
         let mut warnings = Vec::new();
 
+        let first_frame_offset_us = Arc::new(AtomicU64::new(0));
         let capture_handle = spawn_capture_loop(
             target.clone(),
             stop_flag.clone(),
@@ -566,6 +573,7 @@ impl RecordingManager {
             pipeline.clone(),
             started_at,
             RECORDING_FPS,
+            first_frame_offset_us.clone(),
         )?;
 
         let encoder_handle = spawn_encoder_loop(
@@ -653,6 +661,7 @@ impl RecordingManager {
             capture_handle,
             encoder_handle,
             cursor_handle,
+            first_frame_offset_us,
             audio_session,
             audio_path,
             microphone_session,
@@ -684,10 +693,17 @@ impl RecordingManager {
             .join()
             .map_err(|_| anyhow!("capture thread panicked"))??;
 
-        let cursor_track = session
+        let mut cursor_track = session
             .cursor_handle
             .join()
             .map_err(|_| anyhow!("cursor thread panicked"))?;
+        // Re-base the cursor track onto the video clock: the capture-source
+        // warmup means video frame 0 is wall-clock `first_frame_offset_us`, not
+        // 0, while the cursor track has been ticking since recording start.
+        // Without this the cursor (and its clicks / highlight) runs ahead of
+        // the on-screen action by the warmup — the reported ~half-second delay.
+        let cursor_offset_us = session.first_frame_offset_us.load(Ordering::Acquire);
+        shift_cursor_track(&mut cursor_track, cursor_offset_us);
         write_cursor_track(&session.cursor_path, &cursor_track)?;
 
         session

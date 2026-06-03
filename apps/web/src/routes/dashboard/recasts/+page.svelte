@@ -10,9 +10,7 @@
 	import RecastGrid from "$lib/dashboard/components/RecastGrid.svelte";
 	import RenameDialog from "$lib/dashboard/components/RenameDialog.svelte";
 	import SelectionBar from "$lib/dashboard/components/SelectionBar.svelte";
-	import StatGrid from "$lib/dashboard/components/StatGrid.svelte";
 	import TagManagerDialog from "$lib/dashboard/components/TagManagerDialog.svelte";
-	import { formatBytes } from "$lib/dashboard/format";
 	import { mapRecastsForStore } from "$lib/dashboard/hydrate";
 	import { foldersStore, tagsStore } from "$lib/dashboard/library.svelte";
 	import {
@@ -21,7 +19,7 @@
 		type RecordingSource,
 	} from "$lib/dashboard/store.svelte";
 	import { UPLOAD_ACCEPT, uploadRecastFile, type UploadPhase } from "$lib/dashboard/upload";
-	import { Archive, Cloud, FolderOpen, HardDrive, Library, LoaderCircle, Upload, UploadCloud, Video } from "@lucide/svelte";
+	import { Archive, FolderOpen, Library, LoaderCircle, Upload, UploadCloud } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
 	import { toast } from "@recast/ui/sonner";
 	import { untrack } from "svelte";
@@ -122,12 +120,6 @@
 			}
 		});
 	});
-
-	const stats = $derived([
-		{ icon: Video, label: "Recasts", value: String(recastsStore.items.length) },
-		{ icon: HardDrive, label: "Storage used", value: formatBytes(recastsStore.usedBytes) },
-		{ icon: Cloud, label: "On cloud", value: String(recastsStore.cloudCount) },
-	]);
 
 	const hasRecasts = $derived(recastsStore.items.length > 0);
 	const filtersActive = $derived(
@@ -402,11 +394,6 @@
 		</div>
 	</div>
 {/if}
-
-<!-- Stats -->
-<div class="mt-7">
-	<StatGrid {stats} class="grid grid-cols-1 gap-3 sm:grid-cols-3" />
-</div>
 
 <!-- View tabs: Library / Archived -->
 <div class="mt-8 flex items-center gap-1 border-b border-border-low/60" in:fly={{ y: 12, duration: 480, delay: 200, easing: cubicOut }}>

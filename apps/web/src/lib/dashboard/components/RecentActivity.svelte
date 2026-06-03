@@ -6,9 +6,15 @@
 	let {
 		activity,
 		limit = 6,
+		linkHref = "/dashboard/analytics",
+		linkLabel = "Analytics →",
 	}: {
 		activity: Activity[];
 		limit?: number;
+		/** Header link target; pass `null` to hide it (e.g. when already on
+		 *  the analytics or per-recast page, where it would be circular). */
+		linkHref?: string | null;
+		linkLabel?: string;
 	} = $props();
 
 	const items = $derived(activity.slice(0, limit));
@@ -30,12 +36,14 @@
 			<ActivityIcon class="size-4 text-primary" />
 			<h2 class="text-sm font-semibold text-foreground">Recent activity</h2>
 		</div>
-		<a
-			href="/dashboard/analytics"
-			class="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
-		>
-			Analytics →
-		</a>
+		{#if linkHref}
+			<a
+				href={linkHref}
+				class="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+			>
+				{linkLabel}
+			</a>
+		{/if}
 	</header>
 
 	{#if items.length === 0}

@@ -7,9 +7,11 @@
 	} from "$lib/dashboard/format";
 	import type { Folder, Tag } from "$lib/dashboard/library.svelte";
 	import type { Recast } from "$lib/dashboard/store.svelte";
+	import { goto } from "$app/navigation";
 	import { Chip } from "@recast/ui/chip";
 	import * as DropdownMenu from "@recast/ui/dropdown-menu";
 	import {
+		BarChart3,
 		Check,
 		Clock,
 		Cloud,
@@ -205,6 +207,10 @@
 					<DropdownMenu.Item onclick={oncopylink}>
 						<Link2 class="size-4 text-muted-foreground" />
 						Copy link
+					</DropdownMenu.Item>
+					<DropdownMenu.Item onclick={() => goto(`/dashboard/recasts/${recast.id}`)}>
+						<BarChart3 class="size-4 text-muted-foreground" />
+						View analytics
 					</DropdownMenu.Item>
 
 					<!-- Move to folder -->
