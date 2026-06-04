@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 mod audio;
+mod cache;
 mod camera;
 mod capture;
 mod commands;

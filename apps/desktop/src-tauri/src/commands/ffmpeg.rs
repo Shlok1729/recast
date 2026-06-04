@@ -1275,6 +1275,13 @@ pub fn probe_video_metadata(path: &Path) -> Result<VideoMetadata, String> {
         return Err("File not found".into());
     }
 
+    // ffprobe is spawned on every editor open (100–500 ms cold) and again
+    // during thumbnail generation. The result is immutable for a given file,
+    // so serve it from the file-identity disk cache when available.
+    if let Some(cached) = crate::cache::get::<VideoMetadata>("probe", &[path], 0) {
+        return Ok(cached);
+    }
+
     let size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or_default();
     let path_string = path.to_string_lossy().to_string();
     let mut command = Command::new(ffprobe_path());
@@ -1331,14 +1338,18 @@ pub fn probe_video_metadata(path: &Path) -> Result<VideoMetadata, String> {
                 (0, 0, 30.0, "unknown".into())
             };
 
-            Ok(VideoMetadata {
+            let meta = VideoMetadata {
                 duration,
                 width,
                 height,
                 fps,
                 codec,
                 size_bytes,
-            })
+            };
+            // Only the successful probe is cached — the zeroed fallback below
+            // represents a probe failure and must not be pinned.
+            crate::cache::put("probe", &[path], 0, &meta);
+            Ok(meta)
         }
         _ => Ok(VideoMetadata {
             duration: 0.0,

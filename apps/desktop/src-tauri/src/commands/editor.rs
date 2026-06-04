@@ -407,6 +407,19 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
         .as_ref()
         .map(|value| value.recording_path.clone())
         .unwrap_or(input);
+
+    // Thumbnails are identical for a given (file, count) until the recording
+    // changes — so reuse a disk-cached strip across editor opens instead of
+    // re-running the full FFmpeg decode every time (the dominant "slow load").
+    // Keyed by the media file's identity; invalidated automatically when it
+    // changes. `count` is the discriminator so the poster (count=1) and the
+    // timeline strip don't collide.
+    if let Some(cached) =
+        crate::cache::get::<Vec<String>>("thumbs", &[media_path.as_path()], count as u64)
+    {
+        return Ok(cached);
+    }
+
     let meta = probe_video_metadata(&media_path)?;
     if meta.duration <= 0.0 || count == 0 {
         return Ok(Vec::new());
@@ -418,16 +431,18 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
     // — that's a single decode at the requested timestamp, no full read.
     if count == 1 {
         let timestamp = meta.duration * 0.25;
-        return Ok(
-            extract_single_thumbnail(&media_path, timestamp, scale_width)
-                .map(|jpeg| {
-                    vec![format!(
-                        "data:image/jpeg;base64,{}",
-                        general_purpose::STANDARD.encode(jpeg)
-                    )]
-                })
-                .unwrap_or_default(),
-        );
+        let poster = extract_single_thumbnail(&media_path, timestamp, scale_width)
+            .map(|jpeg| {
+                vec![format!(
+                    "data:image/jpeg;base64,{}",
+                    general_purpose::STANDARD.encode(jpeg)
+                )]
+            })
+            .unwrap_or_default();
+        if !poster.is_empty() {
+            crate::cache::put("thumbs", &[media_path.as_path()], count as u64, &poster);
+        }
+        return Ok(poster);
     }
 
     // Timeline strip path: collect every thumbnail in ONE FFmpeg invocation
@@ -495,6 +510,12 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
     // Best-effort removal of the now-empty per-invocation subdir. Ignore
     // failure (parallel invocations or filesystem races can leave stragglers).
     let _ = fs::remove_dir(&temp_dir);
+
+    // Persist the strip so the next open of this recording skips the decode.
+    // Only cache a complete strip — a partial/failed run shouldn't be pinned.
+    if !thumbnails.is_empty() {
+        crate::cache::put("thumbs", &[media_path.as_path()], count as u64, &thumbnails);
+    }
 
     Ok(thumbnails)
 }

@@ -35,24 +35,44 @@ export function isVirtualCameraLabel(label: string): boolean {
 }
 
 /**
+ * The WebView exposes no `navigator.mediaDevices` at all. On macOS this is
+ * what WKWebView does when the app bundle declares no `NSCameraUsageDescription`
+ * (see src-tauri/Info.plist) — the whole MediaDevices API is stripped rather
+ * than prompting, so enumerate/getUserMedia would throw the opaque
+ * "undefined is not an object" instead of a real error. Surface something the
+ * user can act on.
+ */
+function assertMediaDevices(): MediaDevices {
+	const media = navigator.mediaDevices;
+	if (!media || typeof media.enumerateDevices !== "function") {
+		throw new Error(
+			"Camera access isn't available in this build. Update Recast, then " +
+				"check System Settings → Privacy & Security → Camera is enabled for it.",
+		);
+	}
+	return media;
+}
+
+/**
  * Enumerate video input devices visible to this WebView. Triggers a one-shot
  * permission probe if labels are blank (browsers strip labels until permission
  * is granted at least once). Real hardware is sorted ahead of virtual cameras
  * so callers that pick `[0]` get a sane default.
  */
 export async function enumerateCameras(): Promise<BrowserCamera[]> {
-	let devices = await navigator.mediaDevices.enumerateDevices();
+	const media = assertMediaDevices();
+	let devices = await media.enumerateDevices();
 	const labelsPopulated = devices.some(
 		(d) => d.kind === "videoinput" && !!d.label,
 	);
 	if (!labelsPopulated) {
 		try {
-			const probe = await navigator.mediaDevices.getUserMedia({ video: true });
+			const probe = await media.getUserMedia({ video: true });
 			probe.getTracks().forEach((t) => t.stop());
 		} catch (e) {
 			console.warn("[camera] label probe failed:", e);
 		}
-		devices = await navigator.mediaDevices.enumerateDevices();
+		devices = await media.enumerateDevices();
 	}
 
 	return devices
@@ -123,7 +143,7 @@ export async function openCameraStream(
 		);
 	}
 
-	const stream = await navigator.mediaDevices.getUserMedia({
+	const stream = await assertMediaDevices().getUserMedia({
 		video: { deviceId: { exact: target.deviceId } },
 		audio: false,
 	});

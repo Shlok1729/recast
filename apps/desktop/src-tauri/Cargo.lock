@@ -4482,6 +4482,7 @@ dependencies = [
  "parking_lot",
  "pipewire",
  "rand 0.8.5",
+ "rayon",
  "reqwest 0.12.28",
  "screencapturekit",
  "serde",

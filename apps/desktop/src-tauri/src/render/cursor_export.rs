@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{anyhow, Context, Result};
 use image::{ImageReader, RgbaImage};
+use rayon::prelude::*;
 
 use crate::cursor::smoothing::{
     smooth_cursor_path, smoothing_strength_to_sigma_ms, SmoothedSample,
@@ -223,11 +224,13 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
     let (hr, hg, hb) =
         parse_hex_color(&request.render_state.cursor_highlight_color).unwrap_or((0x3b, 0x82, 0xf6));
 
-    // Allocate one reusable frame buffer.
+    // Frame geometry. Each frame below allocates its own zero-filled buffer so
+    // the render can fan out across cores (see the parallel driver after the
+    // closure) — frames are independent timestamp lookups, so the only ordering
+    // constraint is the sequential stdin write.
     let canvas_w = request.canvas_width as usize;
     let canvas_h = request.canvas_height as usize;
     let bytes_per_frame = canvas_w * canvas_h * 4;
-    let mut frame = vec![0u8; bytes_per_frame];
 
     // Spawn FFmpeg to encode raw RGBA → QTRLE-in-MOV. QTRLE is a lossless
     // RLE codec with true alpha (`-pix_fmt argb`) that compresses
@@ -301,9 +304,12 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
     }
     let cursor_sprite_active = image_cache.contains_key(CURSOR_SPRITE_KEY_REST);
 
-    for i in 0..frame_count {
-        // Clear frame to transparent.
-        frame.fill(0);
+    // Renders frame `i` into its own buffer. Pure function of `i` over the
+    // precomputed, read-only state above (smoothed path, press events, zoom
+    // LUT, idle periods, image cache), so it's safe to call concurrently.
+    let render_one = |i: u64| -> Vec<u8> {
+        // Fresh buffer, zero-filled = fully transparent.
+        let mut frame = vec![0u8; bytes_per_frame];
 
         // Wall-clock time relative to the trimmed output, mapped to cursor-track time.
         let t_out_us = (i * 1_000_000) / request.fps as u64;
@@ -332,29 +338,20 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
         }
 
         if !cursor_enabled {
-            stdin
-                .write_all(&frame)
-                .context("failed to write cursor frame to ffmpeg stdin")?;
-            continue;
+            return frame;
         }
 
         // Sample cursor position at this timestamp.
         let sample = match interpolate_cursor(&smoothed, t_track_us) {
             Some(s) => s,
             None => {
-                // No cursor data — write the empty frame.
-                stdin
-                    .write_all(&frame)
-                    .context("failed to write cursor frame to ffmpeg stdin")?;
-                continue;
+                // No cursor data — emit the empty (annotation-only) frame.
+                return frame;
             }
         };
 
         if !sample.visible {
-            stdin
-                .write_all(&frame)
-                .context("failed to write cursor frame to ffmpeg stdin")?;
-            continue;
+            return frame;
         }
 
         // Per-frame click state — sprite-key preroll, visibility boost,
@@ -376,10 +373,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
         };
         let idle_alpha = idle_alpha_raw.max(press.visible_alpha);
         if idle_alpha <= 0.0 {
-            stdin
-                .write_all(&frame)
-                .context("failed to write cursor frame to ffmpeg stdin")?;
-            continue;
+            return frame;
         }
 
         // Apply zoom transform in source-video coordinates. Zoom regions
@@ -412,10 +406,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
                 || cursor_source_y < 0.0
                 || cursor_source_y > request.source_height as f64
             {
-                stdin
-                    .write_all(&frame)
-                    .context("failed to write cursor frame to ffmpeg stdin")?;
-                continue;
+                return frame;
             }
         }
 
@@ -665,12 +656,35 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
             );
         }
 
-        stdin
-            .write_all(&frame)
-            .context("failed to write cursor frame to ffmpeg stdin")?;
+        frame
+    };
+
+    // Drive the render in parallel, writing each chunk to FFmpeg's stdin in
+    // order. Frames within a chunk are produced concurrently across cores; the
+    // chunk is bounded so peak memory stays modest even at 4K (a 4K RGBA frame
+    // is ~33 MB, so an unbounded fan-out would balloon RAM). This turns the
+    // formerly single-threaded pre-render — the dominant cost of a cursor
+    // export — into an N-core pass.
+    let threads = rayon::current_num_threads().max(1);
+    const MAX_INFLIGHT_BYTES: usize = 256 * 1024 * 1024;
+    let max_inflight = (MAX_INFLIGHT_BYTES / bytes_per_frame.max(1)).clamp(1, 512);
+    let chunk = threads.clamp(1, max_inflight);
+
+    let mut next = 0u64;
+    while next < frame_count {
+        let end = (next + chunk as u64).min(frame_count);
+        // Render this window of frames concurrently, preserving order in the
+        // collected Vec so the sequential write below stays in frame order.
+        let frames: Vec<Vec<u8>> = (next..end).into_par_iter().map(&render_one).collect();
+        for f in &frames {
+            stdin
+                .write_all(f)
+                .context("failed to write cursor frame to ffmpeg stdin")?;
+        }
+        next = end;
     }
 
-    // Close stdin so FFmpeg can finalize the webm.
+    // Close stdin so FFmpeg can finalize the overlay.
     drop(stdin);
 
     let output = child
@@ -690,9 +704,6 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
     if meta.len() == 0 {
         return Err(anyhow!("cursor overlay is empty"));
     }
-
-    // Leaked frame buffer back to OS — not strictly needed since we're in spawn_blocking.
-    drop(frame);
 
     Ok(CursorOverlayResult {
         overlay_path,

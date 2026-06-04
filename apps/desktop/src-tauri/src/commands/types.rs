@@ -48,7 +48,7 @@ pub struct RecordingEntry {
     pub created: u64,
 }
 
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoMetadata {
     pub duration: f64,
