@@ -39,7 +39,7 @@
     "@aws-sdk/client-s3": "^3.1057.0",
     "@aws-sdk/s3-presigned-post": "^3.1057.0",
     "@aws-sdk/s3-request-presigner": "^3.1057.0",
-    "@azure/storage-blob": "^12.26.0",
+    "@azure/storage-blob": "^12.31.0",
     "@fontsource-variable/instrument-sans": "^5.2.8",
     "@lucide/svelte": "^0.577.0",
     "@polar-sh/better-auth": "^1.8.4",
