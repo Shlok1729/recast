@@ -16,7 +16,7 @@ use super::ffmpeg::{
     append_output_filters_to_complex, build_annotation_blur_complex,
     build_gif_palette_prepass_filter, build_gif_paletteuse_external_complex,
     build_output_scale_filter, has_audio, probe_video_metadata, resolve_export_profile,
-    summarize_ffmpeg_error, BlurRegion, CameraOverlayParams, GifFilterOptions,
+    summarize_ffmpeg_error, BlurRegion, CameraOverlayParams, ExportSpeed, GifFilterOptions,
 };
 use super::system::get_active_output_dir;
 use super::types::{AppState, EditorDocument, ExportRequest, GifSettings, VideoMetadata};
@@ -868,6 +868,9 @@ pub async fn export_video(
     // fallback when the render state has no Trim node (duration == 0).
     let source_duration = metadata.duration.max(0.0);
     let profile = resolve_export_profile(&request.quality);
+    // Encoder effort axis, orthogonal to the resolution profile. Defaults to
+    // Balanced (historical settings) when absent/unknown.
+    let speed = ExportSpeed::from_request(request.speed.as_deref().unwrap_or("balanced"));
     let output_scale_filter = build_output_scale_filter(profile);
     let output_dir = get_active_output_dir(&state).join("exports");
     let _ = std::fs::create_dir_all(&output_dir);
@@ -1560,7 +1563,7 @@ pub async fn export_video(
                 "-deadline".to_string(),
                 "good".to_string(),
                 "-cpu-used".to_string(),
-                "4".to_string(),
+                speed.vp9_cpu_used().to_string(),
                 "-row-mt".to_string(),
                 "1".to_string(),
                 "-tile-columns".to_string(),
@@ -1596,7 +1599,7 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "h264_nvenc".to_string(),
                         "-preset".to_string(),
-                        "p5".to_string(),
+                        speed.nvenc_preset().to_string(),
                         "-tune".to_string(),
                         "hq".to_string(),
                         "-rc".to_string(),
@@ -1621,7 +1624,7 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "h264_amf".to_string(),
                         "-quality".to_string(),
-                        "quality".to_string(),
+                        speed.amf_quality().to_string(),
                         "-rc".to_string(),
                         "cqp".to_string(),
                         "-qp_i".to_string(),
@@ -1639,7 +1642,7 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "h264_qsv".to_string(),
                         "-preset".to_string(),
-                        "slower".to_string(),
+                        speed.qsv_preset().to_string(),
                         "-global_quality".to_string(),
                         profile.mp4_nvenc_cq.to_string(),
                         "-profile:v".to_string(),
@@ -1653,7 +1656,10 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "libx264".to_string(),
                         "-preset".to_string(),
-                        profile.mp4_preset.to_string(),
+                        speed
+                            .x264_preset()
+                            .unwrap_or(profile.mp4_preset)
+                            .to_string(),
                         "-crf".to_string(),
                         profile.mp4_crf.to_string(),
                         "-pix_fmt".to_string(),

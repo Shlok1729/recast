@@ -232,6 +232,11 @@ pub struct ExportRequest {
     pub input_path: String,
     pub format: String,
     pub quality: String,
+    /// Encoder *effort* axis ("fast" | "balanced" | "quality"), orthogonal to
+    /// `quality` (which is resolution/CRF). Absent/unknown → "balanced", which
+    /// reproduces the historical encoder settings exactly.
+    #[serde(default)]
+    pub speed: Option<String>,
     pub render_state: RenderState,
     #[serde(default)]
     pub gif_settings: Option<GifSettings>,

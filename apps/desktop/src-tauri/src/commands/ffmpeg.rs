@@ -50,6 +50,75 @@ pub fn resolve_export_profile(quality: &str) -> ExportProfile {
     }
 }
 
+/// Encoder *effort* axis, orthogonal to the resolution/quality `ExportProfile`.
+///
+/// This picks how hard each codec works for the SAME quality target — the
+/// CRF / cq values from `ExportProfile` are left untouched. It only moves the
+/// preset / cpu-used knobs, trading encode time against file size and a small
+/// amount of fidelity. `Balanced` reproduces the historical settings exactly,
+/// so existing exports are unchanged unless the user opts into Fast/Quality.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExportSpeed {
+    Fast,
+    Balanced,
+    Quality,
+}
+
+impl ExportSpeed {
+    pub fn from_request(speed: &str) -> Self {
+        match speed {
+            "fast" => Self::Fast,
+            "quality" => Self::Quality,
+            _ => Self::Balanced,
+        }
+    }
+
+    /// NVENC `-preset` p-level (p1 fastest … p7 slowest).
+    pub fn nvenc_preset(self) -> &'static str {
+        match self {
+            Self::Fast => "p3",
+            Self::Balanced => "p5",
+            Self::Quality => "p7",
+        }
+    }
+
+    /// AMD AMF `-quality` mode.
+    pub fn amf_quality(self) -> &'static str {
+        match self {
+            Self::Fast => "speed",
+            Self::Balanced | Self::Quality => "quality",
+        }
+    }
+
+    /// Intel QSV `-preset`.
+    pub fn qsv_preset(self) -> &'static str {
+        match self {
+            Self::Fast => "faster",
+            Self::Balanced => "slower",
+            Self::Quality => "veryslow",
+        }
+    }
+
+    /// libvpx-vp9 `-cpu-used` (0 best … 8 fastest).
+    pub fn vp9_cpu_used(self) -> &'static str {
+        match self {
+            Self::Fast => "6",
+            Self::Balanced => "4",
+            Self::Quality => "2",
+        }
+    }
+
+    /// libx264 `-preset`. `Balanced` defers to the resolution profile's own
+    /// preset (returns `None`); Fast/Quality override it.
+    pub fn x264_preset(self) -> Option<&'static str> {
+        match self {
+            Self::Fast => Some("veryfast"),
+            Self::Balanced => None,
+            Self::Quality => Some("slow"),
+        }
+    }
+}
+
 pub fn build_output_scale_filter(profile: ExportProfile) -> Option<String> {
     // libx264 + yuv420p (the chroma subsampling for our MP4 output) requires
     // even width AND even height. Without enforcement, fitting an arbitrary

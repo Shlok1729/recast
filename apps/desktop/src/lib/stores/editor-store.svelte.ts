@@ -504,6 +504,9 @@ export interface EditorRenderState {
 
 export type ExportFormat = 'mp4' | 'gif' | 'webm';
 export type ExportQuality = 'small' | 'hd' | '4k' | 'source';
+/** Encoder effort axis, orthogonal to {@link ExportQuality} (resolution).
+ *  'balanced' reproduces the historical encoder settings exactly. */
+export type ExportSpeed = 'fast' | 'balanced' | 'quality';
 
 /** GIF dithering algorithm. Trades file size against gradient quality. */
 export type GifDither = 'bayer' | 'sierra2' | 'none';
@@ -755,6 +758,7 @@ export function createEditorStore() {
 	// Export
 	let exportFormat = $state<ExportFormat>('mp4');
 	let exportQuality = $state<ExportQuality>('hd');
+	let exportSpeed = $state<ExportSpeed>('balanced');
 	let gifSettings = $state<GifSettings>({ ...DEFAULT_GIF_SETTINGS });
 	let exportProgress = $state<number | null>(null);
 	let isExporting = $state(false);
@@ -1249,6 +1253,7 @@ export function createEditorStore() {
 			motionSegments: [],
 		};
 		exportQuality = 'hd';
+		exportSpeed = 'balanced';
 		undoStack = [];
 		redoStack = [];
 	}
@@ -1670,6 +1675,9 @@ export function createEditorStore() {
 
 		get exportQuality() { return exportQuality; },
 		set exportQuality(v: ExportQuality) { exportQuality = v; },
+
+		get exportSpeed() { return exportSpeed; },
+		set exportSpeed(v: ExportSpeed) { exportSpeed = v; },
 
 		get gifSettings() { return gifSettings; },
 		set gifSettings(v: GifSettings) { gifSettings = v; },

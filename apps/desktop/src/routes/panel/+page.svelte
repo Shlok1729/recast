@@ -5,6 +5,7 @@
     enumerateCameras,
     type BrowserCamera,
   } from "$lib/camera/browser-devices";
+  import { checkCapability, loadCapabilities } from "$lib/capabilities";
 
   // Wayland (KWin in particular) can trap focus on undecorated transparent
   // alwaysOnTop windows — drop the flag on Linux. See ipc.ts for context.
@@ -402,6 +403,9 @@
     profilesStore.hydrate();
 
     void initDevicesAndProfile();
+    // Warm the capability probe so the first mic/camera/system-audio toggle
+    // resolves instantly instead of waiting on a cold `capture_capabilities`.
+    void loadCapabilities();
 
     window.addEventListener("keydown", handleGlobalShortcut);
 
@@ -671,25 +675,49 @@
     getCurrentWindow().close();
   }
 
-  function toggleMic() {
+  async function toggleMic() {
     if (isRecording) return;
     micWarning = null;
     if (micOn) {
       micOn = false;
-    } else {
-      openDevicePicker("mic");
+      return;
     }
+    const verdict = await checkCapability("microphone", "Microphone");
+    if (!verdict.ok) {
+      notify("warning", verdict.message);
+      return;
+    }
+    openDevicePicker("mic");
   }
 
-  function toggleCamera() {
+  async function toggleCamera() {
     if (isRecording) return;
     cameraWarning = null;
     if (cameraOn) {
       cameraOn = false;
       closeCameraPreview();
-    } else {
-      openDevicePicker("camera");
+      return;
     }
+    const verdict = await checkCapability("camera", "Webcam");
+    if (!verdict.ok) {
+      notify("warning", verdict.message);
+      return;
+    }
+    openDevicePicker("camera");
+  }
+
+  async function toggleSystemAudio() {
+    // Turning it off is always fine; only gate turning it on.
+    if (systemAudioOn) {
+      systemAudioOn = false;
+      return;
+    }
+    const verdict = await checkCapability("systemAudio", "System audio");
+    if (!verdict.ok) {
+      notify("warning", verdict.message);
+      return;
+    }
+    systemAudioOn = true;
   }
 
   function clearCountdown() {
@@ -1247,7 +1275,7 @@
         size="icon-sm"
         variant={systemAudioOn ? "default_soft" : "outline"}
         disabled={isRecording}
-        onclick={() => (systemAudioOn = !systemAudioOn)}
+        onclick={toggleSystemAudio}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         title={systemAudioOn ? "System audio: on" : "System audio: off"}
       >

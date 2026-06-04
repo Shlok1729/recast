@@ -1059,6 +1059,23 @@ pub async fn probe_video_encoders() -> Result<Vec<crate::ffmpeg::EncoderAvailabi
 /// One capture-input capability and whether the *running* build can do it on
 /// *this* device. `backend` names the native API actually used (DXGI, PipeWire,
 /// AVFoundation, …) so the Settings panel can be specific instead of vague.
+/// Why a capability isn't usable — the distinction the UI needs to choose
+/// between "not supported on this OS" and "not available yet". `supported`
+/// stays as the plain boolean the Settings matrix already keys off; `status`
+/// refines the `false` case.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CapabilityStatus {
+    /// Works on this device right now.
+    Supported,
+    /// The OS / native APIs genuinely can't do this — no future Recast build
+    /// will add it on this platform. UI: "not supported on <os>".
+    Unsupported,
+    /// We intend to support it but haven't shipped it for this platform yet.
+    /// UI: "not available yet".
+    Planned,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureCapability {
@@ -1067,6 +1084,10 @@ pub struct CaptureCapability {
     pub key: String,
     pub label: String,
     pub supported: bool,
+    /// Tri-state refinement of `supported`. When `supported` is true this is
+    /// always `Supported`; when false it tells the UI whether to say "not
+    /// supported here" (`Unsupported`) or "coming soon" (`Planned`).
+    pub status: CapabilityStatus,
     pub backend: String,
     /// Optional caveat — permission requirement, fallback path, OS limitation.
     pub note: Option<String>,
@@ -1097,6 +1118,25 @@ fn cap(
         key: key.to_string(),
         label: label.to_string(),
         supported,
+        status: if supported {
+            CapabilityStatus::Supported
+        } else {
+            CapabilityStatus::Unsupported
+        },
+        backend: backend.to_string(),
+        note: note.map(str::to_string),
+    }
+}
+
+/// A capability we plan to support but haven't built for this platform yet —
+/// distinct from `cap(.., false, ..)`, which marks something the OS can't do
+/// at all. Drives the "not available yet" toast rather than "not supported".
+fn cap_planned(key: &str, label: &str, backend: &str, note: Option<&str>) -> CaptureCapability {
+    CaptureCapability {
+        key: key.to_string(),
+        label: label.to_string(),
+        supported: false,
+        status: CapabilityStatus::Planned,
         backend: backend.to_string(),
         note: note.map(str::to_string),
     }
@@ -1242,24 +1282,26 @@ fn build_capture_capabilities() -> CaptureCapabilities {
     }
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
-        let unsupported = "Not implemented";
+        // Unknown desktop platform: we have no backend wired yet, but this is a
+        // gap in our coverage rather than an OS that *can't* — so mark every row
+        // `planned` ("not available yet") instead of `unsupported`.
+        let pending = "Not implemented yet";
         CaptureCapabilities {
             platform: "other".into(),
-            screen_backend: unsupported.into(),
+            screen_backend: pending.into(),
             capabilities: vec![
-                cap(
+                cap_planned(
                     "screen",
                     "Full-screen recording",
-                    false,
-                    unsupported,
-                    Some("Screen capture isn't implemented for this platform yet."),
+                    pending,
+                    Some("Screen capture isn't available for this platform yet."),
                 ),
-                cap("window", "Window capture", false, unsupported, None),
-                cap("region", "Region capture", false, unsupported, None),
-                cap("systemAudio", "System audio", false, unsupported, None),
-                cap("microphone", "Microphone", false, unsupported, None),
-                cap("camera", "Webcam", false, unsupported, None),
-                cap("cursor", "Cursor tracking", false, unsupported, None),
+                cap_planned("window", "Window capture", pending, None),
+                cap_planned("region", "Region capture", pending, None),
+                cap_planned("systemAudio", "System audio", pending, None),
+                cap_planned("microphone", "Microphone", pending, None),
+                cap_planned("camera", "Webcam", pending, None),
+                cap_planned("cursor", "Cursor tracking", pending, None),
             ],
         }
     }
