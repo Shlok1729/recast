@@ -1,38 +1,35 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { cubicOut } from "svelte/easing";
-	import { fade, scale } from "svelte/transition";
 	import {
-		Captions,
-		Maximize,
-		Minimize,
-		Pause,
-		PictureInPicture,
-		PictureInPicture2,
-		Play,
-		RotateCcw,
-		RotateCw,
-		Volume,
-		Volume1,
-		Volume2,
-		VolumeX,
-		X,
+	  Captions,
+	  Maximize,
+	  Minimize,
+	  Pause,
+	  PictureInPicture,
+	  PictureInPicture2,
+	  Play,
+	  RotateCcw,
+	  RotateCw,
+	  Volume,
+	  Volume1,
+	  Volume2,
+	  VolumeX
 	} from "@lucide/svelte";
+	import { onMount } from "svelte";
+	import { fade } from "svelte/transition";
 	import type {
-		RecastPlayerActionEvent,
-		RecastPlayerApi,
-		RecastPlayerBranding,
-		RecastPlayerChapter,
-		RecastPlayerControls,
-		RecastPlayerFeatures,
-		RecastPlayerMarker,
-		RecastPlayerProps,
-		RecastPlayerState,
-		RecastPlayerUtilityAction,
+	  RecastPlayerApi,
+	  RecastPlayerBranding,
+	  RecastPlayerChapter,
+	  RecastPlayerControls,
+	  RecastPlayerFeatures,
+	  RecastPlayerMarker,
+	  RecastPlayerProps,
+	  RecastPlayerState,
+	  RecastPlayerUtilityAction
 	} from "./types";
 
-	import "media-chrome";
 	import "hls-video-element";
+	import "media-chrome";
 
 	const DEFAULT_CONTROLS: RecastPlayerControls = {
 		bigPlay: true,
@@ -40,7 +37,7 @@
 		time: true,
 		volume: true,
 		playbackRate: true,
-		captions: true,
+		captions: false,
 		pip: true,
 		fullscreen: true,
 	};

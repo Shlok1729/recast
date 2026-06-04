@@ -157,12 +157,18 @@ impl ClickTracker {
 /// renders the cursor at clamped/wrapped positions for the entire video.
 #[derive(Debug, Clone, Copy)]
 pub struct CursorCaptureFrame {
-    /// Top-left of the recorded frame, in virtual-desktop pixels.
+    /// Top-left of the recorded frame, in physical device pixels (same space
+    /// as `width`/`height` and the encoded video).
     pub origin_x: i32,
     pub origin_y: i32,
-    /// Recorded frame size in pixels.
+    /// Recorded frame size in physical pixels.
     pub width: u32,
     pub height: u32,
+    /// Multiplier applied to each raw sample before mapping into frame space.
+    /// macOS samples the cursor in logical points while the video is physical
+    /// pixels, so this is the display's backing scale there; 1.0 on
+    /// Windows/Linux, where samples are already physical.
+    pub scale: f32,
 }
 
 /// Spawn a thread that samples cursor state at 125 Hz until the stop flag
@@ -200,6 +206,9 @@ pub fn spawn_cursor_capture(
             let mut next_tick = start + SAMPLE_PERIOD;
             let frame_w = frame.width as i32;
             let frame_h = frame.height as i32;
+            // Lift logical samples into the video's physical pixel space (macOS);
+            // 1.0 elsewhere makes this an exact identity.
+            let sample_scale = frame.scale as f64;
 
             while !stop_flag.load(Ordering::Acquire) {
                 // While paused, stop sampling. The effective clock is frozen
@@ -218,8 +227,10 @@ pub fn spawn_cursor_capture(
                         // the captured area produce negative / over-range x/y
                         // — but we record `visible = false` for those so the
                         // editor doesn't draw a cursor outside the frame.
-                        let mapped_x = raw.x - frame.origin_x;
-                        let mapped_y = raw.y - frame.origin_y;
+                        let mapped_x =
+                            (raw.x as f64 * sample_scale).round() as i32 - frame.origin_x;
+                        let mapped_y =
+                            (raw.y as f64 * sample_scale).round() as i32 - frame.origin_y;
                         let on_frame = mapped_x >= 0
                             && mapped_y >= 0
                             && mapped_x < frame_w

@@ -23,26 +23,32 @@
 //! `configure_silent_command`, the encoder downstream). It's the
 //! pragmatic bridge until SCKit lands.
 //!
+//! ## Coordinate model
+//!
+//! This source captures the WHOLE selected display at its physical
+//! resolution and emits full-`source`-sized BGRA frames; the encoder
+//! crops to the region/window. That's the same contract the Windows DXGI
+//! path follows, so region & window recordings work the same on both.
+//!
+//! - **Multi-monitor.** The display the user picked is mapped to its
+//!   AVFoundation "Capture screen N" via its position in
+//!   `CGGetActiveDisplayList` (which xcap's `Monitor::all()` mirrors), so
+//!   secondary displays record correctly — see `screen_input_index`.
+//! - **Retina.** `recording::apply_device_scale` lifts xcap's logical
+//!   `source`/`crop` into the physical pixels AVFoundation delivers (using
+//!   `Monitor::scale_factor`), and the cursor track is scaled to match. So
+//!   crops land on-target and recordings keep full Retina resolution.
+//!
 //! ## Known limitations
 //!
-//! - **First screen only.** We pick the lowest-numbered "Capture screen
-//!   N" device. Multi-monitor users who selected a secondary display in
-//!   the in-app picker get the primary instead. Mapping xcap monitor
-//!   IDs to AVFoundation indices is a follow-up.
-//! - **Retina coordinate scaling.** Region / window crops use the
-//!   coordinates the in-app picker (xcap) reports. On Apple Silicon
-//!   Macs with Retina scaling, xcap may report logical coordinates
-//!   while AVFoundation delivers in physical pixels (2× on standard
-//!   Retina). When that happens the cropped region lands in the wrong
-//!   place. The encoder still gets a correctly-sized frame because of
-//!   the trailing `scale` step, so the recording is never visually
-//!   broken — just possibly off-position. Proper fix would query
-//!   `CGDisplayPixelsWide` / `CGDisplayBounds` to compute the scale
-//!   factor before cropping.
 //! - **Permissions.** First record requires Screen Recording consent in
 //!   System Settings → Privacy & Security. FFmpeg will spawn but
 //!   produce zero frames until granted; the encoder's empty-output
 //!   timeout will surface it.
+//! - **Whole-display capture for regions.** Like the Windows path, a small
+//!   region on a large display still pipes full-display frames to the
+//!   encoder before cropping. Cropping inside AVFoundation would be lighter
+//!   but is a cross-platform optimization, not a macOS-specific one.
 
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
@@ -51,30 +57,39 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 
+use xcap::Monitor;
+
 use crate::capture::CaptureSource;
 use crate::recording::CaptureTarget;
 
 pub fn create_source(target: &CaptureTarget) -> Result<Box<dyn CaptureSource>> {
-    if target.crop.width == 0 || target.crop.height == 0 {
+    if target.source.width == 0 || target.source.height == 0 {
         return Err(anyhow!(
-            "macOS capture: target has zero dimensions ({}x{}) — \
+            "macOS capture: source has zero dimensions ({}x{}) — \
              the source picker did not report a usable size",
-            target.crop.width,
-            target.crop.height
+            target.source.width,
+            target.source.height
         ));
     }
-    let screen_index = first_screen_index().context(
-        "no 'Capture screen' device in the AVFoundation listing — \
+    // AVFoundation numbers its "Capture screen N" inputs in CGGetActiveDisplayList
+    // order — the same order xcap's `Monitor::all()` returns — so the captured
+    // display's position in that list is its screen ordinal. Map the target
+    // display to that ordinal instead of always grabbing the first screen, so
+    // multi-monitor users record the display they actually picked.
+    let ordinal = screen_ordinal_for_display(target.display_id);
+    let screen_index = screen_input_index(ordinal).context(
+        "no matching 'Capture screen' device in the AVFoundation listing — \
          ensure Screen Recording is granted in System Settings → \
          Privacy & Security and that FFmpeg has avfoundation support",
     )?;
-    let source = MacosCaptureSource::start(
-        screen_index,
-        target.crop.x.max(0) as u32,
-        target.crop.y.max(0) as u32,
-        target.crop.width,
-        target.crop.height,
-    )?;
+    // Capture the WHOLE display at its physical resolution and let the encoder
+    // crop to the requested region. This is the cross-platform CaptureSource
+    // contract (the Windows DXGI path does the same): the source always emits
+    // full-`source`-sized frames; region/window cropping is the encoder's job.
+    // `target.source` is already in physical device pixels (see
+    // `apply_device_scale` in recording/mod.rs).
+    let source =
+        MacosCaptureSource::start(screen_index, target.source.width, target.source.height)?;
     Ok(Box::new(source))
 }
 
@@ -87,7 +102,7 @@ struct MacosCaptureSource {
 }
 
 impl MacosCaptureSource {
-    fn start(screen_index: u32, crop_x: u32, crop_y: u32, width: u32, height: u32) -> Result<Self> {
+    fn start(screen_index: u32, width: u32, height: u32) -> Result<Self> {
         // The pacer in `recording/pipeline.rs` runs at a fixed
         // `target_fps`. Asking AVFoundation for a slightly higher rate
         // (60) leaves slack for the pacer's MAX_DRAIN to pick the
@@ -97,26 +112,17 @@ impl MacosCaptureSource {
         // capture audio here (audio comes from `audio/platform/ffmpeg_unix.rs`),
         // so the audio side stays empty.
         let input = format!("{screen_index}:");
-        // Bug fix (Mac tester report — "lights the whole window"): the
-        // previous filter was `scale=W:H` only, which made AVFoundation
-        // capture the *entire display* and then squish it down to the
-        // selected region's dimensions. A user picking a window or a
-        // region therefore got the whole desktop crammed into the
-        // recording frame, which reads as "the whole window lights up"
-        // in the playback.
+        // Normalize the captured display to the exact (physical) `source` size
+        // the encoder declares, then stop — we deliberately do NOT crop here.
+        // Region/window cropping is the encoder's job (`crop_relative_to_source`),
+        // so this source always emits full-`source`-sized frames like every
+        // other platform's CaptureSource. When AVFoundation already delivers at
+        // `width`x`height` (the common case) swscale fast-paths the no-op.
         //
-        // Fix: `crop=W:H:X:Y` selects the actual pixel rectangle the
-        // user wanted, then the trailing `scale=W:H` is a defensive
-        // identity on the common path but rescues the output when the
-        // capture geometry doesn't exactly match (Retina, multi-monitor
-        // virtual desktop, etc.). The scale step is cheap when the
-        // input already equals the target — FFmpeg's swscale fast-
-        // paths the no-op.
-        //
-        // For full-display capture, crop_x and crop_y are zero and
-        // width/height match the full screen — the crop filter is
-        // effectively a passthrough.
-        let filter = format!("crop={width}:{height}:{crop_x}:{crop_y},scale={width}:{height}");
+        // (History: this filter used to also `crop=W:H:X:Y` to the region and
+        // emit crop-sized frames, which collided with the encoder's own crop and
+        // corrupted region/window recordings — frames were the wrong byte size.)
+        let filter = format!("scale={width}:{height}");
         let mut command = Command::new(crate::ffmpeg::ffmpeg_path());
         command
             .args([
@@ -246,19 +252,33 @@ fn read_child_stderr(child: &mut Child) -> String {
     s
 }
 
-/// First AVFoundation "Capture screen N" device index. Cached for the
-/// process lifetime — the underlying device listing is shared with the
-/// camera and audio-loopback probes via
-/// `ffmpeg::cached_avfoundation_devices`, so the FFmpeg listing spawn
-/// runs at most once per app launch regardless of which subsystem
-/// needs it first.
-fn first_screen_index() -> Result<u32> {
-    static CACHED: OnceLock<Option<u32>> = OnceLock::new();
-    let cached = CACHED.get_or_init(|| {
+/// Ordinal (0-based position in `CGGetActiveDisplayList`) of the display with
+/// the given `CGDirectDisplayID`. xcap's `Monitor::all()` enumerates in exactly
+/// that order, so the index in the returned list is the AVFoundation "Capture
+/// screen N" number. Falls back to 0 (the primary) if the id isn't found.
+fn screen_ordinal_for_display(display_id: u32) -> u32 {
+    Monitor::all()
+        .ok()
+        .and_then(|monitors| {
+            monitors
+                .iter()
+                .position(|m| m.id().ok() == Some(display_id))
+        })
+        .map(|pos| pos as u32)
+        .unwrap_or(0)
+}
+
+/// Parse the cached AVFoundation device listing into `(screen_ordinal,
+/// avfoundation_input_index)` pairs. The input index is the global `[N]` FFmpeg
+/// assigns across all video devices (cameras come first, then screens), which
+/// is what `-i "N:"` expects; the screen ordinal is the number in the
+/// "Capture screen K" label. Cached for the process lifetime — the listing is
+/// shared with the camera/audio probes via `ffmpeg::cached_avfoundation_devices`.
+fn capture_screen_indices() -> &'static [(u32, u32)] {
+    static CACHED: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
+    CACHED.get_or_init(|| {
         let stderr = crate::ffmpeg::cached_avfoundation_devices();
-        if stderr.is_empty() {
-            return None;
-        }
+        let mut out = Vec::new();
         let mut in_video = false;
         for line in stderr.lines() {
             if line.contains("video devices:") {
@@ -272,23 +292,48 @@ fn first_screen_index() -> Result<u32> {
             if !in_video {
                 continue;
             }
-            // "Capture screen 0", "Capture screen 1", ...
             let lower = line.to_ascii_lowercase();
-            if !lower.contains("capture screen") {
+            let Some(pos) = lower.find("capture screen") else {
                 continue;
-            }
-            // The AVFoundation device index is in the LAST bracket pair
-            // on the line — skipping the leading
-            // `[AVFoundation indev @ 0x...]` log prefix.
-            let bytes = line.as_bytes();
-            let close = bytes.iter().rposition(|&b| b == b']')?;
-            let open = bytes[..close].iter().rposition(|&b| b == b'[')?;
-            let inner = std::str::from_utf8(&bytes[open + 1..close]).ok()?;
-            if let Ok(n) = inner.trim().parse::<u32>() {
-                return Some(n);
+            };
+            // Screen ordinal: the first integer after "capture screen".
+            let after = lower[pos + "capture screen".len()..].trim_start();
+            let ordinal: u32 = match after
+                .split(|c: char| !c.is_ascii_digit())
+                .find(|t| !t.is_empty())
+                .and_then(|t| t.parse().ok())
+            {
+                Some(n) => n,
+                None => continue,
+            };
+            // Global input index: the last `[N]` bracket pair BEFORE the
+            // "Capture screen" text (skips the `[AVFoundation indev @ 0x..]`
+            // log prefix and never reads into the label itself).
+            let prefix = &line[..pos];
+            let Some(close) = prefix.rfind(']') else {
+                continue;
+            };
+            let Some(open) = prefix[..close].rfind('[') else {
+                continue;
+            };
+            if let Ok(global) = prefix[open + 1..close].trim().parse::<u32>() {
+                out.push((ordinal, global));
             }
         }
-        None
-    });
-    cached.ok_or_else(|| anyhow!("no 'Capture screen' device in AVFoundation listing"))
+        out
+    })
+}
+
+/// AVFoundation input index for the "Capture screen {ordinal}" device, falling
+/// back to the lowest-ordinal screen when the exact ordinal isn't listed (so a
+/// stale display arrangement still records *something* rather than failing).
+fn screen_input_index(ordinal: u32) -> Result<u32> {
+    let map = capture_screen_indices();
+    if let Some((_, idx)) = map.iter().find(|(ord, _)| *ord == ordinal) {
+        return Ok(*idx);
+    }
+    map.iter()
+        .min_by_key(|(ord, _)| *ord)
+        .map(|(_, idx)| *idx)
+        .ok_or_else(|| anyhow!("no 'Capture screen' device in AVFoundation listing"))
 }

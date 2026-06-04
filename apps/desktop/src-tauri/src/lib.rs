@@ -83,7 +83,13 @@ fn enable_webview_media(webview: &tauri::Webview) {
     }
 
     let result = webview.with_webview(|platform| {
-        use webkit2gtk::prelude::*;
+        // webkit2gtk 2.0.x has no `prelude` module — pull the extension
+        // traits in directly. `WebViewExt` gives `settings()` +
+        // `connect_permission_request()`, `SettingsExt` gives
+        // `set_enable_media_stream()`, `PermissionRequestExt` gives
+        // `allow()`, and glib's `Cast` (via its prelude) gives `.is::<T>()`.
+        use webkit2gtk::glib::prelude::*;
+        use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
 
         let wv = platform.inner();
         if let Some(settings) = wv.settings() {
@@ -106,24 +112,14 @@ fn enable_webview_media(webview: &tauri::Webview) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Load `apps/desktop/.env` so dev overrides (CLOUD_API_URL,
-    // GOOGLE_OAUTH_CLIENT_ID/_SECRET, …) reach the Rust side. Silent on
+    // Load `src-tauri/.env` (the canonical source for Rust-side dev config:
+    // TAURI_SIGNING_PRIVATE_KEY, GOOGLE_OAUTH_CLIENT_ID/_SECRET, …). It sits in
+    // the cargo CWD, so `dotenvy::dotenv()`'s walk-up finds it first. Keep all
+    // Rust env here — a second `.env` one level up (apps/desktop/.env, the Vite
+    // frontend's file) would be shadowed by this one and never load. Silent on
     // missing/invalid file — release installs have no .env and that's fine.
-    //
-    // We load the canonical app .env by an EXPLICIT path rather than relying on
-    // `dotenvy::dotenv()`'s walk-up: that walk loads the FIRST `.env` it finds
-    // from the cargo CWD (`src-tauri/`) and stops. Since `src-tauri/.env` exists
-    // (it holds `TAURI_SIGNING_PRIVATE_KEY`), the walk would stop there and
-    // never reach `apps/desktop/.env` one level up — silently shadowing the
-    // Google OAuth creds. `CARGO_MANIFEST_DIR` is `…/apps/desktop/src-tauri`, so
-    // `../.env` is the app .env. `dotenvy` does NOT override already-set vars,
-    // so a real shell env still wins, and we still also load any nearer
-    // `src-tauri/.env` (signing key) via `dotenv()`.
     #[cfg(debug_assertions)]
-    {
-        let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../.env"));
-        let _ = dotenvy::dotenv();
-    }
+    let _ = dotenvy::dotenv();
 
     let mut builder = tauri::Builder::default()
         // Single-instance MUST be the first plugin registered. The handler

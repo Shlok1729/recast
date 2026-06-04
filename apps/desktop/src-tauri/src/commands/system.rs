@@ -1072,7 +1072,10 @@ pub enum CapabilityStatus {
     /// will add it on this platform. UI: "not supported on <os>".
     Unsupported,
     /// We intend to support it but haven't shipped it for this platform yet.
-    /// UI: "not available yet".
+    /// UI: "not available yet". Only emitted by the unknown-platform branch of
+    /// `build_capture_capabilities`, so it reads as unused on the three real
+    /// targets — kept for the serialized API + the frontend's toast contract.
+    #[allow(dead_code)]
     Planned,
 }
 
@@ -1131,6 +1134,8 @@ fn cap(
 /// A capability we plan to support but haven't built for this platform yet —
 /// distinct from `cap(.., false, ..)`, which marks something the OS can't do
 /// at all. Drives the "not available yet" toast rather than "not supported".
+/// Only used by the unknown-platform branch, so it's dead on real targets.
+#[allow(dead_code)]
 fn cap_planned(key: &str, label: &str, backend: &str, note: Option<&str>) -> CaptureCapability {
     CaptureCapability {
         key: key.to_string(),
