@@ -395,9 +395,11 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
             cursor_source_x = cursor_source_x * (1.0 - w) + ax * w;
             cursor_source_y = cursor_source_y * (1.0 - w) + ay * w;
         }
-        if let Some((scale, center_x, center_y)) =
-            active_zoom_at(&request.render_state.zoom_regions, t_track_secs)
-        {
+        if let Some((scale, center_x, center_y)) = active_zoom_at(
+            &request.render_state.zoom_regions,
+            t_track_secs,
+            request.trim_start,
+        ) {
             let src_cx = center_x.clamp(0.0, 1.0) * request.source_width as f64;
             let src_cy = center_y.clamp(0.0, 1.0) * request.source_height as f64;
             cursor_source_x = (cursor_source_x - src_cx) * scale + src_cx;
@@ -505,6 +507,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
                 if let Some((scale, cx, cy)) = active_zoom_at(
                     &request.render_state.zoom_regions,
                     past_us as f64 / 1_000_000.0,
+                    request.trim_start,
                 ) {
                     let scx = cx.clamp(0.0, 1.0) * request.source_width as f64;
                     let scy = cy.clamp(0.0, 1.0) * request.source_height as f64;
@@ -532,9 +535,11 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
                 // zoomed video; only draw when the click point is inside the
                 // visible (zoomed) source rect.
                 let (mut hx, mut hy) = (click_x, click_y);
-                if let Some((scale, center_x, center_y)) =
-                    active_zoom_at(&request.render_state.zoom_regions, t_track_secs)
-                {
+                if let Some((scale, center_x, center_y)) = active_zoom_at(
+                    &request.render_state.zoom_regions,
+                    t_track_secs,
+                    request.trim_start,
+                ) {
                     let scx = center_x.clamp(0.0, 1.0) * request.source_width as f64;
                     let scy = center_y.clamp(0.0, 1.0) * request.source_height as f64;
                     hx = (hx - scx) * scale + scx;
@@ -774,17 +779,52 @@ fn interpolate_cursor(samples: &[SmoothedSample], timestamp_us: u64) -> Option<I
 
 //  Zoom lookup (mirror of nested_region_expr in graph.rs)
 
+/// Returns `(scale, center_x, center_y)` for the zoom active at timeline time
+/// `t_secs`, or `None` when no zoom applies.
+///
+/// CRITICAL: the scale is sampled from the SAME 20 Hz piecewise-linear LUT the
+/// FFmpeg video filter uses (`build_zoom_filter` / `sample_region`), NOT the
+/// exact bezier (`scale_at`). The exported video can only approximate the
+/// easing curve as a linear LUT — so if the cursor used the exact curve while
+/// the video used the LUT, the two would disagree on the zoom factor *during
+/// the ramps*, and that disagreement is multiplied by the focus distance and
+/// the zoom scale, making the cursor visibly drift off the content as the zoom
+/// animates in/out. Reproducing the LUT here keeps the cursor locked to the
+/// video frame-for-frame. (The focus centre is constant, so it factors out of
+/// the LUT interpolation and the affine transform at the call sites stays
+/// exact — see the alignment proof in `graph::sample_region`.) `time_offset`
+/// is the export trim-start, matching `sample_region`'s clamp.
 fn active_zoom_at(
     regions: &[crate::render::node_types::ZoomRegion],
     t_secs: f64,
+    time_offset: f64,
 ) -> Option<(f64, f64, f64)> {
-    // Match the WebGL preview: the first region whose [start, end] contains t.
     for region in regions {
-        if t_secs >= region.start && t_secs <= region.end {
-            let scale = region.scale_at(t_secs).max(1.0);
-            if scale > 1.0001 {
-                return Some((scale, region.center_x, region.center_y));
-            }
+        if t_secs < region.start || t_secs > region.end {
+            continue;
+        }
+        // Rebuild the exact sample grid `sample_region` emits, then linearly
+        // interpolate scale across the bracketing samples — i.e. evaluate the
+        // video's LUT at `t_secs`.
+        let effective_start = region.start.max(time_offset);
+        let duration = (region.end - effective_start).max(0.0);
+        let n = ((duration * 20.0).ceil() as usize).clamp(8, 200);
+        let step = if n > 0 { duration / n as f64 } else { 0.0 };
+        let scale = if step > 0.0 {
+            let rel = ((t_secs - effective_start) / step).clamp(0.0, n as f64);
+            let i0 = rel.floor() as usize;
+            let i1 = (i0 + 1).min(n);
+            let frac = rel - i0 as f64;
+            let t0 = effective_start + step * i0 as f64;
+            let t1 = effective_start + step * i1 as f64;
+            let s0 = region.scale_at(t0).max(1.0);
+            let s1 = region.scale_at(t1).max(1.0);
+            s0 + (s1 - s0) * frac
+        } else {
+            region.scale_at(t_secs).max(1.0)
+        };
+        if scale > 1.0001 {
+            return Some((scale, region.center_x, region.center_y));
         }
     }
     None
@@ -1407,9 +1447,11 @@ fn sorted_visible_annotations(annotations: &[Annotation]) -> Vec<&Annotation> {
 fn uv_to_canvas(request: &CursorOverlayRequest, x: f64, y: f64, t_secs: f64) -> (f64, f64) {
     let mut uv_x = x;
     let mut uv_y = y;
-    if let Some((scale, center_x, center_y)) =
-        active_zoom_at(&request.render_state.zoom_regions, t_secs)
-    {
+    if let Some((scale, center_x, center_y)) = active_zoom_at(
+        &request.render_state.zoom_regions,
+        t_secs,
+        request.trim_start,
+    ) {
         uv_x = (uv_x - center_x) * scale + center_x;
         uv_y = (uv_y - center_y) * scale + center_y;
     }

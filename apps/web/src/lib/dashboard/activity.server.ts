@@ -8,7 +8,8 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "$lib/db";
 import { recast, share, shareComment, shareReaction, shareView } from "$lib/db/schema";
-import type { Activity, RecastEngagement, RecastPerf } from "./activity";
+import { deviceFromUA } from "$lib/share/ua";
+import type { Activity, EngagementMoment, RecastEngagement, RecastPerf } from "./activity";
 
 let regionNames: Intl.DisplayNames | null = null;
 function viewerLabel(country: string | null): string {
@@ -28,6 +29,9 @@ type ViewRow = {
 	recastTitle: string;
 	sessionId: string;
 	country: string | null;
+	device: string | null;
+	userAgent: string | null;
+	referrer: string | null;
 	completed: boolean;
 	watchPct: number;
 	createdAt: Date | null;
@@ -41,11 +45,31 @@ function viewRowToActivity(r: ViewRow): Activity {
 		viewer: viewerLabel(r.country),
 		sessionId: r.sessionId,
 		country: r.country,
+		// Prefer the stored device; back-fill from the UA for rows written before
+		// the `device` column existed so historical breakdowns still populate.
+		device: r.device ?? deviceFromUA(r.userAgent),
+		referrer: r.referrer,
 		kind: r.completed ? "completed" : "viewed",
 		timestamp: (r.createdAt ?? new Date(0)).getTime(),
 		watchPct: r.watchPct,
 	};
 }
+
+/** Columns every view query needs to build an `Activity` (kept in sync so the
+ *  workspace + per-recast loaders project identically). */
+const viewSelection = {
+	id: shareView.id,
+	recastId: recast.id,
+	recastTitle: recast.title,
+	sessionId: shareView.sessionId,
+	country: shareView.country,
+	device: shareView.device,
+	userAgent: shareView.userAgent,
+	referrer: shareView.referrer,
+	completed: shareView.completed,
+	watchPct: shareView.watchPct,
+	createdAt: shareView.createdAt,
+} as const;
 
 /**
  * Load the workspace's viewer activity — view/completion events plus
@@ -60,16 +84,7 @@ export async function loadWorkspaceActivity(
 
 	const [viewRows, shareRows] = await Promise.all([
 		db
-			.select({
-				id: shareView.id,
-				recastId: recast.id,
-				recastTitle: recast.title,
-				sessionId: shareView.sessionId,
-				country: shareView.country,
-				completed: shareView.completed,
-				watchPct: shareView.watchPct,
-				createdAt: shareView.createdAt,
-			})
+			.select(viewSelection)
 			.from(shareView)
 			.innerJoin(share, eq(shareView.shareId, share.slug))
 			.innerJoin(recast, eq(share.recastId, recast.id))
@@ -117,16 +132,7 @@ export async function loadRecastActivity(
 
 	const [viewRows, shareRows] = await Promise.all([
 		db
-			.select({
-				id: shareView.id,
-				recastId: recast.id,
-				recastTitle: recast.title,
-				sessionId: shareView.sessionId,
-				country: shareView.country,
-				completed: shareView.completed,
-				watchPct: shareView.watchPct,
-				createdAt: shareView.createdAt,
-			})
+			.select(viewSelection)
 			.from(shareView)
 			.innerJoin(share, eq(shareView.shareId, share.slug))
 			.innerJoin(recast, eq(share.recastId, recast.id))
@@ -181,7 +187,7 @@ export async function loadRecastEngagement(recastId: string): Promise<RecastEnga
 			.where(and(eq(share.recastId, recastId), isNull(shareComment.deletedAt)))
 			.orderBy(desc(shareComment.createdAt)),
 		db
-			.select({ emoji: shareReaction.emoji })
+			.select({ emoji: shareReaction.emoji, atSeconds: shareReaction.atSeconds })
 			.from(shareReaction)
 			.innerJoin(share, eq(shareReaction.shareSlug, share.slug))
 			.where(eq(share.recastId, recastId)),
@@ -189,6 +195,12 @@ export async function loadRecastEngagement(recastId: string): Promise<RecastEnga
 
 	const counts = new Map<string, number>();
 	for (const r of reactionRows) counts.set(r.emoji, (counts.get(r.emoji) ?? 0) + 1);
+
+	// Every reaction + comment with its video timestamp — the heatmap input.
+	const moments: EngagementMoment[] = [
+		...reactionRows.map((r) => ({ atSeconds: r.atSeconds, kind: "reaction" as const, emoji: r.emoji })),
+		...commentRows.map((c) => ({ atSeconds: c.atSeconds, kind: "comment" as const })),
+	];
 
 	return {
 		commentCount: commentRows.length,
@@ -202,6 +214,7 @@ export async function loadRecastEngagement(recastId: string): Promise<RecastEnga
 			atSeconds: c.atSeconds,
 			createdAt: (c.createdAt ?? new Date(0)).getTime(),
 		})),
+		moments,
 	};
 }
 

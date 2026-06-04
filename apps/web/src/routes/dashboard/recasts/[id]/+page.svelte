@@ -4,12 +4,18 @@
 	import {
 		avgWatchPct,
 		completionRate,
+		deviceBreakdown,
+		engagementRate,
+		geographyBreakdown,
+		trafficBreakdown,
 		uniqueViewers,
 		viewCount,
 		viewsByDay,
 		watchRetention,
 	} from "$lib/dashboard/activity";
 	import ActivityBarChart from "$lib/dashboard/components/ActivityBarChart.svelte";
+	import BreakdownList, { flagEmoji } from "$lib/dashboard/components/BreakdownList.svelte";
+	import EngagementHeatmap from "$lib/dashboard/components/EngagementHeatmap.svelte";
 	import PageHeader from "$lib/dashboard/components/PageHeader.svelte";
 	import PlayerDialog from "$lib/dashboard/components/PlayerDialog.svelte";
 	import RangeTabs from "$lib/dashboard/components/RangeTabs.svelte";
@@ -18,6 +24,7 @@
 	import RecentActivity from "$lib/dashboard/components/RecentActivity.svelte";
 	import StatGrid from "$lib/dashboard/components/StatGrid.svelte";
 	import WatchRetention from "$lib/dashboard/components/WatchRetention.svelte";
+	import { POSTER_ACCEPT, replacePoster } from "$lib/dashboard/poster";
 	import { formatBytes, formatDuration, formatRelative } from "$lib/dashboard/format";
 	import type { Recast } from "$lib/dashboard/store.svelte";
 	import { Button } from "@recast/ui/button";
@@ -28,12 +35,17 @@
 		Cloud,
 		Copy,
 		Eye,
+		Globe,
+		ImagePlus,
+		Link2,
+		Loader2,
 		MessageSquare,
 		MonitorPlay,
 		Percent,
 		Play,
-		Smile,
+		Smartphone,
 		Users,
+		Zap,
 	} from "@lucide/svelte";
 	import { untrack } from "svelte";
 	import { cubicOut } from "svelte/easing";
@@ -71,15 +83,27 @@
 	const chartData = $derived(viewsByDay(ranged, range === "7d" ? 7 : range === "30d" ? 14 : 30));
 	const retention = $derived(watchRetention(ranged));
 
-	// ── Lifetime stats ──────────────────────────────────────────────────
+	// ── Lifetime stats (Comments/Reactions are broken out in the Engagement
+	//    card + heatmap, so the row carries the headline rates instead). ──────
+	const lifetimeViews = $derived(viewCount(data.activity));
+	const interactions = $derived(data.engagement.reactionCount + data.engagement.commentCount);
 	const stats = $derived([
-		{ icon: Eye, label: "Views", value: String(viewCount(data.activity)) },
-		{ icon: Users, label: "Unique viewers", value: String(uniqueViewers(data.activity)) },
+		{ icon: Eye, label: "Views", value: String(lifetimeViews) },
+		{ icon: Users, label: "Reach", value: String(uniqueViewers(data.activity)) },
+		{
+			icon: Zap,
+			label: "Engagement",
+			value: `${engagementRate(lifetimeViews, data.engagement.reactionCount, data.engagement.commentCount)}%`,
+		},
 		{ icon: Percent, label: "Avg watch", value: `${avgWatchPct(data.activity)}%` },
 		{ icon: CheckCircle2, label: "Completion", value: `${completionRate(data.activity)}%` },
-		{ icon: MessageSquare, label: "Comments", value: String(data.engagement.commentCount) },
-		{ icon: Smile, label: "Reactions", value: String(data.engagement.reactionCount) },
+		{ icon: MessageSquare, label: "Interactions", value: String(interactions) },
 	]);
+
+	// ── Audience breakdowns (computed from the already-loaded activity) ──────
+	const geography = $derived(geographyBreakdown(data.activity));
+	const devices = $derived(deviceBreakdown(data.activity));
+	const traffic = $derived(trafficBreakdown(data.activity));
 
 	const subtitle = $derived(
 		`${formatDuration(recast.durationSec)} · ${formatBytes(recast.sizeBytes)} · ${formatRelative(recast.createdAt)}`,
@@ -142,6 +166,33 @@
 			toast.error((e as Error)?.message ?? "Couldn't revoke the link.");
 		}
 	}
+
+	// ── Replace cover ───────────────────────────────────────────────────
+	let posterInput = $state<HTMLInputElement | null>(null);
+	let replacingPoster = $state(false);
+
+	function pickPoster() {
+		if (replacingPoster) return;
+		posterInput?.click();
+	}
+
+	async function onPosterPick(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ""; // allow re-picking the same file later
+		if (!file) return;
+		replacingPoster = true;
+		try {
+			await replacePoster(recast.id, file);
+			// Re-run the loader so the (re-signed) poster URL flows back in.
+			await invalidateAll();
+			toast.success("Cover updated.");
+		} catch (err) {
+			toast.error((err as Error)?.message ?? "Couldn't update the cover.");
+		} finally {
+			replacingPoster = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -168,26 +219,51 @@
 </PageHeader>
 
 <!-- Poster strip -->
-<button
-	type="button"
-	onclick={() => (playing = true)}
-	aria-label="Play {recast.title}"
-	class="group/hero relative mt-6 block aspect-video w-full overflow-hidden rounded-2xl bg-foreground/5 ring-1 ring-inset ring-border-low/40 sm:aspect-[21/9]"
+<div
+	class="group/hero relative mt-6 aspect-video w-full overflow-hidden rounded-2xl bg-foreground/5 ring-1 ring-inset ring-border-low/40 sm:aspect-[21/9]"
 	in:fly={{ y: 12, duration: 480, easing: cubicOut }}
 >
-	{#if recast.posterUrl}
-		<img src={recast.posterUrl} alt="" class="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover/hero:scale-[1.02]" />
-	{/if}
-	<span class="absolute inset-0 grid place-items-center bg-background/25 transition-colors group-hover/hero:bg-background/35">
-		<span class="grid size-14 place-items-center rounded-full bg-primary text-background shadow-craft-floating transition-transform duration-200 group-active/hero:scale-95">
-			<Play class="size-6 translate-x-0.5 fill-current" />
+	<button
+		type="button"
+		onclick={() => (playing = true)}
+		aria-label="Play {recast.title}"
+		class="absolute inset-0 block size-full"
+	>
+		{#if recast.posterUrl}
+			<img src={recast.posterUrl} alt="" class="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover/hero:scale-[1.02]" />
+		{/if}
+		<span class="absolute inset-0 grid place-items-center bg-background/25 transition-colors group-hover/hero:bg-background/35">
+			<span class="grid size-14 place-items-center rounded-full bg-primary text-background shadow-craft-floating transition-transform duration-200 group-active/hero:scale-95">
+				<Play class="size-6 translate-x-0.5 fill-current" />
+			</span>
 		</span>
-	</span>
-	<span class="absolute left-3 top-3 flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ring-1 ring-inset backdrop-blur-sm
-		{recast.source === 'cloud' ? 'bg-primary/90 text-background ring-primary/40' : 'bg-background/85 text-muted-foreground ring-border-low/50'}">
-		{#if recast.source === "cloud"}<Cloud class="size-3" />{recast.provider}{:else}<MonitorPlay class="size-3" />Local{/if}
-	</span>
-</button>
+		<span class="absolute left-3 top-3 flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ring-1 ring-inset backdrop-blur-sm
+			{recast.source === 'cloud' ? 'bg-primary/90 text-background ring-primary/40' : 'bg-background/85 text-muted-foreground ring-border-low/50'}">
+			{#if recast.source === "cloud"}<Cloud class="size-3" />{recast.provider}{:else}<MonitorPlay class="size-3" />Local{/if}
+		</span>
+	</button>
+
+	<!-- Replace cover (owner-or-admin; enforced server-side) -->
+	<button
+		type="button"
+		onclick={pickPoster}
+		disabled={replacingPoster}
+		class="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-md bg-background/85 px-2 py-1 text-[11px] font-medium text-foreground ring-1 ring-inset ring-border-low/50 backdrop-blur-sm transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-60"
+	>
+		{#if replacingPoster}
+			<Loader2 class="size-3.5 animate-spin" /> Saving…
+		{:else}
+			<ImagePlus class="size-3.5" /> Change cover
+		{/if}
+	</button>
+	<input
+		bind:this={posterInput}
+		type="file"
+		accept={POSTER_ACCEPT}
+		class="hidden"
+		onchange={onPosterPick}
+	/>
+</div>
 
 <!-- Lifetime stats -->
 <div class="mt-6">
@@ -203,10 +279,28 @@
 	<ActivityBarChart data={chartData} />
 </section>
 
+<!-- What moments viewers reacted to -->
+<div class="mt-6">
+	<EngagementHeatmap moments={data.engagement.moments} durationSec={recast.durationSec} />
+</div>
+
 <!-- Retention + engagement -->
 <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
 	<WatchRetention data={retention} />
 	<RecastEngagement engagement={data.engagement} />
+</div>
+
+<!-- Audience: where from + what device + how they got here -->
+<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+	<BreakdownList
+		title="Top locations"
+		icon={Globe}
+		rows={geography}
+		empty="No location data yet."
+		glyph={(r) => flagEmoji(r.key)}
+	/>
+	<BreakdownList title="Devices" icon={Smartphone} rows={devices} empty="No device data yet." />
+	<BreakdownList title="Traffic sources" icon={Link2} rows={traffic} empty="No referrer data yet." />
 </div>
 
 <!-- Share links -->

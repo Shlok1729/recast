@@ -18,6 +18,7 @@
 		type Recast,
 		type RecordingSource,
 	} from "$lib/dashboard/store.svelte";
+	import { POSTER_ACCEPT, replacePoster } from "$lib/dashboard/poster";
 	import { UPLOAD_ACCEPT, uploadRecastFile, type UploadPhase } from "$lib/dashboard/upload";
 	import { Archive, FolderOpen, Library, LoaderCircle, Upload, UploadCloud } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
@@ -261,6 +262,36 @@
 		}
 	}
 
+	// ── Replace poster (cloud recasts only) ─────────────────────────────
+	let posterInput = $state<HTMLInputElement | null>(null);
+	let posterTargetId = $state<string | null>(null);
+
+	function changePoster(rec: Recast) {
+		if (rec.source !== "cloud") {
+			toast.error("Upload this recast to the cloud first to set a poster.");
+			return;
+		}
+		posterTargetId = rec.id;
+		posterInput?.click();
+	}
+
+	async function onPosterPicked(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		const id = posterTargetId;
+		input.value = "";
+		posterTargetId = null;
+		if (!file || !id) return;
+		const pending = toast.loading("Updating poster…");
+		try {
+			const posterUrl = await replacePoster(id, file);
+			if (posterUrl) recastsStore.setPoster(id, posterUrl);
+			toast.success("Poster updated.", { id: pending });
+		} catch (err) {
+			toast.error((err as Error)?.message ?? "Couldn't update the poster.", { id: pending });
+		}
+	}
+
 	async function copyLink(rec: Recast) {
 		try {
 			let slug = rec.latestShareSlug ?? null;
@@ -370,6 +401,7 @@
 </svelte:head>
 
 <input bind:this={fileInput} type="file" accept={UPLOAD_ACCEPT} class="hidden" onchange={onFilePicked} />
+<input bind:this={posterInput} type="file" accept={POSTER_ACCEPT} class="hidden" onchange={onPosterPicked} />
 
 <PageHeader icon={Library} title="Recasts" subtitle="All your recasts — captured, uploaded, shared.">
 	<Button class="gap-2" disabled={uploading} onclick={() => fileInput?.click()}>
@@ -483,6 +515,7 @@
 					onplay={(rec) => (playing = rec)}
 					onrename={(rec) => (renaming = rec)}
 					oncopylink={copyLink}
+					onchangeposter={changePoster}
 					ontogglesource={toggleSource}
 					onmove={moveRecast}
 					ontoggletag={toggleTag}

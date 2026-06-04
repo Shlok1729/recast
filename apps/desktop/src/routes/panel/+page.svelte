@@ -90,6 +90,13 @@
 
   let selectedSource: TargetSource | null = $state(null);
   let isRecording = $state(false);
+  // True for the brief window between the countdown ending (or being skipped)
+  // and the `startRecording` IPC resolving. Without it, `countdownValue` goes
+  // null while we await the IPC, so `phase` falls back to "idle" and the bar
+  // flashes the full control set — expanding then collapsing — between the
+  // countdown and recording phases. Treating "starting" as "recording" keeps
+  // the morph a single countdown→recording crossfade.
+  let isStarting = $state(false);
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
 
@@ -169,7 +176,11 @@
   // cancel; `recording` = collapsed transport. Derived so the markup can
   // switch on a single value.
   const phase = $derived<"idle" | "countdown" | "recording">(
-    isRecording ? "recording" : countdownValue !== null ? "countdown" : "idle",
+    isRecording || isStarting
+      ? "recording"
+      : countdownValue !== null
+        ? "countdown"
+        : "idle",
   );
 
   // Mirror the recording flag to the system tray so its "Start/Stop
@@ -697,6 +708,9 @@
   /** Skip the remaining pre-roll and start capturing right now. */
   function startNow() {
     if (countdownValue === null) return;
+    // Enter "starting" before clearing the countdown so `phase` jumps straight
+    // to "recording" rather than dipping through "idle" while the IPC resolves.
+    isStarting = true;
     clearCountdown();
     void startActualRecording();
   }
@@ -713,7 +727,8 @@
    * rate. rAF also auto-pauses if the panel is hidden.
    */
   function beginRecording() {
-    if (!selectedSource || isRecording || countdownValue !== null) return;
+    if (!selectedSource || isRecording || isStarting || countdownValue !== null)
+      return;
     const secs = countdownSeconds;
     if (secs <= 0) {
       void startActualRecording();
@@ -726,6 +741,9 @@
     const tick = () => {
       const remaining = endsAt - Date.now();
       if (remaining <= 0) {
+        // Bridge to "recording" via `isStarting` so the phase never falls back
+        // to "idle" during the start IPC (see `isStarting` declaration).
+        isStarting = true;
         clearCountdown();
         void startActualRecording();
         return;
@@ -744,6 +762,10 @@
       cancelCountdown();
       return;
     }
+    // Mid-handoff (countdown ended, start IPC in flight): ignore the toggle so
+    // a stray click on the transitioning transport doesn't kick off a fresh
+    // countdown before `isRecording` flips.
+    if (isStarting) return;
     if (!isRecording) {
       beginRecording();
       return;
@@ -781,7 +803,10 @@
   }
 
   async function startActualRecording() {
-    if (!selectedSource) return;
+    if (!selectedSource) {
+      isStarting = false;
+      return;
+    }
     const options: RecordingOptions = {
       systemAudio: systemAudioOn,
       microphone: micOn,
@@ -800,7 +825,10 @@
           ? selectedSource.region
           : null,
       );
+      // Flip both in the same synchronous block: `phase` stays "recording"
+      // (isStarting → isRecording) with no idle frame in between.
       isRecording = true;
+      isStarting = false;
       now = Date.now();
       recordingStartTime = now;
       isPaused = false;
@@ -816,6 +844,9 @@
         notify("warning", result.warnings.join("\n"), 8000);
       }
     } catch (e) {
+      // Start failed — drop out of "starting" so the bar morphs back to idle
+      // instead of being stuck showing the recording transport.
+      isStarting = false;
       notify("error", `Recording failed: ${e}`, 10000);
     }
   }

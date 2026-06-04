@@ -128,6 +128,20 @@ export const shareView = pgTable(
 		sessionId: text("session_id").notNull(),
 		country: text("country"),
 		userAgent: text("user_agent"),
+		/**
+		 * Normalized device class derived from the user-agent at ingest:
+		 * `"mobile" | "tablet" | "desktop"`. Stored (rather than parsed on every
+		 * read) so audience breakdowns are a cheap GROUP BY; historical rows with
+		 * a null `device` fall back to a UA re-parse at read time.
+		 */
+		device: text("device"),
+		/**
+		 * Where the viewer arrived from — the hostname of `document.referrer`,
+		 * sent by the player on the "start" beacon (the request `Referer` header
+		 * is always the share page itself, so it can't tell us this). Null for
+		 * direct opens / privacy-stripped referrers.
+		 */
+		referrer: text("referrer"),
 		watchPct: integer("watch_pct").notNull().default(0),
 		completed: boolean("completed").notNull().default(false),
 		createdAt: timestamp("created_at").notNull().defaultNow(),

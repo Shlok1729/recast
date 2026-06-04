@@ -25,6 +25,7 @@
 		onplay,
 		onrename,
 		oncopylink,
+		onchangeposter,
 		ontogglesource,
 		onmove,
 		ontoggletag,
@@ -45,6 +46,7 @@
 		onplay: (rec: Recast) => void;
 		onrename: (rec: Recast) => void;
 		oncopylink: (rec: Recast) => void;
+		onchangeposter?: (rec: Recast) => void;
 		ontogglesource: (rec: Recast) => void;
 		onmove: (rec: Recast, folderId: string | null) => void;
 		ontoggletag: (rec: Recast, tagId: string) => void;
@@ -74,6 +76,7 @@
 					onplay={() => onplay(rec)}
 					onrename={() => onrename(rec)}
 					oncopylink={() => oncopylink(rec)}
+					onchangeposter={onchangeposter ? () => onchangeposter(rec) : undefined}
 					ontogglesource={() => ontogglesource(rec)}
 					onmove={(folderId) => onmove(rec, folderId)}
 					ontoggletag={(tagId) => ontoggletag(rec, tagId)}

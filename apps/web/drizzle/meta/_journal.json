@@ -43,6 +43,13 @@
       "when": 1780206097885,
       "tag": "0005_natural_carnage",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780587377142,
+      "tag": "0006_curious_mach_iv",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,7 @@
 		Film,
 		FolderInput,
 		HardDrive,
+		ImagePlus,
 		Inbox,
 		Link2,
 		MonitorPlay,
@@ -40,6 +41,7 @@
 		onplay,
 		onrename,
 		oncopylink,
+		onchangeposter,
 		ontogglesource,
 		onmove,
 		ontoggletag,
@@ -57,6 +59,7 @@
 		onplay: () => void;
 		onrename: () => void;
 		oncopylink: () => void;
+		onchangeposter?: () => void;
 		ontogglesource: () => void;
 		onmove: (folderId: string | null) => void;
 		ontoggletag: (tagId: string) => void;
@@ -212,6 +215,12 @@
 						<BarChart3 class="size-4 text-muted-foreground" />
 						View analytics
 					</DropdownMenu.Item>
+					{#if onchangeposter && recast.source === "cloud"}
+						<DropdownMenu.Item onclick={onchangeposter}>
+							<ImagePlus class="size-4 text-muted-foreground" />
+							Change poster
+						</DropdownMenu.Item>
+					{/if}
 
 					<!-- Move to folder -->
 					<DropdownMenu.Sub>

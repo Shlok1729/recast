@@ -299,6 +299,9 @@
 					sessionId: shareSessionId(),
 					event,
 					watchPct: Math.round(watchedPct),
+					// Acquisition source — only meaningful on the first ("start")
+					// beacon; the server reduces it to a bare host and drops self-refs.
+					referrer: event === "start" ? document.referrer || null : null,
 				}),
 				keepalive: true,
 			}).catch(() => {});
