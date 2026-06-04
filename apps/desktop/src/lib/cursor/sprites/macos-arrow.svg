@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <filter id="cursor-macos-shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.6"/>
+      <feOffset dx="0" dy="1.4"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#cursor-macos-shadow)">
+    <path
+      d="M8 6 L8 50.4 L19.6 39.2 L25.6 53.6 L31.6 51 L25.8 36.6 L42 36.6 Z"
+      fill="#fafafa" stroke="#fafafa" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/>
+    <path
+      d="M8 6 L8 50.4 L19.6 39.2 L25.6 53.6 L31.6 51 L25.8 36.6 L42 36.6 Z"
+      fill="#0a0a0a"/>
+  </g>
+</svg>

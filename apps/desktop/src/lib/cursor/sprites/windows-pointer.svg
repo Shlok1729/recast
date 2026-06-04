@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="cursor-w11p-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6e6e6"/>
+    </linearGradient>
+    <filter id="cursor-w11p-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.8"/>
+      <feOffset dx="0" dy="1.8"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.5"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <path
+    d="
+      M12 4
+      C 14 4, 16 5.6, 16 8
+      L 16 28
+      L 18 28 L 18 22
+      C 18 20.4, 19.6 19, 21.2 19
+      C 22.8 19, 24.4 20.4, 24.4 22
+      L 24.4 28 L 26.4 28 L 26.4 24
+      C 26.4 22.4, 28 21, 29.6 21
+      C 31.2 21, 32.8 22.4, 32.8 24
+      L 32.8 28 L 34.8 28 L 34.8 26
+      C 34.8 24.4, 36.4 23, 38 23
+      C 39.6 23, 41.2 24.4, 41.2 26
+      L 41.2 42
+      C 41.2 50, 36.4 56, 28 56
+      L 24 56
+      C 17.6 56, 12 50, 12 44
+      L 12 36 L 9.6 32
+      C 8.4 30.4, 8.8 28, 10.4 26.8
+      C 12 25.6, 14 26, 15.2 27.6
+      L 16 28.6 L 16 8
+      C 16 5.6, 13 4, 12 4
+      Z"
+    fill="url(#cursor-w11p-fill)"
+    stroke="#1c1c1c"
+    stroke-width="2"
+    stroke-linejoin="round"
+    stroke-linecap="round"
+    filter="url(#cursor-w11p-shadow)"/>
+</svg>
