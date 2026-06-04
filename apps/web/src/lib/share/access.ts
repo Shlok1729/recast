@@ -170,10 +170,16 @@ export async function resolveShareAccess(
 
 	// `workspace` is the canonical name; `team` is the legacy alias. Both
 	// mean "any signed-in member of the share's org".
+	//
+	// Workspace owners/admins can view every share in their workspace — even
+	// `private` ones (schema contract: private → owner + workspace admins) — so
+	// manage implies view. Without this they'd hit manage endpoints yet be
+	// denied the share itself.
 	const canView =
 		row.visibility === "public" ||
 		isOwner ||
 		isAdmin ||
+		isWorkspaceManager ||
 		((row.visibility === "team" || row.visibility === "workspace") && inOrg) ||
 		(row.visibility === "selected" && onAllowlist);
 

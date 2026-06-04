@@ -52,7 +52,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (!VALID.has(visibility as Visibility)) {
 		error(400, "Invalid visibility value");
 	}
-	const next = visibility as Visibility;
+	// Normalize the legacy `team` alias to canonical `workspace` so new writes
+	// stop persisting the deprecated value (schema: workspace is canonical).
+	const next: Visibility = visibility === "team" ? "workspace" : (visibility as Visibility);
 
 	// Authorize against the share + its recast's workspace in one shared check.
 	const manage = await resolveShareManage(params.id, session.user.id);
@@ -60,7 +62,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (!manage.canManage) error(403, "Not allowed to change this share");
 
 	let organizationId: string | null = null;
-	if (next === "workspace" || next === "team") {
+	if (next === "workspace") {
 		const explicit = typeof body.organizationId === "string" ? body.organizationId : null;
 		// Default to the recast's own workspace — the correct gate, and what
 		// share creation uses. An explicit override must be a workspace the
