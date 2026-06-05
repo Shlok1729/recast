@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { EASE, EASING_PRESETS, type Easing } from "$lib/easing/cubic-bezier";
+  import {
+    EASE,
+    EASING_PRESETS,
+    easingEquals,
+    type Easing,
+  } from "$lib/easing/cubic-bezier";
   import {
     DEFAULT_ZOOM_CENTER,
     DEFAULT_ZOOM_MOTION_BLUR,
@@ -404,16 +409,30 @@
               size={140}
             />
           </div>
-          <div class="flex flex-wrap gap-1">
-            {#each EASING_PRESETS as preset (preset.id)}
-              <button
-                type="button"
-                onclick={() => applyPresetToBoth(preset.value)}
-                class="h-6 rounded-sm border border-border bg-background px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {preset.label}
-              </button>
-            {/each}
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-medium text-muted-foreground/70">
+              Quick presets — both ramps
+            </span>
+            <div class="flex flex-wrap gap-1">
+              {#each EASING_PRESETS as preset (preset.id)}
+                {@const active =
+                  easingEquals(region.easeIn, preset.value) &&
+                  easingEquals(region.easeOut, preset.value)}
+                <button
+                  type="button"
+                  onclick={() => applyPresetToBoth(preset.value)}
+                  class={cn(
+                    "h-6 rounded-sm border px-2 text-[10px] font-medium transition-colors",
+                    "focus:outline-none focus:ring-1 focus:ring-ring",
+                    active
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {preset.label}
+                </button>
+              {/each}
+            </div>
           </div>
         </div>
       </PanelSection>

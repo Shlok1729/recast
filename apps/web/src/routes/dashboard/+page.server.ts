@@ -1,6 +1,8 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getDb } from "$lib/db";
-import { recast, share } from "$lib/db/schema";
+import { recast } from "$lib/db/schema";
+import { loadWorkspaceActivity } from "$lib/dashboard/activity.server";
+import { recastLatestShareSlugSql, recastViewsSql } from "$lib/db/recast-selectors";
 import { resolvePlaybackUrl } from "$lib/storage";
 import type { PageServerLoad } from "./$types";
 
@@ -17,7 +19,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { activeOrganization } = await parent();
 	const db = getDb();
 
-	const recasts = await db
+	const [recasts, activity] = await Promise.all([
+		db
 		.select({
 			id: recast.id,
 			title: recast.title,
@@ -29,25 +32,20 @@ export const load: PageServerLoad = async ({ parent }) => {
 			videoUrl: recast.videoUrl,
 			posterUrl: recast.posterUrl,
 			createdAt: recast.createdAt,
-			views: sql<number>`COALESCE((
-				SELECT SUM(${share.viewsCount})
-				FROM ${share}
-				WHERE ${share.recastId} = ${recast.id}
-			), 0)`,
-			latestShareSlug: sql<string | null>`(
-				SELECT ${share.slug}
-				FROM ${share}
-				WHERE ${share.recastId} = ${recast.id}
-				ORDER BY ${share.createdAt} DESC
-				LIMIT 1
-			)`,
+			views: recastViewsSql(),
+			latestShareSlug: recastLatestShareSlugSql(),
 		})
-		.from(recast)
-		.where(eq(recast.workspaceId, activeOrganization.id))
-		.orderBy(desc(recast.createdAt))
-		.limit(12);
+			.from(recast)
+			.where(eq(recast.workspaceId, activeOrganization.id))
+			.orderBy(desc(recast.createdAt))
+			.limit(12),
+		loadWorkspaceActivity(activeOrganization.id),
+	]);
 
 	return {
+		// Surfaced so the home page can upload into the active workspace
+		// (mirrors what the library loader returns).
+		workspaceId: activeOrganization.id,
 		// `videoUrl` is a bare object key — sign it into a playable URL (mirrors
 		// the share page; signing is local, and the list is capped at 12 here).
 		recasts: await Promise.all(
@@ -56,11 +54,13 @@ export const load: PageServerLoad = async ({ parent }) => {
 				.map(async (r) => ({
 					...r,
 					videoUrl: await resolvePlaybackUrl(r.videoUrl),
+					posterUrl: await resolvePlaybackUrl(r.posterUrl),
 					sizeBytes: Number(r.sizeBytes),
 					views: Number(r.views ?? 0),
 					createdAt: r.createdAt.getTime(),
 				})),
 		),
+		activity,
 	};
 };
 

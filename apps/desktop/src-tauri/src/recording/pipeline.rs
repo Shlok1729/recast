@@ -136,6 +136,11 @@ pub fn spawn_capture_loop(
     pipeline: RecordingPipeline,
     clock: Instant,
     target_fps: u32,
+    // Set to the wall-clock μs of the FIRST encoded frame (the DXGI duplication
+    // warmup). `stop()` subtracts this from the cursor track so cursor t=0
+    // lines up with video frame 0 — otherwise the warmup shifts the cursor
+    // ahead of the video and clicks land ~that far off.
+    first_frame_offset_us: Arc<std::sync::atomic::AtomicU64>,
 ) -> Result<thread::JoinHandle<Result<()>>> {
     thread::Builder::new()
         .name("recast-capture".into())
@@ -157,10 +162,14 @@ pub fn spawn_capture_loop(
                 }
             };
 
-            // Emit the very first frame at t=0 so the video starts on the
-            // same wall-clock instant the cursor capture started.
+            // The first frame defines video t=0 (the encoder is frame-count
+            // based). Record how long the capture-source warmup took so the
+            // cursor track — which has been ticking since recording start — can
+            // be re-based onto this same zero in `stop()`.
+            let first_us = clock.elapsed().as_micros() as u64;
+            first_frame_offset_us.store(first_us, Ordering::Release);
             pipeline.push(VideoFrame {
-                timestamp_us: clock.elapsed().as_micros() as u64,
+                timestamp_us: first_us,
                 width: source.width(),
                 height: source.height(),
                 data: last_frame.clone(),

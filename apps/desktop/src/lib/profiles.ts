@@ -31,8 +31,10 @@ export interface RecordingProfile {
 	 * or absent means "inherit the global Settings → Recording countdown";
 	 * `0` explicitly disables the countdown for this profile. Lets a "quick
 	 * capture" profile start instantly while a "presentation" profile waits.
-	 * Not part of the capability fingerprint (`capSig`) — it's a preference,
-	 * not a capability, so two profiles can't differ by countdown alone.
+	 * Part of the capability fingerprint (`capSig`) and the combination cap —
+	 * the pre-roll is a real differentiator, so "Screen, instant" and
+	 * "Screen, 5s" are two valid profiles that share devices but differ by
+	 * countdown. The option space is `COUNTDOWN_OPTIONS`.
 	 */
 	countdown?: number | null;
 	isDefault: boolean;
@@ -56,6 +58,29 @@ export const PROFILES_ENABLED_STORAGE_KEY = "recast-profiles-enabled";
 const DEFAULT_SLOT = "default";
 const OFF_SLOT = "off";
 
+/**
+ * Per-profile countdown override option space — the single source of truth
+ * shared by the editor UI, the dedup key (`capSig`), and the combination cap
+ * (`maxCombinations` / `firstFreeCombo` / `freeSlots`). `null` = inherit the
+ * global countdown; `0` = off; the rest pin an explicit pre-roll. Each value
+ * is a distinct slot, so two profiles may share devices yet differ by
+ * countdown alone. Keep `null` first so the auto-pick walk exhausts every
+ * device combo at "inherit" before introducing pinned countdowns.
+ */
+export const COUNTDOWN_OPTIONS: readonly (number | null)[] = [
+	null,
+	0,
+	3,
+	5,
+	10,
+];
+
+/** Stable slot token for a countdown value, used in `capSig` and combo walks.
+ *  `null`/absent → "inherit"; otherwise the literal seconds. */
+export function countdownToken(cd: number | null | undefined): string {
+	return cd == null ? "inherit" : String(cd);
+}
+
 /** Public profile combo shape: each side is the on/off + device identity.
  *  `null` deviceId with kind=true means "use system default at runtime". */
 export type ProfileCombo = {
@@ -64,6 +89,8 @@ export type ProfileCombo = {
 	micDeviceId: string | null;
 	camera: boolean;
 	cameraDeviceId: string | null;
+	/** Countdown override for the auto-picked slot (`null` = inherit global). */
+	countdown: number | null;
 };
 
 function micSlot(
@@ -87,20 +114,23 @@ function camSlot(
  *
  * Slot vocabulary: `off` (capability disabled), `default` (enabled but no
  * specific device pinned — runtime picks the system default), or a literal
- * device id.
+ * device id. The trailing segment is the countdown slot (`inherit` or the
+ * literal seconds) so profiles can differ by pre-roll alone — see
+ * `COUNTDOWN_OPTIONS`.
  */
 export function capSig(p: RecordingProfile): string {
-	return `${+p.systemAudio}|${micSlot(p)}|${camSlot(p)}`;
+	return `${+p.systemAudio}|${micSlot(p)}|${camSlot(p)}|${countdownToken(p.countdown)}`;
 }
 
 /**
  * Total possible profile slots given currently-attached devices.
- * Math: `2 (sysAudio) × (2 + #mics) × (2 + #cams)` — each kind's slot space
- * is { off, default, ...each specific device }. With 0 mics and 0 cams this
- * collapses to 2³ = 8, matching the original boolean-only model.
+ * Math: `#countdowns × 2 (sysAudio) × (2 + #mics) × (2 + #cams)` — each kind's
+ * slot space is { off, default, ...each specific device }, multiplied by the
+ * per-profile countdown override options (`COUNTDOWN_OPTIONS`). With 0 mics
+ * and 0 cams this is `#countdowns × 8` (5 × 8 = 40 for the default options).
  */
 export function maxCombinations(micCount: number, camCount: number): number {
-	return 2 * (2 + micCount) * (2 + camCount);
+	return COUNTDOWN_OPTIONS.length * 2 * (2 + micCount) * (2 + camCount);
 }
 
 interface DeviceLite {
@@ -121,6 +151,9 @@ interface CameraLite {
  * "system audio + default mic + default cam" template, then "+ off cam",
  * etc. Specific device ids come last so a fresh user with one mic doesn't
  * land on the literal-id slot before exhausting the off/default slots.
+ * Countdown is the outermost dimension with `inherit` first, so the whole
+ * device cartesian is exhausted at "inherit the global countdown" before any
+ * pinned pre-roll is auto-assigned.
  */
 export function firstFreeCombo(
 	list: RecordingProfile[],
@@ -140,18 +173,22 @@ export function firstFreeCombo(
 		...cams.map((c) => ({ slot: c.deviceId, id: c.deviceId })),
 	];
 
-	for (const sa of [true, false]) {
-		for (const mic of micOptions) {
-			for (const cam of camOptions) {
-				const sig = `${+sa}|${mic.slot}|${cam.slot}`;
-				if (taken.has(sig)) continue;
-				return {
-					systemAudio: sa,
-					microphone: mic.slot !== OFF_SLOT,
-					micDeviceId: mic.id,
-					camera: cam.slot !== OFF_SLOT,
-					cameraDeviceId: cam.id,
-				};
+	for (const cd of COUNTDOWN_OPTIONS) {
+		const cdSlot = countdownToken(cd);
+		for (const sa of [true, false]) {
+			for (const mic of micOptions) {
+				for (const cam of camOptions) {
+					const sig = `${+sa}|${mic.slot}|${cam.slot}|${cdSlot}`;
+					if (taken.has(sig)) continue;
+					return {
+						systemAudio: sa,
+						microphone: mic.slot !== OFF_SLOT,
+						micDeviceId: mic.id,
+						camera: cam.slot !== OFF_SLOT,
+						cameraDeviceId: cam.id,
+						countdown: cd,
+					};
+				}
 			}
 		}
 	}

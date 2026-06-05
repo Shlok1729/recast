@@ -14,7 +14,9 @@ use xcap::{Monitor, Window};
 use crate::audio::{
     AudioCaptureConfig, AudioCaptureSession, MicrophoneCaptureConfig, MicrophoneCaptureSession,
 };
-use crate::cursor::{spawn_cursor_capture, write_cursor_track, CursorCaptureFrame, CursorTrack};
+use crate::cursor::{
+    shift_cursor_track, spawn_cursor_capture, write_cursor_track, CursorCaptureFrame, CursorTrack,
+};
 use crate::encoder::{spawn_encoder_loop, EncoderConfig};
 use crate::render::node_types::{CameraMotionSegment, CameraOverlaySettings, CameraPlacement};
 use pipeline::{spawn_capture_loop, PipelineSnapshot, RecordingPipeline};
@@ -149,6 +151,72 @@ pub struct CaptureTarget {
     pub label: String,
     pub source: CaptureArea,
     pub crop: CaptureArea,
+    /// CGDirectDisplayID / xcap monitor id of the display being captured. For
+    /// `Window` targets this is the display the window sits on (distinct from
+    /// `id`, which is the window id). macOS uses it to pick the matching
+    /// AVFoundation "Capture screen N"; other platforms ignore it.
+    #[serde(default)]
+    pub display_id: u32,
+    /// Backing scale factor (physical ÷ logical) of `display_id`. `source` and
+    /// `crop` are stored in *physical device pixels* — on macOS that means the
+    /// xcap-logical values were multiplied by this; on Windows/Linux xcap
+    /// already reports physical, so this is 1.0. The cursor track uses it to
+    /// lift its logical samples into the same physical space as the video.
+    #[serde(default = "default_scale_factor")]
+    pub scale_factor: f32,
+}
+
+fn default_scale_factor() -> f32 {
+    1.0
+}
+
+/// Backing scale factor of a monitor — physical pixels per logical point.
+/// Only macOS needs it (AVFoundation captures physical while xcap reports
+/// logical); elsewhere xcap dimensions are already physical, so 1.0.
+#[cfg(target_os = "macos")]
+fn display_scale_factor(monitor: &Monitor) -> f32 {
+    monitor.scale_factor().unwrap_or(1.0).max(1.0)
+}
+#[cfg(not(target_os = "macos"))]
+fn display_scale_factor(_monitor: &Monitor) -> f32 {
+    1.0
+}
+
+/// Scale a rectangle by `scale`, keeping width/height even (libx264 requires
+/// it) and at least 2px.
+fn scale_area(a: CaptureArea, scale: f64) -> CaptureArea {
+    CaptureArea {
+        x: (a.x as f64 * scale).round() as i32,
+        y: (a.y as f64 * scale).round() as i32,
+        width: (((a.width as f64 * scale).round() as u32) & !1).max(2),
+        height: (((a.height as f64 * scale).round() as u32) & !1).max(2),
+    }
+}
+
+/// Lift a freshly-resolved target's xcap-logical `source`/`crop` into the
+/// physical device pixels AVFoundation actually delivers, and record the
+/// factor for the cursor track. A no-op at scale 1.0 (Windows/Linux, where
+/// xcap already reports physical), so those platforms stay byte-for-byte
+/// unchanged.
+fn apply_device_scale(target: &mut CaptureTarget, scale: f32) {
+    target.scale_factor = scale;
+    if (scale - 1.0).abs() < 1e-3 {
+        return;
+    }
+    let s = scale as f64;
+    target.source = scale_area(target.source, s);
+    let mut crop = scale_area(target.crop, s);
+    // Rounding can nudge the scaled crop a pixel past the scaled source; clamp
+    // so the encoder's crop filter never exceeds the captured frame.
+    let max_x = target.source.x + target.source.width as i32;
+    let max_y = target.source.y + target.source.height as i32;
+    crop.x = crop.x.clamp(target.source.x, max_x);
+    crop.y = crop.y.clamp(target.source.y, max_y);
+    let avail_w = (max_x - crop.x).max(2) as u32;
+    let avail_h = (max_y - crop.y).max(2) as u32;
+    crop.width = (crop.width.min(avail_w)) & !1;
+    crop.height = (crop.height.min(avail_h)) & !1;
+    target.crop = crop;
 }
 
 impl CaptureTarget {
@@ -194,13 +262,17 @@ fn resolve_display_target(target_id: u32) -> Result<CaptureTarget> {
         height: display.height().unwrap_or_default(),
     };
 
-    Ok(CaptureTarget {
+    let mut target = CaptureTarget {
         kind: CaptureKind::Display,
         id: target_id,
+        display_id: target_id,
         label: display.name().unwrap_or_else(|_| "Display".into()),
         source: area,
         crop: area,
-    })
+        scale_factor: 1.0,
+    };
+    apply_device_scale(&mut target, display_scale_factor(&display));
+    Ok(target)
 }
 
 fn resolve_window_target(target_id: u32) -> Result<CaptureTarget> {
@@ -236,13 +308,17 @@ fn resolve_window_target(target_id: u32) -> Result<CaptureTarget> {
         height: source_monitor.height().unwrap_or_default(),
     };
 
-    Ok(CaptureTarget {
+    let mut target = CaptureTarget {
         kind: CaptureKind::Window,
         id: target_id,
+        display_id: source_monitor.id().unwrap_or_default(),
         label: window.title().unwrap_or_else(|_| "Window".into()),
         source,
         crop,
-    })
+        scale_factor: 1.0,
+    };
+    apply_device_scale(&mut target, display_scale_factor(&source_monitor));
+    Ok(target)
 }
 
 fn resolve_region_target(rect: RegionRect) -> Result<CaptureTarget> {
@@ -297,13 +373,17 @@ fn resolve_region_target(rect: RegionRect) -> Result<CaptureTarget> {
         height: crop_h,
     };
 
-    Ok(CaptureTarget {
+    let mut target = CaptureTarget {
         kind: CaptureKind::Region,
         id: monitor_id,
+        display_id: monitor_id,
         label: format!("Area {crop_w}×{crop_h}"),
         source,
         crop,
-    })
+        scale_factor: 1.0,
+    };
+    apply_device_scale(&mut target, display_scale_factor(&monitor));
+    Ok(target)
 }
 
 //  Recording stats and artifacts
@@ -411,6 +491,10 @@ struct RecordingSession {
     capture_handle: JoinHandle<Result<()>>,
     encoder_handle: JoinHandle<Result<()>>,
     cursor_handle: JoinHandle<CursorTrack>,
+    /// Wall-clock μs from recording start to the first encoded video frame
+    /// (capture-source warmup). Subtracted from the cursor track at `stop()`
+    /// so cursor t=0 aligns with video frame 0.
+    first_frame_offset_us: Arc<AtomicU64>,
     audio_session: Option<AudioCaptureSession>,
     audio_path: PathBuf,
     microphone_session: Option<MicrophoneCaptureSession>,
@@ -559,6 +643,7 @@ impl RecordingManager {
         let pipeline = RecordingPipeline::new(queue_capacity);
         let mut warnings = Vec::new();
 
+        let first_frame_offset_us = Arc::new(AtomicU64::new(0));
         let capture_handle = spawn_capture_loop(
             target.clone(),
             stop_flag.clone(),
@@ -566,6 +651,7 @@ impl RecordingManager {
             pipeline.clone(),
             started_at,
             RECORDING_FPS,
+            first_frame_offset_us.clone(),
         )?;
 
         let encoder_handle = spawn_encoder_loop(
@@ -595,6 +681,10 @@ impl RecordingManager {
                 origin_y: target.crop.y,
                 width: target.crop.width,
                 height: target.crop.height,
+                // macOS samples the cursor in logical points but the video is
+                // physical pixels; lift samples by the display's scale so they
+                // line up. 1.0 on Windows/Linux (already physical) → unchanged.
+                scale: target.scale_factor,
             },
         )?;
 
@@ -653,6 +743,7 @@ impl RecordingManager {
             capture_handle,
             encoder_handle,
             cursor_handle,
+            first_frame_offset_us,
             audio_session,
             audio_path,
             microphone_session,
@@ -684,10 +775,17 @@ impl RecordingManager {
             .join()
             .map_err(|_| anyhow!("capture thread panicked"))??;
 
-        let cursor_track = session
+        let mut cursor_track = session
             .cursor_handle
             .join()
             .map_err(|_| anyhow!("cursor thread panicked"))?;
+        // Re-base the cursor track onto the video clock: the capture-source
+        // warmup means video frame 0 is wall-clock `first_frame_offset_us`, not
+        // 0, while the cursor track has been ticking since recording start.
+        // Without this the cursor (and its clicks / highlight) runs ahead of
+        // the on-screen action by the warmup — the reported ~half-second delay.
+        let cursor_offset_us = session.first_frame_offset_us.load(Ordering::Acquire);
+        shift_cursor_track(&mut cursor_track, cursor_offset_us);
         write_cursor_track(&session.cursor_path, &cursor_track)?;
 
         session

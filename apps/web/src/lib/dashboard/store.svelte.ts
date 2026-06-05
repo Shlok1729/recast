@@ -154,6 +154,12 @@ class RecordingsStore {
 		this.persist();
 	}
 
+	/** Swap a recast's poster after a replace (mirrors PUT /api/recasts/[id]/poster). */
+	setPoster(id: string, posterUrl: string) {
+		this.items = this.items.map((r) => (r.id === id ? { ...r, posterUrl } : r));
+		this.persist();
+	}
+
 	/** Strip a tag id from every recast that carried it (after the tag is
 	 *  deleted server-side; the recast_tag rows cascade, this mirrors it locally). */
 	removeTagEverywhere(tagId: string) {

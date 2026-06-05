@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS privacy usage descriptions. Tauri v2 merges this file into the
+  generated app bundle's Info.plist on macOS builds.
+
+  These strings are MANDATORY for media capture, not just nice-to-have:
+
+    - Without NSCameraUsageDescription, WKWebView strips the entire
+      MediaDevices API — `navigator.mediaDevices` is `undefined`, so the
+      camera-preview / device-picker enumerateDevices() + getUserMedia()
+      calls throw before they can even prompt. (This was the "Camera
+      unavailable: undefined is not an object" bug on Apple Silicon.)
+
+    - Without NSMicrophoneUsageDescription, the FFmpeg AVFoundation
+      microphone subprocess (audio/platform/ffmpeg_unix.rs) is denied by
+      TCC and captures no samples, since it inherits the app's TCC
+      identity and that identity has declared no mic intent.
+
+  The text is shown verbatim in the macOS permission prompt — keep it
+  plain-language and specific to what the user is about to do.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Recast uses your camera to record a presenter video alongside your screen recordings.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Recast uses your microphone to record narration alongside your screen recordings.</string>
+</dict>
+</plist>

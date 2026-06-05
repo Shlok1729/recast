@@ -60,9 +60,12 @@ pub fn start_recording(
             let target = CaptureTarget {
                 kind,
                 id: target_id,
+                display_id: target_id,
                 label: "Wayland portal".to_string(),
                 source: area,
                 crop: area,
+                // The portal already hands us physical pixels, so no rescale.
+                scale_factor: 1.0,
             };
             crate::capture::platform::linux_wayland::stash_portal_stream(stream);
             target

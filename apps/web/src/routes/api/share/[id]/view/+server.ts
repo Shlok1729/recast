@@ -2,6 +2,7 @@ import { error, json } from "@sveltejs/kit";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "$lib/db";
 import { recast, share, shareView } from "$lib/db/schema";
+import { deviceFromUA, referrerHost } from "$lib/share/ua";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -29,6 +30,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		sessionId?: unknown;
 		event?: unknown;
 		watchPct?: unknown;
+		referrer?: unknown;
 	} = {};
 	try {
 		body = (await request.json()) as typeof body;
@@ -61,12 +63,19 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 
 	// Best-effort geo + UA from edge headers (Vercel / Cloudflare). Truncated
-	// so a hostile UA can't bloat the row.
+	// so a hostile UA can't bloat the row. Device is derived from the UA here so
+	// audience breakdowns are a cheap GROUP BY; referrer comes from the player's
+	// `document.referrer` (the request `Referer` is always the share page).
 	const country =
 		request.headers.get("x-vercel-ip-country") ??
 		request.headers.get("cf-ipcountry") ??
 		null;
 	const userAgent = request.headers.get("user-agent")?.slice(0, 512) ?? null;
+	const device = deviceFromUA(userAgent);
+	const referrer = referrerHost(
+		typeof body.referrer === "string" ? body.referrer : null,
+		request.url,
+	);
 	const now = new Date();
 
 	await db.transaction(async (tx) => {
@@ -77,6 +86,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 				sessionId,
 				country,
 				userAgent,
+				device,
+				referrer,
 				watchPct,
 				completed: false,
 			});

@@ -212,8 +212,43 @@ export function recastObjectKey(workspaceId: string, recastId: string): string {
 	return `workspace/${workspaceId}/${recastId}.mp4`;
 }
 
-export function posterObjectKey(workspaceId: string, recastId: string): string {
-	return `workspace/${workspaceId}/${recastId}.poster.webp`;
+/**
+ * Poster key. The original upload writes the unversioned key
+ * (`{recastId}.poster.webp`); a *replacement* passes a short `version` token so
+ * it lands on a NEW key (`{recastId}.poster.{version}.webp`). The new key both
+ * busts any CDN cache of the old poster and gives the replace flow an old key
+ * to delete — overwriting in place would do neither.
+ */
+export function posterObjectKey(
+	workspaceId: string,
+	recastId: string,
+	version?: string,
+): string {
+	const v = version ? `.${version.replace(/[^a-z0-9]/gi, "")}` : "";
+	return `workspace/${workspaceId}/${recastId}.poster${v}.webp`;
+}
+
+/**
+ * Reverse a stored `posterUrl`/`videoUrl` back into the object key we can pass
+ * to `deleteObject`. Bare keys (the common case) return as-is; an absolute URL
+ * is matched against the active provider's public base URL and its path
+ * extracted. Returns null when the value is an external/legacy URL we don't
+ * own — the caller then skips the delete rather than risk touching a foreign
+ * object.
+ */
+export function objectKeyFromStored(value: string | null | undefined): string | null {
+	const v = (value ?? "").trim();
+	if (!v) return null;
+	if (!/^https?:\/\//.test(v)) return v; // already a bare key
+	const base = cached?.publicBaseUrl;
+	if (!base) return null;
+	const prefix = base.replace(/\/$/, "") + "/";
+	if (!v.startsWith(prefix)) return null;
+	try {
+		return decodeURI(v.slice(prefix.length));
+	} catch {
+		return v.slice(prefix.length);
+	}
 }
 
 /**

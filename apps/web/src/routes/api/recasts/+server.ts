@@ -1,9 +1,15 @@
 import { error, json } from "@sveltejs/kit";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
-import { member, recast, share } from "$lib/db/schema";
+import { recast } from "$lib/db/schema";
+import {
+	recastLatestShareSlugSql,
+	recastTagIdsSql,
+	recastViewsSql,
+} from "$lib/db/recast-selectors";
 import { resolvePlaybackUrl } from "$lib/storage";
+import { assertWorkspaceMember } from "$lib/workspace/guard";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = {
@@ -39,17 +45,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 
 	const db = getDb();
 
-	const [m] = await db
-		.select({ id: member.id })
-		.from(member)
-		.where(
-			and(
-				eq(member.userId, session.user.id),
-				eq(member.organizationId, workspaceId),
-			),
-		)
-		.limit(1);
-	if (!m) error(403, "Not a member of this workspace");
+	await assertWorkspaceMember(session.user.id, workspaceId);
 
 	const statusFilter = url.searchParams.get("status");
 	const limit = Math.min(
@@ -88,25 +84,11 @@ export const GET: RequestHandler = async ({ request, url }) => {
 			posterUrl: recast.posterUrl,
 			createdAt: recast.createdAt,
 			lastViewedAt: recast.lastViewedAt,
-			views: sql<number>`COALESCE((
-				SELECT SUM(${share.viewsCount})
-				FROM ${share}
-				WHERE ${share.recastId} = ${recast.id}
-			), 0)`,
-			latestShareSlug: sql<string | null>`(
-				SELECT ${share.slug}
-				FROM ${share}
-				WHERE ${share.recastId} = ${recast.id}
-				ORDER BY ${share.createdAt} DESC
-				LIMIT 1
-			)`,
+			views: recastViewsSql(),
+			latestShareSlug: recastLatestShareSlugSql(),
 			// Tag id array per recast (resolved against the workspace tag list
 			// by the client). `[]` when untagged.
-			tags: sql<string[]>`COALESCE((
-				SELECT json_agg(rt.tag_id)
-				FROM recast_tag rt
-				WHERE rt.recast_id = ${recast.id}
-			), '[]'::json)`,
+			tags: recastTagIdsSql(),
 		})
 		.from(recast)
 		.where(where)

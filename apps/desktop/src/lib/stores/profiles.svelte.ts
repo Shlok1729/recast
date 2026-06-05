@@ -9,6 +9,8 @@
 
 import {
 	capSig,
+	COUNTDOWN_OPTIONS,
+	countdownToken,
 	ensureExactlyOneDefault,
 	findDefaultProfile,
 	firstFreeCombo,
@@ -17,6 +19,8 @@ import {
 	maxCombinations,
 	persistProfiles,
 	persistProfilesEnabled,
+	PROFILES_ENABLED_STORAGE_KEY,
+	PROFILES_STORAGE_KEY,
 	type ProfileCombo,
 	type RecordingProfile,
 } from "$lib/profiles";
@@ -44,6 +48,25 @@ function createProfilesStore() {
 		// Persist once so any seeded defaults make it to disk on first launch.
 		persistProfiles(profiles);
 		hydrated = true;
+
+		// Cross-window sync. Tauri v2 webviews share a localStorage origin, so a
+		// save from a sibling window (e.g. editing a profile's countdown/devices
+		// on the Profiles page) fires a `storage` event here. Without this, the
+		// long-lived recording panel kept its first-hydrate snapshot and ignored
+		// edits made elsewhere — per-profile countdowns and device swaps silently
+		// didn't apply. Mirrors how `recordingCountdown` (PersistedState) already
+		// stays in sync. Same-window writes don't fire `storage`, so this never
+		// double-loads our own `persist()`.
+		if (typeof window !== "undefined") {
+			window.addEventListener("storage", (e) => {
+				if (e.key === null || e.key === PROFILES_STORAGE_KEY) {
+					profiles = loadProfiles();
+				}
+				if (e.key === null || e.key === PROFILES_ENABLED_STORAGE_KEY) {
+					enabled = loadProfilesEnabled();
+				}
+			});
+		}
 	}
 
 	function persist() {
@@ -94,10 +117,13 @@ function createProfilesStore() {
 			let count = 0;
 			const micOpts = ["off", "default", ...mics.map((m) => m.id)];
 			const camOpts = ["off", "default", ...cams.map((c) => c.deviceId)];
-			for (const sa of [1, 0]) {
-				for (const mic of micOpts) {
-					for (const cam of camOpts) {
-						if (!taken.has(`${sa}|${mic}|${cam}`)) count++;
+			for (const cd of COUNTDOWN_OPTIONS) {
+				const cdSlot = countdownToken(cd);
+				for (const sa of [1, 0]) {
+					for (const mic of micOpts) {
+						for (const cam of camOpts) {
+							if (!taken.has(`${sa}|${mic}|${cam}|${cdSlot}`)) count++;
+						}
 					}
 				}
 			}

@@ -12,6 +12,15 @@ fn default_bounce_speed_ms() -> f64 {
     220.0
 }
 
+// Defaults mirror the editor's cursor-smoothing presets (see
+// editor-store.svelte.ts: snapToClicks/snapWindowMs default true / 80 ms).
+fn default_snap_to_clicks() -> bool {
+    true
+}
+fn default_snap_window_ms() -> f64 {
+    80.0
+}
+
 /// A removed range on the timeline (a silence cut or a manual cut), in
 /// original-recording seconds. The export drops these via `select`/`aselect`.
 /// Unknown JS-side fields (`id`, `source`) round-trip through `extra`.
@@ -45,6 +54,15 @@ pub struct RenderState {
     pub cursor_enabled: bool,
     pub cursor_size: f64,
     pub cursor_smoothing: f64,
+    /// Anchor the smoothed path to exact click x/y inside the snap window so
+    /// presses stay pixel-perfect. Mirrors `cursorSnapToClicks` in the editor;
+    /// must be read here so the export's smoothing matches the preview's.
+    #[serde(default = "default_snap_to_clicks")]
+    pub cursor_snap_to_clicks: bool,
+    /// Half-width (ms) of the cosine click-snap ramp. Mirrors
+    /// `cursorSnapWindowMs`.
+    #[serde(default = "default_snap_window_ms")]
+    pub cursor_snap_window_ms: f64,
     pub cursor_highlight_clicks: bool,
     pub cursor_highlight_color: String,
     pub cursor_highlight_opacity: f64,
@@ -132,6 +150,8 @@ impl Default for RenderState {
             cursor_enabled: true,
             cursor_size: 3.0,
             cursor_smoothing: 50.0,
+            cursor_snap_to_clicks: default_snap_to_clicks(),
+            cursor_snap_window_ms: default_snap_window_ms(),
             cursor_highlight_clicks: true,
             cursor_highlight_color: "#3b82f6".into(),
             cursor_highlight_opacity: 40.0,
@@ -642,9 +662,20 @@ fn sample_region(
     // then crop a source-sized window from the upscaled frame.
     let out_w = iw;
     let out_h = ih;
-    // Focus centre eases from (0.5, 0.5) → (center_x, center_y) across the
-    // ramp, so the crop drifts smoothly into the focused area rather than
-    // snapping off-centre on the first frame.
+    // Focus centre is CONSTANT at (center_x, center_y) for the whole region —
+    // only the scale eases. This MUST match the editor preview's affine zoom
+    // (`content_uv = (screen_uv - c)/scale + c`, a focus-pinned transform) AND
+    // the cursor overlay, which uses the same affine forward transform. The
+    // crop below is the exact inverse of that shader sampling. The previous
+    // implementation did two things differently from the preview, both of
+    // which threw the composited cursor off and produced the "scale at centre
+    // then snap" look:
+    //   1. it eased the focus 0.5→target across the ramp (preview holds it
+    //      constant), and
+    //   2. it centred the focus point on the OUTPUT centre (`fx*iw_post -
+    //      out_w/2`) — a different zoom model than the preview's focus-pinned
+    //      affine, so the FFmpeg-zoomed video and the affine cursor disagreed
+    //      about where every pixel lands.
     let fx_target = region.center_x.clamp(0.0, 1.0);
     let fy_target = region.center_y.clamp(0.0, 1.0);
     let mut out = Vec::with_capacity(samples + 1);
@@ -654,23 +685,17 @@ fn sample_region(
         let timeline_t = effective_start + step * i as f64;
         let output_t = timeline_t - time_offset;
         let scale = region.scale_at(timeline_t).max(1.0);
-        // Fractional progress 1.0 → region.scale; drives the centre lerp so
-        // rest frames stay centred.
-        let p = if region.scale > 1.0 {
-            ((scale - 1.0) / (region.scale - 1.0)).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let fx = 0.5 + (fx_target - 0.5) * p;
-        let fy = 0.5 + (fy_target - 0.5) * p;
-        // Post-scale dimensions: iw * Z, ih * Z. Crop a (out_w × out_h)
-        // window such that the focus point (fx, fy) in source UV space
-        // lands at the centre of the cropped frame. Clamp so the window
-        // never leaves the upscaled image.
+        // Affine focus-pinned crop. Derivation: the preview samples
+        // `content_uv = (screen_uv - c)/scale + c`; matching that against
+        // FFmpeg's "scale by Z then crop out_w" gives a crop origin of
+        // `c*(scale-1)*iw` in post-scale pixels. For scale ≥ 1 and c ∈ [0,1]
+        // this is provably within [0, iw_post - out_w], so the clamp is purely
+        // defensive (it never distorts the result the way the old centre-crop
+        // clamp could near an edge focus).
         let iw_post = iw * scale;
         let ih_post = ih * scale;
-        let crop_x = (fx * iw_post - out_w / 2.0).clamp(0.0, (iw_post - out_w).max(0.0));
-        let crop_y = (fy * ih_post - out_h / 2.0).clamp(0.0, (ih_post - out_h).max(0.0));
+        let crop_x = (fx_target * (scale - 1.0) * iw).clamp(0.0, (iw_post - out_w).max(0.0));
+        let crop_y = (fy_target * (scale - 1.0) * ih).clamp(0.0, (ih_post - out_h).max(0.0));
         out.push(ZoomSample {
             t: output_t,
             scale_factor: scale,

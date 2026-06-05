@@ -3,6 +3,7 @@
     EditorStore,
     ExportFormat,
     ExportQuality,
+    ExportSpeed,
     GifDither,
     GifQuality,
   } from "$lib/stores/editor-store.svelte";
@@ -48,6 +49,14 @@
     { value: "source", label: "Source", desc: "Original resolution" },
   ];
 
+  // Encoder effort — orthogonal to resolution. Same visual quality target;
+  // trades encode time against file size. "Balanced" is the historical default.
+  const speeds: { value: ExportSpeed; label: string; desc: string }[] = [
+    { value: "fast", label: "Fast", desc: "Quicker · larger" },
+    { value: "balanced", label: "Balanced", desc: "Recommended" },
+    { value: "quality", label: "Quality", desc: "Slower · smaller" },
+  ];
+
   const gifQualities: {
     value: GifQuality;
     label: string;
@@ -70,6 +79,9 @@
   }
   function setQuality(v: ExportQuality) {
     store.exportQuality = v;
+  }
+  function setSpeed(v: ExportSpeed) {
+    store.exportSpeed = v;
   }
 
   function formatTime(seconds: number) {
@@ -543,6 +555,53 @@
           {/each}
         </div>
       </section>
+
+      <!-- Speed: encoder effort. Hidden for GIF, which uses a palette 2-pass
+           and ignores these codec preset knobs entirely. -->
+      {#if !isGif}
+        <section
+          in:fly={{ y: 8, duration: 240, delay: 200, easing: cubicOut }}
+          class="flex flex-col gap-2.5 px-5 pt-4"
+        >
+          {@render sectionLabel("Speed", "Encoder effort — same resolution.")}
+          <div class="grid grid-cols-3 gap-1.5">
+            {#each speeds as s, i (s.value)}
+              {@const selected = store.exportSpeed === s.value}
+              <span
+                class="flex"
+                in:scale={{ start: 0.92, duration: 220, delay: 230 + i * 35, easing: cubicOut }}
+              >
+                <button
+                  type="button"
+                  onclick={() => setSpeed(s.value)}
+                  aria-pressed={selected}
+                  title={s.desc}
+                  class={cn(
+                    "group flex w-full flex-col items-center gap-0.5 rounded-xl border px-2 py-2 text-center transition-all duration-200",
+                    selected
+                      ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
+                      : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
+                  )}
+                >
+                  <span
+                    class={cn(
+                      "text-[12.5px] font-semibold tracking-tight",
+                      selected ? "text-primary" : "text-foreground",
+                    )}
+                  >
+                    {s.label}
+                  </span>
+                  <span
+                    class="truncate text-[10px] leading-tight text-muted-foreground"
+                  >
+                    {s.desc}
+                  </span>
+                </button>
+              </span>
+            {/each}
+          </div>
+        </section>
+      {/if}
 
       <!-- Compact fallback: GIF settings inline below Quality. -->
       {#if showInlinePanel}

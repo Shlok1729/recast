@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { enumerateCameras } from "$lib/camera/browser-devices";
+  import {
+    CameraAccessError,
+    enumerateCameras,
+    type CameraAccessReason,
+  } from "$lib/camera/browser-devices";
   import {
     getAudioDevices,
     type AudioDeviceInfo,
@@ -12,6 +16,7 @@
     Mic,
     MicOff,
     RefreshCw,
+    ShieldAlert,
     X,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
@@ -28,6 +33,12 @@
   let devices = $state<(AudioDeviceInfo | CameraDeviceInfo)[]>([]);
   let currentSelectedId = $state<string | null>(selectedId);
   let isLoading = $state(true);
+  // Set only when camera access is a *blocker* (no MediaDevices API, or
+  // capture refused) — distinct from an empty list, which just means no
+  // camera is plugged in. Drives a dedicated, actionable empty state.
+  let accessError = $state<{ reason: CameraAccessReason; message: string } | null>(
+    null,
+  );
 
   const isMic = deviceType === "mic";
   const title = isMic ? "Microphone" : "Camera";
@@ -38,6 +49,7 @@
 
   async function fetchDevices() {
     isLoading = true;
+    accessError = null;
     try {
       if (isMic) {
         devices = await getAudioDevices();
@@ -61,7 +73,14 @@
         if (def) currentSelectedId = def.id;
       }
     } catch (e) {
-      console.error(e);
+      if (e instanceof CameraAccessError) {
+        // Hardware-blocked / API-missing — show the actionable card, not the
+        // generic "no cameras found" (which implies nothing is plugged in).
+        accessError = { reason: e.reason, message: e.message };
+        devices = [];
+      } else {
+        console.error(e);
+      }
     } finally {
       isLoading = false;
     }
@@ -186,9 +205,23 @@
           </div>
         {/each}
       </div>
+    {:else if accessError}
+      <div
+        class="flex flex-col items-center justify-center h-40 gap-2 rounded-md border border-dashed border-border bg-card/40 px-4 text-center"
+      >
+        <ShieldAlert size={18} class="text-muted-foreground" />
+        <p class="text-[11px] font-medium text-foreground">
+          {accessError.reason === "denied"
+            ? "Camera access blocked"
+            : "Camera unavailable"}
+        </p>
+        <p class="text-[10px] leading-relaxed text-muted-foreground">
+          {accessError.message}
+        </p>
+      </div>
     {:else if devices.length === 0}
       <div
-        class="flex flex-col items-center justify-center h-40 gap-2 rounded-md border border-dashed border-border bg-card/40"
+        class="flex flex-col items-center justify-center h-40 gap-2 rounded-md border border-dashed border-border bg-card/40 px-4 text-center"
       >
         {#if isMic}
           <MicOff size={18} class="text-muted-foreground" />
@@ -198,6 +231,11 @@
         <p class="text-[11px] font-medium text-foreground">
           No {title.toLowerCase()}s found
         </p>
+        {#if !isMic}
+          <p class="text-[10px] leading-relaxed text-muted-foreground">
+            Connect a camera, then rescan.
+          </p>
+        {/if}
       </div>
     {:else}
       <div class="flex flex-col gap-0.5">

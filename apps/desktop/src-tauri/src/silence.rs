@@ -416,6 +416,16 @@ fn waveform_blocking(
         return Ok(Vec::new());
     }
 
+    // The peak envelope is a pure function of the input audio + bucket count,
+    // but computing it means a full FFmpeg decode of the whole track (1–3 s for
+    // long recordings). Serve it from the file-identity disk cache when the
+    // inputs are unchanged. Keyed by every input file's identity (+ bucket
+    // count), so adding/removing the mic track or re-recording invalidates it.
+    let input_paths: Vec<&Path> = inputs.iter().map(|p| Path::new(*p)).collect();
+    if let Some(cached) = crate::cache::get::<Vec<f32>>("waveform", &input_paths, buckets as u64) {
+        return Ok(cached);
+    }
+
     let mut args: Vec<String> = vec!["-hide_banner".into(), "-nostats".into()];
     for input in &inputs {
         args.push("-i".into());
@@ -459,5 +469,6 @@ fn waveform_blocking(
             .unwrap_or(0);
         *bucket = (peak as f32 / 32768.0).min(1.0);
     }
+    crate::cache::put("waveform", &input_paths, buckets as u64, &out);
     Ok(out)
 }

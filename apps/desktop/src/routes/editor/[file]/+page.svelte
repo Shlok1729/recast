@@ -54,6 +54,7 @@
     X,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
+  import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { onDestroy, tick } from "svelte";
@@ -718,6 +719,7 @@
         finalRenderState,
         exportId,
         store.exportFormat === "gif" ? store.gifSettings : undefined,
+        store.exportSpeed,
       );
       // Safety net: if the export-state success event was missed, fall back to
       // the Promise result. Don't overwrite if the listener already set it.
@@ -1641,9 +1643,10 @@
           {/if}
         </div>
 
-        <!-- Inline trailing action. Mirrors the screenshot: completed
-             uploads expose "Copy link" as a primary-tinted chip right
-             next to the status, no detour through the footer. -->
+        <!-- Inline trailing actions. The Drive row owns its whole
+             lifecycle: cancel while uploading, copy-link + open once
+             complete, retry on failure — so the footer never has to
+             carry a Drive-specific action. -->
         {#if successUpload.status === "uploading"}
           <Button
             variant="ghost"
@@ -1655,15 +1658,26 @@
             Cancel
           </Button>
         {:else if successUpload.status === "complete" && successUpload.webViewLink}
-          <Button
-            variant="ghost"
-            size="xs"
-            class="gap-1.5 text-primary hover:text-primary"
-            onclick={() => copyDriveLink(successUpload!.webViewLink!)}
-          >
-            <Link2 class="size-3" />
-            Copy link
-          </Button>
+          <div class="flex shrink-0 items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="xs"
+              class="gap-1.5 text-primary hover:text-primary"
+              onclick={() => copyDriveLink(successUpload!.webViewLink!)}
+            >
+              <Link2 class="size-3" />
+              Copy link
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="text-muted-foreground"
+              title="Open in Drive"
+              onclick={() => openDriveLink(successUpload!.webViewLink!)}
+            >
+              <ExternalLink class="size-3" />
+            </Button>
+          </div>
         {:else}
           <Button
             variant="ghost"
@@ -1678,60 +1692,85 @@
       </div>
     {/if}
 
+    <!-- Destinations strip: the three "send it somewhere" actions, grouped
+         out of the footer into share-sheet tiles so they read as a single
+         choice ("where does this go?") rather than competing with the
+         dialog's Dismiss / Show-in-folder lifecycle actions. The Drive tile
+         drops out once an upload exists — the Drive row above owns it from
+         then on. Tiles use the list-row glass + hover-lift language. -->
+    <div class="border-t border-border/40 bg-muted/15 px-5 py-3.5">
+      <p
+        class="mb-2.5 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+      >
+        Share or upload
+      </p>
+      <div class="flex items-stretch gap-2">
+        <button
+          type="button"
+          onclick={shareCurrentExportToCloud}
+          class="group/dest flex flex-1 flex-col items-center gap-2 rounded-lg border border-border/50 bg-card/60 px-3 py-3 text-center shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-craft-sm"
+        >
+          <span
+            class="flex size-8 items-center justify-center rounded-lg border border-border/50 bg-card/70 text-muted-foreground shadow-(--shadow-craft-inset) transition-colors group-hover/dest:text-primary"
+          >
+            <Cloud class="size-4" />
+          </span>
+          <span class="text-[11px] font-medium leading-none text-foreground">
+            Recast Cloud
+          </span>
+        </button>
+
+        {#if !successUpload}
+          <button
+            type="button"
+            onclick={uploadExportToDrive}
+            class="group/dest flex flex-1 flex-col items-center gap-2 rounded-lg border border-border/50 bg-card/60 px-3 py-3 text-center shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-craft-sm"
+          >
+            <span
+              class="flex size-8 items-center justify-center rounded-lg border border-border/50 bg-card/70 text-muted-foreground shadow-(--shadow-craft-inset) transition-colors group-hover/dest:text-primary"
+            >
+              <HardDriveUpload class="size-4" />
+            </span>
+            <span class="text-[11px] font-medium leading-none text-foreground">
+              Google Drive
+            </span>
+          </button>
+        {/if}
+
+        {#if shareSupported}
+          <button
+            type="button"
+            onclick={shareExportedFile}
+            title="Open the system share sheet"
+            class="group/dest flex flex-1 flex-col items-center gap-2 rounded-lg border border-border/50 bg-card/60 px-3 py-3 text-center shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-craft-sm"
+          >
+            <span
+              class="flex size-8 items-center justify-center rounded-lg border border-border/50 bg-card/70 text-muted-foreground shadow-(--shadow-craft-inset) transition-colors group-hover/dest:text-primary"
+            >
+              <Share2 class="size-4" />
+            </span>
+            <span class="text-[11px] font-medium leading-none text-foreground">
+              System share
+            </span>
+          </button>
+        {/if}
+      </div>
+    </div>
+
+    <!-- Footer: just the two lifecycle actions, per the dialog rhythm —
+         dismiss on the left, the primary "Show in folder" on the right. -->
     <footer
-      class="flex items-center justify-end gap-1.5 border-t border-border/40 bg-muted/30 px-3 py-2.5"
+      class="flex items-center justify-between gap-2 border-t border-border/40 bg-muted/30 px-3 py-2.5"
     >
-      <Button variant="ghost" size="xs" onclick={dismissExportResult}
-        >Dismiss</Button
-      >
-
-      {#if shareSupported}
-        <Button
-          variant="outline"
-          size="xs"
-          class="gap-1.5"
-          onclick={shareExportedFile}
-          title="Open the system share sheet"
-        >
-          <Share2 class="size-3" />
-          Share
-        </Button>
-      {/if}
-
-      <!-- Footer keeps "Upload to Drive" only when no upload exists yet;
-           after that, the Drive row above owns the upload lifecycle and
-           the footer just complements with "Open in Drive" for completed
-           uploads (paired with the inline "Copy link" chip). -->
       <Button
-        variant="outline"
+        variant="ghost"
         size="xs"
-        class="gap-1.5"
-        onclick={shareCurrentExportToCloud}
+        class="gap-1.5 text-muted-foreground"
+        onclick={dismissExportResult}
       >
-        <Cloud class="size-3" />
-        Share to Cloud
+        Dismiss
+        <Kbd class="ml-0.5">Esc</Kbd>
       </Button>
-      {#if !successUpload}
-        <Button
-          variant="outline"
-          size="xs"
-          class="gap-1.5"
-          onclick={uploadExportToDrive}
-        >
-          <HardDriveUpload class="size-3" />
-          Upload to Drive
-        </Button>
-      {:else if successUpload.status === "complete" && successUpload.webViewLink}
-        <Button
-          variant="outline"
-          size="xs"
-          class="gap-1.5"
-          onclick={() => openDriveLink(successUpload!.webViewLink!)}
-        >
-          <ExternalLink class="size-3" />
-          Open in Drive
-        </Button>
-      {/if}
 
       <Button
         variant="default"

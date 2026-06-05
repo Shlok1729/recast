@@ -107,6 +107,40 @@ export function probeVideoEncoders(): Promise<EncoderAvailability[]> {
 	return invoke<EncoderAvailability[]>("probe_video_encoders");
 }
 
+/** One capture-input capability and whether this device's native API supports
+ *  it. Mirrors the Rust `CaptureCapability` struct (`capture_capabilities`). */
+/** Refines the `supported: false` case so the UI can say the right thing:
+ *  `unsupported` → the OS can't do it; `planned` → we haven't shipped it yet. */
+export type CapabilityStatus = "supported" | "unsupported" | "planned";
+
+export interface CaptureCapability {
+	/** "screen" | "window" | "region" | "systemAudio" | "microphone" |
+	 *  "camera" | "cursor". */
+	key: string;
+	label: string;
+	supported: boolean;
+	/** Tri-state refinement of `supported` — see `CapabilityStatus`. */
+	status: CapabilityStatus;
+	/** Native API in use — e.g. "DXGI Desktop Duplication", "FFmpeg AVFoundation". */
+	backend: string;
+	note: string | null;
+}
+
+/** Capture-support matrix for the current OS. Mirrors the Rust
+ *  `CaptureCapabilities` struct (`capture_capabilities`). */
+export interface CaptureCapabilities {
+	platform: string;
+	screenBackend: string;
+	capabilities: CaptureCapability[];
+}
+
+/** Report which capture inputs this device's native APIs support, computed
+ *  from the running build's backend plus cheap runtime checks (macOS device
+ *  listing, Linux session type). Powers Settings → "Capture support". */
+export function captureCapabilities(): Promise<CaptureCapabilities> {
+	return invoke<CaptureCapabilities>("capture_capabilities");
+}
+
 /** Resolved ffmpeg paths, version, and which export codecs are present. */
 export function diagnoseFfmpeg(): Promise<FfmpegDiagnostics> {
 	return invoke<FfmpegDiagnostics>("diagnose_ffmpeg");
@@ -423,6 +457,10 @@ export interface ExportGifSettings {
 	dither: 'bayer' | 'sierra2' | 'none';
 }
 
+/** Encoder effort axis, orthogonal to `quality` (resolution). "balanced"
+ *  reproduces the historical encoder settings exactly. */
+export type ExportSpeed = "fast" | "balanced" | "quality";
+
 export function exportVideo(
 	inputPath: string,
 	format: string,
@@ -430,10 +468,11 @@ export function exportVideo(
 	renderState: EditorRenderState,
 	exportId: string,
 	gifSettings?: ExportGifSettings,
+	speed: ExportSpeed = "balanced",
 ): Promise<string> {
-	analytics.capture("export_started", { format, quality });
+	analytics.capture("export_started", { format, quality, speed });
 	return invoke<string>("export_video", {
-		request: { exportId, inputPath, format, quality, renderState, gifSettings },
+		request: { exportId, inputPath, format, quality, speed, renderState, gifSettings },
 	});
 }
 

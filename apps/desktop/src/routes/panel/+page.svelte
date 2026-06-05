@@ -5,6 +5,7 @@
     enumerateCameras,
     type BrowserCamera,
   } from "$lib/camera/browser-devices";
+  import { checkCapability, loadCapabilities } from "$lib/capabilities";
 
   // Wayland (KWin in particular) can trap focus on undecorated transparent
   // alwaysOnTop windows — drop the flag on Linux. See ipc.ts for context.
@@ -90,22 +91,29 @@
 
   let selectedSource: TargetSource | null = $state(null);
   let isRecording = $state(false);
+  // True for the brief window between the countdown ending (or being skipped)
+  // and the `startRecording` IPC resolving. Without it, `countdownValue` goes
+  // null while we await the IPC, so `phase` falls back to "idle" and the bar
+  // flashes the full control set — expanding then collapsing — between the
+  // countdown and recording phases. Treating "starting" as "recording" keeps
+  // the morph a single countdown→recording crossfade.
+  let isStarting = $state(false);
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
 
-  // Countdown-before-recording. The global value comes from the shared
-  // `recordingCountdown` store (kept in sync with the Settings window for free);
-  // `profileCountdownOverride` is set when a profile with its own countdown is
-  // applied (null = inherit). The effective `countdownSeconds` prefers the
-  // profile override. `countdownValue` is the live tick — non-null only while
-  // counting down, driving the transient "countdown" panel phase between the
-  // Record click and real capture start.
-  let profileCountdownOverride = $state<number | null>(null);
-  const countdownSeconds = $derived(
-    profileCountdownOverride ?? recordingCountdown.value,
-  );
+  // Countdown-before-recording. The effective duration (`countdownSeconds`) is
+  // derived from the *active profile's* override, falling back to the global
+  // `recordingCountdown` store — both reactive and both kept in sync across
+  // windows, so editing either on another page is reflected live here. That
+  // derived lives next to `activeProfile` below. `countdownValue` is the live
+  // integer tick (null unless counting down); `countdownProgress` (1 → 0) drives
+  // the depleting ring (already normalised against the chosen duration).
   let countdownValue = $state<number | null>(null);
-  let countdownInterval: ReturnType<typeof setInterval> | null = null;
+  let countdownProgress = $state(1);
+  let countdownRaf: number | null = null;
+  // Circumference of the progress ring (r=16 in the 36×36 viewBox). The visible
+  // arc length is `C × progress`, so the dash offset is `C × (1 − progress)`.
+  const RING_C = 2 * Math.PI * 16;
 
   // Panel sizing. The bar's width is driven by a Svelte `Tween` that follows
   // the *measured* natural width of its content (the same morph technique as
@@ -169,7 +177,11 @@
   // cancel; `recording` = collapsed transport. Derived so the markup can
   // switch on a single value.
   const phase = $derived<"idle" | "countdown" | "recording">(
-    isRecording ? "recording" : countdownValue !== null ? "countdown" : "idle",
+    isRecording || isStarting
+      ? "recording"
+      : countdownValue !== null
+        ? "countdown"
+        : "idle",
   );
 
   // Mirror the recording flag to the system tray so its "Start/Stop
@@ -227,6 +239,16 @@
 
   const activeProfile = $derived(
     activeProfileId ? profilesStore.findById(activeProfileId) : null,
+  );
+
+  // Effective countdown duration: the active profile's per-profile override
+  // (`0` = off, a number = pinned, `null`/absent = inherit) wins over the global
+  // setting. Derived straight off `activeProfile` rather than snapshotted at
+  // apply-time, so a live edit to the active profile (synced cross-window via
+  // `profilesStore`) updates the countdown immediately — this is what makes the
+  // per-profile value actually get respected, not just the global one.
+  const countdownSeconds = $derived(
+    activeProfile?.countdown ?? recordingCountdown.value,
   );
 
   async function refreshCameraValidation(deviceId: string | null) {
@@ -381,6 +403,9 @@
     profilesStore.hydrate();
 
     void initDevicesAndProfile();
+    // Warm the capability probe so the first mic/camera/system-audio toggle
+    // resolves instantly instead of waiting on a cold `capture_capabilities`.
+    void loadCapabilities();
 
     window.addEventListener("keydown", handleGlobalShortcut);
 
@@ -507,10 +532,8 @@
       cameraWarning = null;
     }
 
-    // Profile countdown override — null/absent falls back to the global
-    // setting via the `countdownSeconds` derived.
-    profileCountdownOverride = profile.countdown ?? null;
-
+    // The countdown follows the active profile live via the `countdownSeconds`
+    // derived — setting `activeProfileId` is all that's needed; no snapshot.
     activeProfileId = profile.id;
   }
 
@@ -528,11 +551,14 @@
   }
 
   function handleGlobalShortcut(e: KeyboardEvent) {
-    // Esc aborts an in-progress countdown.
+    // During the pre-roll: Esc aborts, Enter/Space skips straight to capture.
     if (countdownValue !== null) {
       if (e.key === "Escape") {
         e.preventDefault();
         cancelCountdown();
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        startNow();
       }
       return;
     }
@@ -649,59 +675,112 @@
     getCurrentWindow().close();
   }
 
-  function toggleMic() {
+  async function toggleMic() {
     if (isRecording) return;
     micWarning = null;
     if (micOn) {
       micOn = false;
-    } else {
-      openDevicePicker("mic");
+      return;
     }
+    const verdict = await checkCapability("microphone", "Microphone");
+    if (!verdict.ok) {
+      notify("warning", verdict.message);
+      return;
+    }
+    openDevicePicker("mic");
   }
 
-  function toggleCamera() {
+  async function toggleCamera() {
     if (isRecording) return;
     cameraWarning = null;
     if (cameraOn) {
       cameraOn = false;
       closeCameraPreview();
-    } else {
-      openDevicePicker("camera");
+      return;
     }
+    const verdict = await checkCapability("camera", "Webcam");
+    if (!verdict.ok) {
+      notify("warning", verdict.message);
+      return;
+    }
+    openDevicePicker("camera");
+  }
+
+  async function toggleSystemAudio() {
+    // Turning it off is always fine; only gate turning it on.
+    if (systemAudioOn) {
+      systemAudioOn = false;
+      return;
+    }
+    const verdict = await checkCapability("systemAudio", "System audio");
+    if (!verdict.ok) {
+      notify("warning", verdict.message);
+      return;
+    }
+    systemAudioOn = true;
   }
 
   function clearCountdown() {
-    if (countdownInterval) {
-      clearInterval(countdownInterval);
-      countdownInterval = null;
+    if (countdownRaf !== null) {
+      cancelAnimationFrame(countdownRaf);
+      countdownRaf = null;
     }
     countdownValue = null;
+    countdownProgress = 1;
   }
 
   function cancelCountdown() {
     clearCountdown();
   }
 
+  /** Skip the remaining pre-roll and start capturing right now. */
+  function startNow() {
+    if (countdownValue === null) return;
+    // Enter "starting" before clearing the countdown so `phase` jumps straight
+    // to "recording" rather than dipping through "idle" while the IPC resolves.
+    isStarting = true;
+    clearCountdown();
+    void startActualRecording();
+  }
+
   /**
-   * Start path for the Record button. With a countdown configured, tick it
-   * down in the panel first (cancelable via Esc or the Cancel button), then
-   * fire the real capture. With countdown off, start immediately.
+   * Start path for the Record button. With a countdown configured, run a
+   * deadline-based pre-roll in the panel first (cancelable via Esc / Cancel,
+   * skippable via the ring / Enter) then fire the real capture. With countdown
+   * off, start immediately.
+   *
+   * The loop is driven by `requestAnimationFrame` against a fixed end time
+   * rather than a 1s `setInterval`: the integer readout stays accurate (no
+   * drift from timer slop) and the ring depletes smoothly at display refresh
+   * rate. rAF also auto-pauses if the panel is hidden.
    */
   function beginRecording() {
-    if (!selectedSource || isRecording || countdownValue !== null) return;
-    if (countdownSeconds <= 0) {
+    if (!selectedSource || isRecording || isStarting || countdownValue !== null)
+      return;
+    const secs = countdownSeconds;
+    if (secs <= 0) {
       void startActualRecording();
       return;
     }
-    countdownValue = countdownSeconds;
-    countdownInterval = setInterval(() => {
-      if (countdownValue === null) return;
-      countdownValue -= 1;
-      if (countdownValue <= 0) {
+    const totalMs = secs * 1000;
+    const endsAt = Date.now() + totalMs;
+    countdownValue = secs;
+    countdownProgress = 1;
+    const tick = () => {
+      const remaining = endsAt - Date.now();
+      if (remaining <= 0) {
+        // Bridge to "recording" via `isStarting` so the phase never falls back
+        // to "idle" during the start IPC (see `isStarting` declaration).
+        isStarting = true;
         clearCountdown();
         void startActualRecording();
+        return;
       }
-    }, 1000);
+      countdownValue = Math.ceil(remaining / 1000);
+      countdownProgress = remaining / totalMs;
+      countdownRaf = requestAnimationFrame(tick);
+    };
+    countdownRaf = requestAnimationFrame(tick);
   }
 
   async function toggleRecording() {
@@ -711,6 +790,10 @@
       cancelCountdown();
       return;
     }
+    // Mid-handoff (countdown ended, start IPC in flight): ignore the toggle so
+    // a stray click on the transitioning transport doesn't kick off a fresh
+    // countdown before `isRecording` flips.
+    if (isStarting) return;
     if (!isRecording) {
       beginRecording();
       return;
@@ -748,7 +831,10 @@
   }
 
   async function startActualRecording() {
-    if (!selectedSource) return;
+    if (!selectedSource) {
+      isStarting = false;
+      return;
+    }
     const options: RecordingOptions = {
       systemAudio: systemAudioOn,
       microphone: micOn,
@@ -767,7 +853,10 @@
           ? selectedSource.region
           : null,
       );
+      // Flip both in the same synchronous block: `phase` stays "recording"
+      // (isStarting → isRecording) with no idle frame in between.
       isRecording = true;
+      isStarting = false;
       now = Date.now();
       recordingStartTime = now;
       isPaused = false;
@@ -783,6 +872,9 @@
         notify("warning", result.warnings.join("\n"), 8000);
       }
     } catch (e) {
+      // Start failed — drop out of "starting" so the bar morphs back to idle
+      // instead of being stuck showing the recording transport.
+      isStarting = false;
       notify("error", `Recording failed: ${e}`, 10000);
     }
   }
@@ -921,40 +1013,96 @@
     data-tauri-drag-region
   >
   {#if phase === "countdown"}
-    <!-- Countdown phase: ring + ticking number + Cancel. Crossfades with the
-         other phases; the bar Tween follows its natural width. -->
+    <!-- Countdown phase: a depleting progress ring with the ticking second
+         inside (click to start now), a two-line status, and Cancel. Crossfades
+         with the other phases; the bar Tween follows its natural width. -->
     <div
-      class="flex w-fit items-center gap-2.5"
+      class="flex w-fit items-center gap-2.5 pl-1"
       data-tauri-drag-region
       in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
       out:phaseOut
     >
-      <div
-        class="relative flex size-7 shrink-0 items-center justify-center"
-        aria-live="assertive"
+      <!-- Ring + number. The whole disc is a "start now" affordance: clicking
+           skips the remaining pre-roll and begins capture immediately. -->
+      <button
+        type="button"
+        onclick={startNow}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        title="Start now"
+        aria-label={`Recording starts in ${countdownValue} seconds — click to start now`}
+        class="group/cd relative flex size-7 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       >
-        <span class="absolute inset-0 rounded-full ring-2 ring-primary/25"></span>
-        <span
-          class="font-mono text-[15px] font-bold leading-none tabular-nums text-primary"
+        <svg
+          class="absolute inset-0 size-7 -rotate-90"
+          viewBox="0 0 36 36"
+          aria-hidden="true"
         >
-          {countdownValue}
+          <circle
+            cx="18"
+            cy="18"
+            r="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            class="text-primary/15"
+          />
+          <circle
+            cx="18"
+            cy="18"
+            r="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            stroke-linecap="round"
+            class="text-primary"
+            stroke-dasharray={RING_C}
+            stroke-dashoffset={RING_C * (1 - countdownProgress)}
+          />
+        </svg>
+        <!-- The second pops on each tick; on hover it yields to a play glyph so
+             the skip affordance is discoverable. -->
+        {#key countdownValue}
+          <span
+            in:scale={{
+              start: prefersReducedMotion ? 1 : 0.5,
+              duration: prefersReducedMotion ? 0 : 220,
+              easing: cubicOut,
+            }}
+            class="font-mono text-[12px] font-bold leading-none tabular-nums text-primary transition-opacity group-hover/cd:opacity-0"
+          >
+            {countdownValue}
+          </span>
+        {/key}
+        <Play
+          size={11}
+          strokeWidth={0}
+          fill="currentColor"
+          class="absolute text-primary opacity-0 transition-opacity group-hover/cd:opacity-100"
+        />
+      </button>
+
+      <span class="flex shrink-0 flex-col leading-tight">
+        <span
+          class="whitespace-nowrap text-[11px] font-semibold tracking-tight text-foreground"
+        >
+          Get ready…
         </span>
-      </div>
-      <span
-        class="shrink-0 whitespace-nowrap text-[12px] font-semibold tracking-tight text-foreground/80"
-      >
-        Starting in {countdownValue}s…
+        <span
+          class="whitespace-nowrap text-[10px] font-medium tabular-nums text-muted-foreground"
+        >
+          Starting in {countdownValue}s
+        </span>
       </span>
+
       <Button
         onclick={cancelCountdown}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
-        size="sm"
+        size="icon-sm"
         variant="ghost"
-        class="h-7 gap-1.5"
         title="Cancel (Esc)"
+        aria-label="Cancel countdown"
       >
         <X size={12} strokeWidth={2.5} class="text-destructive" />
-        <span class="text-[11px] font-semibold">Cancel</span>
       </Button>
     </div>
   {:else if phase === "recording"}
@@ -1127,7 +1275,7 @@
         size="icon-sm"
         variant={systemAudioOn ? "default_soft" : "outline"}
         disabled={isRecording}
-        onclick={() => (systemAudioOn = !systemAudioOn)}
+        onclick={toggleSystemAudio}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         title={systemAudioOn ? "System audio: on" : "System audio: off"}
       >

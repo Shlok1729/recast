@@ -56,6 +56,10 @@ export async function shareRecast(
 ): Promise<{ slug: string; shareUrl: string }> {
 	return jsonOrThrow(await post(`/api/recasts/${id}/share`, { visibility }));
 }
+/** Revoke a share link by slug. */
+export async function deleteShare(slug: string): Promise<void> {
+	await jsonOrThrow(await fetch(`/api/share/${slug}`, { method: "DELETE" }));
+}
 
 // ── Folders ──────────────────────────────────────────────────────────
 export type FolderDTO = {

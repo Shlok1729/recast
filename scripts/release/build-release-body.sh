@@ -58,12 +58,32 @@ fi
   echo "| --- | --- |"
   echo "| Windows 10/11 (x64) — installer | \`recast_${version}_x64-setup.exe\` or \`recast_${version}_x64_en-US.msi\` |"
   echo "| Windows 10/11 (x64) — Store package | \`recast_${version}_x64.msix\` |"
-  echo "| macOS (Apple Silicon) | \`recast_${version}_aarch64.dmg\` |"
-  echo "| macOS (Intel) | \`recast_${version}_x64.dmg\` |"
+  echo "| macOS (Apple Silicon) — beta | \`recast_${version}_aarch64.dmg\` · or \`brew install --cask kanakkholwal/recast/recast\` |"
+  echo "| macOS (Intel) — beta | \`recast_${version}_x64.dmg\` · or \`brew install --cask kanakkholwal/recast/recast\` |"
   echo "| Linux (x64) — universal | \`recast_${version}_amd64.AppImage\` |"
   echo "| Linux (x64) — Debian/Ubuntu | \`recast_${version}_amd64.deb\` |"
   echo
   echo "All assets ship with [GitHub artifact attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds) for build provenance."
+  echo
+} >> "$body_file"
+
+# 2b. Homebrew (macOS) — the recommended macOS path. The cask auto-strips the
+# quarantine attribute, so brew users skip the Gatekeeper workaround below.
+{
+  echo "## Install with Homebrew (macOS)"
+  echo
+  echo "macOS support is in **beta**. The smoothest way on is Homebrew — it picks the right build for your chip and **removes the Gatekeeper quarantine for you**, so you never hit the \"is damaged\" error:"
+  echo
+  echo '```sh'
+  echo "brew install --cask kanakkholwal/recast/recast"
+  echo '```'
+  echo
+  echo "Prefer the short name? Tap once, then install (and upgrade) with:"
+  echo
+  echo '```sh'
+  echo "brew tap kanakkholwal/recast"
+  echo "brew install --cask recast"
+  echo '```'
   echo
 } >> "$body_file"
 
@@ -75,6 +95,8 @@ fi
 # triggers Gatekeeper to refuse the app with that exact wording.
 {
   echo "## First launch on macOS"
+  echo
+  echo "> Installed with **Homebrew**? Skip this section — the cask removes the quarantine attribute for you."
   echo
   echo "If you see"
   echo

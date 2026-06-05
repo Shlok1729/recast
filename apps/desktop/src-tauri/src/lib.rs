@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 mod audio;
+mod cache;
 mod camera;
 mod capture;
 mod commands;
@@ -49,13 +50,74 @@ fn parse_open_arg(argv: &[String]) -> Option<PathBuf> {
         })
 }
 
+/// Linux (WebKitGTK) only: enable `getUserMedia`/`enumerateDevices` for a
+/// webview and grant the media `permission-request` it raises.
+///
+/// macOS (WKWebView) and Windows (WebView2) expose `navigator.mediaDevices`
+/// as soon as the OS-level privacy gates are satisfied (see `Info.plist` for
+/// the macOS usage strings). WebKitGTK is the odd one out: it ships with
+/// `enable-media-stream` OFF, so `navigator.mediaDevices` is `undefined`
+/// until we flip it — and even then every `getUserMedia` call raises a
+/// `permission-request` that WebKit DENIES by default unless answered.
+///
+/// Applied per-webview and deduped by label (a `OnceLock` set) so it also
+/// covers the `camera-preview` / `device-picker` windows, which the frontend
+/// spawns at runtime via the JS `WebviewWindow` API — they never pass through
+/// `setup()`. Wired from `on_page_load`, which fires for every webview
+/// regardless of how it was created.
+#[cfg(target_os = "linux")]
+fn enable_webview_media(webview: &tauri::Webview) {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+
+    static CONFIGURED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    // Connecting the signal twice would stack handlers across reloads, so
+    // configure each webview exactly once.
+    if !CONFIGURED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .expect("webview media-config set poisoned")
+        .insert(webview.label().to_string())
+    {
+        return;
+    }
+
+    let result = webview.with_webview(|platform| {
+        // webkit2gtk 2.0.x has no `prelude` module — pull the extension
+        // traits in directly. `WebViewExt` gives `settings()` +
+        // `connect_permission_request()`, `SettingsExt` gives
+        // `set_enable_media_stream()`, `PermissionRequestExt` gives
+        // `allow()`, and glib's `Cast` (via its prelude) gives `.is::<T>()`.
+        use webkit2gtk::glib::prelude::*;
+        use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
+
+        let wv = platform.inner();
+        if let Some(settings) = wv.settings() {
+            settings.set_enable_media_stream(true);
+        }
+        wv.connect_permission_request(|_, request| {
+            // getUserMedia (camera-preview + device-picker) is the only
+            // permission this app ever triggers. Grant it; leave anything
+            // else to WebKit's deny-by-default rather than blanket-allowing.
+            if request.is::<webkit2gtk::UserMediaPermissionRequest>() {
+                request.allow();
+            }
+            true
+        });
+    });
+    if let Err(e) = result {
+        log::warn!("failed to enable webview media on Linux: {e}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Load `apps/desktop/.env` so dev overrides like `CLOUD_API_URL` reach
-    // the Rust side. dotenvy walks up from CWD looking for `.env`, so when
-    // `pnpm tauri dev` runs cargo from `src-tauri/` it finds the file one
-    // level up. Silent on missing/invalid file — release installs have no
-    // .env and that's fine.
+    // Load `src-tauri/.env` (the canonical source for Rust-side dev config:
+    // TAURI_SIGNING_PRIVATE_KEY, GOOGLE_OAUTH_CLIENT_ID/_SECRET, …). It sits in
+    // the cargo CWD, so `dotenvy::dotenv()`'s walk-up finds it first. Keep all
+    // Rust env here — a second `.env` one level up (apps/desktop/.env, the Vite
+    // frontend's file) would be shadowed by this one and never load. Silent on
+    // missing/invalid file — release installs have no .env and that's fine.
     #[cfg(debug_assertions)]
     let _ = dotenvy::dotenv();
 
@@ -120,6 +182,13 @@ pub fn run() {
     );
 
     builder
+        // Enable camera/mic in the WebView the moment each page starts
+        // loading. No-op everywhere but Linux (WebKitGTK); macOS/Windows
+        // expose MediaDevices natively once their privacy gates are met.
+        .on_page_load(|_webview, _payload| {
+            #[cfg(target_os = "linux")]
+            enable_webview_media(_webview);
+        })
         .setup(|app| {
             let handle = app.handle();
             let config = load_config(handle);
@@ -261,6 +330,7 @@ pub fn run() {
             commands::hydrate_cached_assets,
             commands::diagnose_ffmpeg,
             commands::probe_video_encoders,
+            commands::capture_capabilities,
             commands::auth_start,
             commands::auth_status,
             commands::auth_sign_out,

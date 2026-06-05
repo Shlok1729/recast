@@ -1,7 +1,12 @@
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { getDb } from "$lib/db";
-import { folder, recast, share, tag } from "$lib/db/schema";
+import { folder, recast, tag } from "$lib/db/schema";
 import { QUOTA } from "$lib/db/schema/usage";
+import {
+	recastLatestShareSlugSql,
+	recastTagIdsSql,
+	recastViewsSql,
+} from "$lib/db/recast-selectors";
 import { resolvePlaybackUrl } from "$lib/storage";
 import type { PageServerLoad } from "./$types";
 
@@ -42,25 +47,11 @@ export const load: PageServerLoad = async ({ parent }) => {
 				videoUrl: recast.videoUrl,
 				posterUrl: recast.posterUrl,
 				createdAt: recast.createdAt,
-				views: sql<number>`COALESCE((
-					SELECT SUM(${share.viewsCount})
-					FROM ${share}
-					WHERE ${share.recastId} = ${recast.id}
-				), 0)`,
-				latestShareSlug: sql<string | null>`(
-					SELECT ${share.slug}
-					FROM ${share}
-					WHERE ${share.recastId} = ${recast.id}
-					ORDER BY ${share.createdAt} DESC
-					LIMIT 1
-				)`,
+				views: recastViewsSql(),
+				latestShareSlug: recastLatestShareSlugSql(),
 				// Tag id array per recast — resolved against the `tags` list
 				// below in the UI. `[]` when untagged.
-				tags: sql<string[]>`COALESCE((
-					SELECT json_agg(rt.tag_id)
-					FROM recast_tag rt
-					WHERE rt.recast_id = ${recast.id}
-				), '[]'::json)`,
+				tags: recastTagIdsSql(),
 			})
 			.from(recast)
 			.where(and(eq(recast.workspaceId, workspaceId), ne(recast.status, "archived")))
@@ -111,6 +102,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 			rows.map(async (r) => ({
 				...r,
 				videoUrl: await resolvePlaybackUrl(r.videoUrl),
+				posterUrl: await resolvePlaybackUrl(r.posterUrl),
 				sizeBytes: Number(r.sizeBytes),
 				views: Number(r.views ?? 0),
 				createdAt: r.createdAt.getTime(),

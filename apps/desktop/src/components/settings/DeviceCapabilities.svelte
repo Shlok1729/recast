@@ -1,24 +1,34 @@
 <script lang="ts">
   import {
+    captureCapabilities,
     diagnoseFfmpeg,
     probeVideoEncoders,
+    type CaptureCapabilities,
     type EncoderAvailability,
     type FfmpegDiagnostics,
   } from "$lib/ipc";
   import {
+    AppWindow,
     Check,
     ChevronDown,
     Cpu,
+    Mic,
     Minus,
     MonitorCog,
     MonitorOff,
     MonitorPlay,
+    MousePointer2,
     RefreshCw,
     Sparkles,
+    SquareDashed,
+    Video,
+    Volume2,
     X,
     Zap,
   } from "@lucide/svelte";
+  import type { Component } from "svelte";
   import { Button } from "@recast/ui/button";
+  import * as Collapsible from "@recast/ui/collapsible";
   import { cn } from "@recast/ui/utils";
   import { onMount } from "svelte";
 
@@ -37,6 +47,12 @@
   let encoders = $state<EncoderAvailability[]>([]);
   let probing = $state(true);
   let probeError = $state<string | null>(null);
+
+  // Capture-support matrix — what this device's native APIs can actually
+  // record, probed at runtime rather than hardcoded per platform.
+  let captureCaps = $state<CaptureCapabilities | null>(null);
+  let captureProbing = $state(true);
+  let captureError = $state<string | null>(null);
 
   const PLATFORM_LABEL: Record<string, string> = {
     windows: "Windows",
@@ -91,9 +107,22 @@
     }
   }
 
+  async function loadCapture() {
+    captureProbing = true;
+    captureError = null;
+    try {
+      captureCaps = await captureCapabilities();
+    } catch (e) {
+      captureError = String(e);
+    } finally {
+      captureProbing = false;
+    }
+  }
+
   onMount(() => {
     void loadOsInfo();
     void loadEngine();
+    void loadCapture();
   });
 
   // `os.version()` returns the raw NT version on Windows — "10.0.26200" —
@@ -125,13 +154,32 @@
     return osVersion;
   });
 
-  // Screen capture is only wired up on Windows today (DXGI Desktop
-  // Duplication); the macOS/Linux capture subsystems aren't shipped yet, so
-  // be honest about that rather than implying every platform records.
-  const capture = $derived.by(() => {
-    if (platform === "") return { ok: false, pending: true };
-    return { ok: platform === "windows", pending: false };
+  // The "screen" row is the headline verdict — can this machine record its
+  // screen at all? The rest of the matrix (audio, camera, cursor) hangs off
+  // the collapsible list below.
+  const screenCap = $derived(
+    captureCaps?.capabilities.find((c) => c.key === "screen") ?? null,
+  );
+  const captureReady = $derived(screenCap?.supported ?? false);
+  const captureHeadlineNote = $derived.by(() => {
+    if (screenCap?.note) return screenCap.note;
+    return captureReady
+      ? "Recast can record your whole screen, a single window, or a selected region on this device."
+      : "Screen recording isn't available on this device yet. Editing, sharing, and playback still work.";
   });
+  let showCapture = $state(false);
+
+  // Per-capability Lucide icon, keyed by the Rust `key`. Falls back to the
+  // screen glyph for any future key the backend adds before the UI does.
+  const CAP_ICON: Record<string, Component> = {
+    screen: MonitorPlay,
+    window: AppWindow,
+    region: SquareDashed,
+    systemAudio: Volume2,
+    microphone: Mic,
+    camera: Video,
+    cursor: MousePointer2,
+  };
 
   const facts = $derived(
     [
@@ -194,8 +242,9 @@
     </dl>
   </div>
 
-  <!-- Capture support — whether this platform's screen-recording path is
-       wired up. Windows-only today (DXGI); honest about the rest. -->
+  <!-- Capture support — what this device's native APIs can actually record,
+       probed at runtime (DXGI / AVFoundation / PipeWire / X11) rather than
+       hardcoded per platform. -->
   <div
     class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
   >
@@ -206,7 +255,7 @@
       </span>
     </div>
 
-    {#if capture.pending}
+    {#if captureProbing && !captureCaps}
       <div class="flex items-center gap-3 px-4 py-3.5">
         <div class="size-9 shrink-0 animate-pulse rounded-full bg-foreground/5"></div>
         <div class="flex-1 space-y-1.5">
@@ -214,18 +263,23 @@
           <div class="h-2.5 w-full max-w-60 animate-pulse rounded bg-foreground/5"></div>
         </div>
       </div>
-    {:else}
-      <!-- Plain-language verdict: can this machine actually record its screen? -->
+    {:else if captureError}
+      <div class="px-4 py-3 text-[11px] text-destructive">
+        Couldn't check capture support: {captureError}
+      </div>
+    {:else if captureCaps}
+      <!-- Plain-language verdict: can this machine actually record its screen,
+           and which native API does it use? -->
       <div class="flex items-start gap-3 px-4 py-3.5">
         <div
           class={cn(
             "flex size-9 shrink-0 items-center justify-center rounded-full ring-1 ring-inset",
-            capture.ok
+            captureReady
               ? "bg-primary/15 text-primary ring-primary/25"
               : "bg-amber-500/12 text-amber-500 ring-1 ring-amber-500/25",
           )}
         >
-          {#if capture.ok}
+          {#if captureReady}
             <MonitorPlay class="size-4" />
           {:else}
             <MonitorOff class="size-4" />
@@ -234,32 +288,88 @@
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span class="text-[13px] font-semibold text-foreground">
-              {capture.ok
+              {captureReady
                 ? "Screen recording is ready"
                 : "Screen recording isn't available here"}
             </span>
             <span
               class={cn(
                 "inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ring-1 ring-inset",
-                capture.ok
+                captureReady
                   ? "bg-primary/15 text-primary ring-primary/25"
                   : "bg-amber-500/12 text-amber-500 ring-amber-500/25",
               )}
             >
-              {capture.ok ? "Ready" : "Windows only"}
+              {captureCaps.screenBackend}
             </span>
           </div>
           <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            {#if capture.ok}
-              Recast can record your whole screen, a single window, or a
-              selected area on this PC.
-            {:else}
-              Screen recording is Windows-only for now — the {osLabel} capture
-              path isn't shipped yet. Editing, sharing, and playback still work.
-            {/if}
+            {captureHeadlineNote}
           </p>
         </div>
       </div>
+
+      <!-- Per-feature support matrix, collapsed by default — each row is the
+           native API behind that capture input on this device. Collapsible
+           gives it a smooth native `slide` (real height) transition. -->
+      <Collapsible.Root bind:open={showCapture}>
+        <Collapsible.Trigger
+          class="flex w-full items-center justify-between gap-2 border-t border-border/30 px-4 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <span>Feature support</span>
+          <ChevronDown
+            class={cn("size-3.5 transition-transform", showCapture && "rotate-180")}
+          />
+        </Collapsible.Trigger>
+        <Collapsible.Content>
+          <ul class="divide-y divide-border/30">
+          {#each captureCaps.capabilities as feat (feat.key)}
+            {@const Icon = CAP_ICON[feat.key] ?? MonitorPlay}
+            <li class="flex items-start justify-between gap-3 px-4 py-2.5">
+              <div class="flex min-w-0 items-start gap-2.5">
+                <div
+                  class={cn(
+                    "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
+                    feat.supported
+                      ? "bg-primary/10 text-primary ring-primary/20"
+                      : "bg-foreground/5 text-muted-foreground/60 ring-border/40",
+                  )}
+                >
+                  <Icon class="size-3.5" />
+                </div>
+                <div class="min-w-0">
+                  <span class="block truncate text-[12px] font-semibold text-foreground">
+                    {feat.label}
+                  </span>
+                  <div class="truncate font-mono text-[10px] text-muted-foreground">
+                    {feat.backend}
+                  </div>
+                  {#if feat.note}
+                    <p class="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground/80">
+                      {feat.note}
+                    </p>
+                  {/if}
+                </div>
+              </div>
+              <span
+                class={cn(
+                  "mt-0.5 inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium",
+                  feat.supported ? "text-emerald-500" : "text-muted-foreground/70",
+                )}
+              >
+                {#if feat.supported}
+                  <Check class="size-3.5" />
+                  Supported
+                {:else}
+                  <X class="size-3.5" />
+                  Unavailable
+                {/if}
+              </span>
+            </li>
+          {/each}
+          </ul>
+        </Collapsible.Content>
+      </Collapsible.Root>
     {/if}
   </div>
 
@@ -349,21 +459,19 @@
       </div>
 
       <!-- Per-codec matrix, collapsed by default — kept for power users and bug
-           reports without making jargon the headline. -->
-      <button
-        type="button"
-        onclick={() => (showDetails = !showDetails)}
-        aria-expanded={showDetails}
-        class="flex w-full items-center justify-between gap-2 border-t border-border/30 px-4 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <span>Technical details</span>
-        <ChevronDown
-          class={cn("size-3.5 transition-transform", showDetails && "rotate-180")}
-        />
-      </button>
-
-      {#if showDetails}
-        {#each encoderGroups as group (group.family)}
+           reports without making jargon the headline. Collapsible gives it a
+           smooth native `slide` (real height) transition. -->
+      <Collapsible.Root bind:open={showDetails}>
+        <Collapsible.Trigger
+          class="flex w-full items-center justify-between gap-2 border-t border-border/30 px-4 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <span>Technical details</span>
+          <ChevronDown
+            class={cn("size-3.5 transition-transform", showDetails && "rotate-180")}
+          />
+        </Collapsible.Trigger>
+        <Collapsible.Content>
+          {#each encoderGroups as group (group.family)}
           <div
             class="flex items-center gap-2 border-b border-border/30 bg-muted/20 px-4 py-1.5"
           >
@@ -435,7 +543,8 @@
           always-on software fallback. HEVC rows are informational — which HEVC
           encoders this device exposes.
         </p>
-      {/if}
+        </Collapsible.Content>
+      </Collapsible.Root>
     {/if}
   </div>
 </div>

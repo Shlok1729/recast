@@ -29,6 +29,7 @@ tauri-plugin-log = "2"
 xcap = "0.8.3"
 tokio = { version = "1.50.0", features = ["full"] }
 image = "0.25"
+rayon = "1"
 base64 = "0.22"
 tauri-plugin-dialog = "~2"
 zip = { version = "2.2.0", default-features = false, features = ["deflate"] }
@@ -109,6 +110,14 @@ pipewire = "0.9"
 # `shm` feature lets us upgrade to XShm later for the perf win without
 # touching Cargo.toml again; we only use plain `GetImage` for MVP.
 x11rb = { version = "0.13", features = ["shm"] }
+# Direct handle to the WebKitGTK view behind each Tauri window. Needed to
+# flip `enable-media-stream` ON — WebKitGTK ships it OFF (unlike WKWebView /
+# WebView2), so `navigator.mediaDevices` is `undefined` and the camera
+# preview can't enumerate or open — and to auto-grant the getUserMedia
+# `permission-request` (deny-by-default otherwise). Version MUST match the
+# one wry resolves (see Cargo.lock) so the type returned by
+# `PlatformWebview::inner()` unifies with this crate's `WebView`.
+webkit2gtk = "2.0"
 
 # Cross-platform pointer + button sampling for the cursor-capture thread.
 # `device_query` wraps CoreGraphics on macOS and xcb on Linux behind one

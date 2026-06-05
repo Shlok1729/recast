@@ -154,15 +154,17 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 	}
 
-	// Poster: the client PUT a WebP frame to the signed URL from /init. We
-	// store an absolute public URL (posters aren't sensitive and benefit from
-	// CDN caching; the video itself stays signed/gated). If the provider has
-	// no public base configured, `publicObjectUrl` returns null and we leave
-	// posterUrl unset — cards fall back to their placeholder.
+	// Poster: the client PUT a WebP frame to the signed URL from /init.
+	// Prefer an absolute public URL (posters aren't sensitive and benefit
+	// from CDN caching) when the provider exposes one. On signed-only
+	// providers (Azure, or R2 without a custom domain) `publicObjectUrl`
+	// returns null — previously that dropped the poster entirely. Instead we
+	// persist the bare object key and sign it on read, the same as the video,
+	// so the thumbnail survives regardless of provider.
 	let posterUrl: string | undefined;
 	if (body.hasPoster) {
-		posterUrl =
-			publicObjectUrl(posterObjectKey(row.workspaceId, row.id)) ?? undefined;
+		const key = posterObjectKey(row.workspaceId, row.id);
+		posterUrl = publicObjectUrl(key) ?? key;
 	}
 
 	await db.transaction(async (tx) => {

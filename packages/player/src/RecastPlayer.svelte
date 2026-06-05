@@ -1,38 +1,35 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { cubicOut } from "svelte/easing";
-	import { fade, scale } from "svelte/transition";
 	import {
-		Captions,
-		Maximize,
-		Minimize,
-		Pause,
-		PictureInPicture,
-		PictureInPicture2,
-		Play,
-		RotateCcw,
-		RotateCw,
-		Volume,
-		Volume1,
-		Volume2,
-		VolumeX,
-		X,
+	  Captions,
+	  Maximize,
+	  Minimize,
+	  Pause,
+	  PictureInPicture,
+	  PictureInPicture2,
+	  Play,
+	  RotateCcw,
+	  RotateCw,
+	  Volume,
+	  Volume1,
+	  Volume2,
+	  VolumeX
 	} from "@lucide/svelte";
+	import { onMount } from "svelte";
+	import { fade } from "svelte/transition";
 	import type {
-		RecastPlayerActionEvent,
-		RecastPlayerApi,
-		RecastPlayerBranding,
-		RecastPlayerChapter,
-		RecastPlayerControls,
-		RecastPlayerFeatures,
-		RecastPlayerMarker,
-		RecastPlayerProps,
-		RecastPlayerState,
-		RecastPlayerUtilityAction,
+	  RecastPlayerApi,
+	  RecastPlayerBranding,
+	  RecastPlayerChapter,
+	  RecastPlayerControls,
+	  RecastPlayerFeatures,
+	  RecastPlayerMarker,
+	  RecastPlayerProps,
+	  RecastPlayerState,
+	  RecastPlayerUtilityAction
 	} from "./types";
 
-	import "media-chrome";
 	import "hls-video-element";
+	import "media-chrome";
 
 	const DEFAULT_CONTROLS: RecastPlayerControls = {
 		bigPlay: true,
@@ -40,7 +37,7 @@
 		time: true,
 		volume: true,
 		playbackRate: true,
-		captions: true,
+		captions: false,
 		pip: true,
 		fullscreen: true,
 	};
@@ -164,9 +161,15 @@
 	});
 	const playerStyle = $derived.by(() => {
 		const vars = [
+			// Before metadata loads we don't know the true ratio, but `auto`
+			// collapses a slotted <video> to its 300×150 default — so the hero
+			// renders short, then jumps to the real ratio once dimensions
+			// arrive (a visible layout shift). Reserve 16/9 (the overwhelmingly
+			// common screen-recording ratio) as the placeholder: zero shift for
+			// 16:9, and a single small adjust for the rare portrait clip.
 			resolvedAspectRatio
 				? `--recast-player-aspect-ratio: ${resolvedAspectRatio};`
-				: "--recast-player-aspect-ratio: auto;",
+				: "--recast-player-aspect-ratio: 16 / 9;",
 			`--recast-player-object-fit: ${objectFit};`,
 		];
 		return vars.join(" ");

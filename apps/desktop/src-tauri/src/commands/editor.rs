@@ -16,7 +16,7 @@ use super::ffmpeg::{
     append_output_filters_to_complex, build_annotation_blur_complex,
     build_gif_palette_prepass_filter, build_gif_paletteuse_external_complex,
     build_output_scale_filter, has_audio, probe_video_metadata, resolve_export_profile,
-    summarize_ffmpeg_error, BlurRegion, CameraOverlayParams, GifFilterOptions,
+    summarize_ffmpeg_error, BlurRegion, CameraOverlayParams, ExportSpeed, GifFilterOptions,
 };
 use super::system::get_active_output_dir;
 use super::types::{AppState, EditorDocument, ExportRequest, GifSettings, VideoMetadata};
@@ -407,6 +407,19 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
         .as_ref()
         .map(|value| value.recording_path.clone())
         .unwrap_or(input);
+
+    // Thumbnails are identical for a given (file, count) until the recording
+    // changes — so reuse a disk-cached strip across editor opens instead of
+    // re-running the full FFmpeg decode every time (the dominant "slow load").
+    // Keyed by the media file's identity; invalidated automatically when it
+    // changes. `count` is the discriminator so the poster (count=1) and the
+    // timeline strip don't collide.
+    if let Some(cached) =
+        crate::cache::get::<Vec<String>>("thumbs", &[media_path.as_path()], count as u64)
+    {
+        return Ok(cached);
+    }
+
     let meta = probe_video_metadata(&media_path)?;
     if meta.duration <= 0.0 || count == 0 {
         return Ok(Vec::new());
@@ -418,16 +431,18 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
     // — that's a single decode at the requested timestamp, no full read.
     if count == 1 {
         let timestamp = meta.duration * 0.25;
-        return Ok(
-            extract_single_thumbnail(&media_path, timestamp, scale_width)
-                .map(|jpeg| {
-                    vec![format!(
-                        "data:image/jpeg;base64,{}",
-                        general_purpose::STANDARD.encode(jpeg)
-                    )]
-                })
-                .unwrap_or_default(),
-        );
+        let poster = extract_single_thumbnail(&media_path, timestamp, scale_width)
+            .map(|jpeg| {
+                vec![format!(
+                    "data:image/jpeg;base64,{}",
+                    general_purpose::STANDARD.encode(jpeg)
+                )]
+            })
+            .unwrap_or_default();
+        if !poster.is_empty() {
+            crate::cache::put("thumbs", &[media_path.as_path()], count as u64, &poster);
+        }
+        return Ok(poster);
     }
 
     // Timeline strip path: collect every thumbnail in ONE FFmpeg invocation
@@ -495,6 +510,12 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
     // Best-effort removal of the now-empty per-invocation subdir. Ignore
     // failure (parallel invocations or filesystem races can leave stragglers).
     let _ = fs::remove_dir(&temp_dir);
+
+    // Persist the strip so the next open of this recording skips the decode.
+    // Only cache a complete strip — a partial/failed run shouldn't be pinned.
+    if !thumbnails.is_empty() {
+        crate::cache::put("thumbs", &[media_path.as_path()], count as u64, &thumbnails);
+    }
 
     Ok(thumbnails)
 }
@@ -847,6 +868,9 @@ pub async fn export_video(
     // fallback when the render state has no Trim node (duration == 0).
     let source_duration = metadata.duration.max(0.0);
     let profile = resolve_export_profile(&request.quality);
+    // Encoder effort axis, orthogonal to the resolution profile. Defaults to
+    // Balanced (historical settings) when absent/unknown.
+    let speed = ExportSpeed::from_request(request.speed.as_deref().unwrap_or("balanced"));
     let output_scale_filter = build_output_scale_filter(profile);
     let output_dir = get_active_output_dir(&state).join("exports");
     let _ = std::fs::create_dir_all(&output_dir);
@@ -1539,7 +1563,7 @@ pub async fn export_video(
                 "-deadline".to_string(),
                 "good".to_string(),
                 "-cpu-used".to_string(),
-                "4".to_string(),
+                speed.vp9_cpu_used().to_string(),
                 "-row-mt".to_string(),
                 "1".to_string(),
                 "-tile-columns".to_string(),
@@ -1575,7 +1599,7 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "h264_nvenc".to_string(),
                         "-preset".to_string(),
-                        "p5".to_string(),
+                        speed.nvenc_preset().to_string(),
                         "-tune".to_string(),
                         "hq".to_string(),
                         "-rc".to_string(),
@@ -1600,7 +1624,7 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "h264_amf".to_string(),
                         "-quality".to_string(),
-                        "quality".to_string(),
+                        speed.amf_quality().to_string(),
                         "-rc".to_string(),
                         "cqp".to_string(),
                         "-qp_i".to_string(),
@@ -1618,7 +1642,7 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "h264_qsv".to_string(),
                         "-preset".to_string(),
-                        "slower".to_string(),
+                        speed.qsv_preset().to_string(),
                         "-global_quality".to_string(),
                         profile.mp4_nvenc_cq.to_string(),
                         "-profile:v".to_string(),
@@ -1632,7 +1656,10 @@ pub async fn export_video(
                         "-c:v".to_string(),
                         "libx264".to_string(),
                         "-preset".to_string(),
-                        profile.mp4_preset.to_string(),
+                        speed
+                            .x264_preset()
+                            .unwrap_or(profile.mp4_preset)
+                            .to_string(),
                         "-crf".to_string(),
                         profile.mp4_crf.to_string(),
                         "-pix_fmt".to_string(),
