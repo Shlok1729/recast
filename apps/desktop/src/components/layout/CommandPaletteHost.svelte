@@ -21,19 +21,19 @@
   // `registerMany` deduplicates by id.
   onMount(() => {
     commandPalette.registerMany(buildGlobalCommands());
-    window.addEventListener("keydown", handleGlobalKeydown);
-    return () => window.removeEventListener("keydown", handleGlobalKeydown);
   });
 
-  // Bound to the OS shortcut: Cmd/Ctrl+K. Suppressed when the user is mid-edit
-  // in a contenteditable so it doesn't fire while typing in a text annotation.
+  // Bound to the OS shortcut: Cmd/Ctrl+K. Wired via `<svelte:window>` (below)
+  // rather than an imperative `window.addEventListener`: an imperative
+  // listener captures THIS function reference at mount, and Vite HMR can patch
+  // the module without re-running onMount/onDestroy — leaving a stale listener
+  // bound to old logic on `window` (the "bare Ctrl toggles the palette" ghost).
+  // Svelte rebinds this attribute on every hot patch, so it can't leak.
   function handleGlobalKeydown(e: KeyboardEvent) {
-    if (
-      (e.ctrlKey || e.metaKey) &&
-      !e.shiftKey &&
-      !e.altKey &&
-      e.key.toLowerCase() === "k"
-    ) {
+    // A bare modifier press (Ctrl/Cmd alone) is never this shortcut — require
+    // the literal "k" before doing anything.
+    if (e.key.toLowerCase() !== "k") return;
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       commandPalette.toggle();
     }
@@ -157,6 +157,8 @@
     return flatItems.indexOf(cmd);
   }
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 {#if commandPalette.open}
   <div

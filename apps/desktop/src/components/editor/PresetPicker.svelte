@@ -252,7 +252,20 @@
 </script>
 
 <script lang="ts">
-  import { CornerDownLeft, Search, Sparkles } from "@lucide/svelte";
+  import LazyExternalImage from "$components/common/LazyExternalImage.svelte";
+  import {
+    Briefcase,
+    Camera,
+    Check,
+    Clapperboard,
+    CornerDownLeft,
+    MessageCircle,
+    MonitorPlay,
+    Music2,
+    Search,
+    Sparkles,
+    Star,
+  } from "@lucide/svelte";
   import { Kbd, KbdGroup } from "@recast/ui/kbd";
   import { cn } from "@recast/ui/utils";
   import { tick } from "svelte";
@@ -263,14 +276,22 @@
     open: boolean;
     onOpenChange: (v: boolean) => void;
     onapply: (preset: Preset) => void;
+    /** Id of the preset currently applied to the project, if any. */
+    currentId?: string | null;
   }
 
-  let { open, onOpenChange, onapply }: Props = $props();
+  let { open, onOpenChange, onapply, currentId = null }: Props = $props();
 
   let query = $state("");
   let selectedIndex = $state(0);
   let inputRef = $state<HTMLInputElement | null>(null);
   let listRef = $state<HTMLDivElement | null>(null);
+
+  const COLS = 2;
+
+  const currentPreset = $derived(
+    currentId ? (PRESETS.find((p) => p.id === currentId) ?? null) : null,
+  );
 
   function score(p: Preset, q: string): number {
     if (!q) return 1;
@@ -301,10 +322,40 @@
       if (!map.has(p.category)) map.set(p.category, []);
       map.get(p.category)!.push(p);
     }
-    return [...map.entries()];
+    const entries = [...map.entries()];
+    // Pin the currently-applied preset to the top for instant re-apply.
+    if (currentPreset) entries.unshift(["Current", [currentPreset]]);
+    return entries;
   });
 
-  const flat = $derived(grouped.flatMap(([, items]) => items));
+  type Cell = { preset: Preset; index: number };
+  type Group = { category: string; rows: Cell[][] };
+
+  // Layout model: each category chunked into rows of COLS, with an explicit
+  // running `index` per cell. Indices are unique even though the pinned
+  // "Current" preset also appears in its own category — so we never rely on
+  // indexOf (which would collide on the duplicate).
+  const model = $derived.by(() => {
+    const groups: Group[] = [];
+    const flat: Preset[] = [];
+    const rows: Cell[][] = [];
+    let counter = 0;
+    for (const [category, items] of grouped) {
+      const groupRows: Cell[][] = [];
+      for (let i = 0; i < items.length; i += COLS) {
+        const cells: Cell[] = [];
+        for (let j = i; j < Math.min(i + COLS, items.length); j++) {
+          const cell = { preset: items[j], index: counter++ };
+          cells.push(cell);
+          flat.push(items[j]);
+        }
+        groupRows.push(cells);
+        rows.push(cells);
+      }
+      groups.push({ category, rows: groupRows });
+    }
+    return { groups, flat, rows };
+  });
 
   $effect(() => {
     if (open) {
@@ -314,8 +365,11 @@
     }
   });
 
+  // Keep the cursor in range as results change.
   $effect(() => {
-    if (selectedIndex >= flat.length) selectedIndex = Math.max(0, flat.length - 1);
+    if (selectedIndex >= model.flat.length) {
+      selectedIndex = Math.max(0, model.flat.length - 1);
+    }
   });
 
   function close() {
@@ -327,6 +381,46 @@
     close();
   }
 
+  // Find the [rowPos, col] of the current cursor within the global row list.
+  function locate(index: number): [number, number] {
+    for (let r = 0; r < model.rows.length; r++) {
+      const c = model.rows[r].findIndex((cell) => cell.index === index);
+      if (c !== -1) return [r, c];
+    }
+    return [0, 0];
+  }
+
+  // Vertical move: jump a whole row, preserving the column (clamped when the
+  // target row is shorter). This is the fix for the old behaviour where Down
+  // walked DOM order and slid sideways.
+  function moveRow(dir: 1 | -1) {
+    const [row, col] = locate(selectedIndex);
+    const target = model.rows[row + dir];
+    if (!target) return;
+    selectedIndex = target[Math.min(col, target.length - 1)].index;
+    scrollSelectedIntoView();
+  }
+
+  function moveCol(delta: 1 | -1) {
+    selectedIndex = Math.max(
+      0,
+      Math.min(model.flat.length - 1, selectedIndex + delta),
+    );
+    scrollSelectedIntoView();
+  }
+
+  // Left/Right belong to the search caret first; only navigate when the caret
+  // sits at the matching edge (or the field is empty) so typing isn't hijacked.
+  function caretAtStart(): boolean {
+    if (!inputRef) return true;
+    return inputRef.selectionStart === 0 && inputRef.selectionEnd === 0;
+  }
+  function caretAtEnd(): boolean {
+    if (!inputRef) return true;
+    const len = inputRef.value.length;
+    return inputRef.selectionStart === len && inputRef.selectionEnd === len;
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -335,19 +429,27 @@
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      selectedIndex = Math.min(flat.length - 1, selectedIndex + 1);
-      scrollSelectedIntoView();
+      moveRow(1);
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      selectedIndex = Math.max(0, selectedIndex - 1);
-      scrollSelectedIntoView();
+      moveRow(-1);
+      return;
+    }
+    if (e.key === "ArrowRight" && caretAtEnd()) {
+      e.preventDefault();
+      moveCol(1);
+      return;
+    }
+    if (e.key === "ArrowLeft" && caretAtStart()) {
+      e.preventDefault();
+      moveCol(-1);
       return;
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const p = flat[selectedIndex];
+      const p = model.flat[selectedIndex];
       if (p) apply(p);
     }
   }
@@ -362,11 +464,22 @@
   }
 
   function bgPreviewStyle(p: Preset): string {
-    if (p.bg === "gradient" && p.value) return `background:${p.value}`;
-    if (p.bg === "color" && p.value) return `background:${p.value}`;
-    if (p.bg === "wallpaper")
-      return "background:linear-gradient(135deg,#475569,#0f172a)";
-    return "background:transparent";
+    if ((p.bg === "gradient" || p.bg === "color") && p.value)
+      return `background:${p.value}`;
+    return "background:var(--color-muted)";
+  }
+
+  // WYSIWYG-ish frame inset. `padding` is a percent of the shorter source edge
+  // and the canvas is source+padding on each side, so the video occupies
+  // 1/(1+2p) of that edge — mirror that here so the thumbnail frames like the
+  // real export.
+  function frameInsetPct(padding: number): number {
+    const p = Math.max(0, padding) / 100;
+    return Math.min(20, (p / (1 + 2 * p)) * 100);
+  }
+
+  function wallpaperId(p: Preset): string {
+    return (p.value ?? "").replace(/^asset:\/\/?/, "").replace(/^asset:/, "");
   }
 
   function aspectClass(aspect: string): string {
@@ -381,6 +494,29 @@
         return "aspect-[1.91/1]";
       default:
         return "aspect-video";
+    }
+  }
+
+  function categoryIcon(category: string): typeof Sparkles {
+    switch (category) {
+      case "Current":
+        return Star;
+      case "Results":
+        return Search;
+      case "Studio":
+        return Clapperboard;
+      case "Instagram":
+        return Camera;
+      case "YouTube":
+        return MonitorPlay;
+      case "X / Twitter":
+        return MessageCircle;
+      case "TikTok":
+        return Music2;
+      case "LinkedIn":
+        return Briefcase;
+      default:
+        return Sparkles;
     }
   }
 
@@ -399,6 +535,33 @@
     };
   }
 </script>
+
+<!-- Tiny WYSIWYG preview: real background (or wallpaper thumb) with the video
+     frame inset by the preset's padding, at the correct aspect. -->
+{#snippet thumb(preset: Preset)}
+  {@const inset = frameInsetPct(preset.padding)}
+  <div
+    class={cn(
+      "relative h-9 shrink-0 overflow-hidden rounded-md ring-1 ring-inset ring-border/40",
+      aspectClass(preset.aspect),
+    )}
+  >
+    {#if preset.bg === "wallpaper" && preset.value}
+      <LazyExternalImage
+        assetId={wallpaperId(preset)}
+        alt=""
+        tier="thumb"
+        class="absolute inset-0 size-full object-cover"
+      />
+    {:else}
+      <div class="absolute inset-0" style={bgPreviewStyle(preset)}></div>
+    {/if}
+    <div
+      class="absolute rounded-[2px] bg-background/80 ring-1 ring-inset ring-foreground/15"
+      style="inset: {inset}%"
+    ></div>
+  </div>
+{/snippet}
 
 {#if open}
   <div
@@ -422,13 +585,12 @@
       class="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border/60 bg-popover/95 shadow-2xl ring-1 ring-border/40 backdrop-blur-xl"
     >
       <!-- Search header -->
-      <div
-        class="flex items-center gap-2 border-b border-border/60 px-3 py-2.5"
-      >
+      <div class="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
         <Search class="size-4 shrink-0 text-muted-foreground" />
         <input
           bind:this={inputRef}
           bind:value={query}
+          oninput={() => (selectedIndex = 0)}
           type="text"
           placeholder="Search presets, platforms, aspect ratios…"
           class="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
@@ -443,75 +605,72 @@
         bind:this={listRef}
         class="flex max-h-[60vh] flex-col gap-2 overflow-y-auto px-2 py-2 scrollbar-transparent"
       >
-        {#if flat.length === 0}
+        {#if model.flat.length === 0}
           <div class="px-3 py-10 text-center text-[12px] text-muted-foreground">
             No presets match "{query}"
           </div>
         {:else}
-          {@const _ = grouped}
-          {#each grouped as [category, items] (category)}
+          {#each model.groups as group (group.category)}
+            {@const CatIcon = categoryIcon(group.category)}
             <div class="flex flex-col gap-1">
               <div
                 class="flex items-center gap-1.5 px-2 pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
               >
-                <Sparkles class="size-3 text-primary/70" />
-                {category}
+                <CatIcon class="size-3 text-primary/70" />
+                {group.category}
               </div>
-              <div class="grid grid-cols-2 gap-1">
-                {#each items as preset (preset.id)}
-                  {@const idx = flat.indexOf(preset)}
-                  {@const active = idx === selectedIndex}
-                  <button
-                    type="button"
-                    data-preset-index={idx}
-                    onpointerenter={() => (selectedIndex = idx)}
-                    onclick={() => apply(preset)}
-                    class={cn(
-                      "group flex items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-all duration-150",
-                      active
-                        ? "border-border/60 bg-muted/60 shadow-(--shadow-craft-inset)"
-                        : "hover:bg-muted/40",
-                    )}
-                  >
-                    <!-- Aspect-aware swatch -->
-                    <div
-                      class={cn(
-                        "flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-md ring-1 ring-inset ring-border/40",
-                        aspectClass(preset.aspect),
-                      )}
-                      style={bgPreviewStyle(preset)}
-                    >
-                      <div
-                        class="size-1/2 rounded-sm bg-background/40 ring-1 ring-inset ring-background/20"
-                      ></div>
-                    </div>
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-1.5">
-                        <span
-                          class="truncate text-[12px] font-semibold text-foreground"
-                        >
-                          {preset.label}
-                        </span>
-                        <span
-                          class="inline-flex h-4 items-center rounded border border-border/40 bg-muted/40 px-1 font-mono text-[9px] font-semibold text-muted-foreground"
-                        >
-                          {preset.aspect}
-                        </span>
-                      </div>
-                      {#if preset.description}
-                        <div
-                          class="truncate text-[10.5px] text-muted-foreground/80"
-                        >
-                          {preset.description}
+              <div class="flex flex-col gap-1">
+                {#each group.rows as row}
+                  <div class="grid grid-cols-2 gap-1">
+                    {#each row as cell (cell.preset.id + ":" + cell.index)}
+                      {@const preset = cell.preset}
+                      {@const active = cell.index === selectedIndex}
+                      {@const isApplied = preset.id === currentId}
+                      <button
+                        type="button"
+                        data-preset-index={cell.index}
+                        onpointerenter={() => (selectedIndex = cell.index)}
+                        onclick={() => apply(preset)}
+                        class={cn(
+                          "group relative flex items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-all duration-150",
+                          active
+                            ? "border-border/60 bg-muted/60 shadow-(--shadow-craft-inset)"
+                            : "border-transparent hover:bg-muted/40",
+                          isApplied && "ring-1 ring-primary/40",
+                        )}
+                      >
+                        {@render thumb(preset)}
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-1.5">
+                            <span
+                              class="truncate text-[12px] font-semibold text-foreground"
+                            >
+                              {preset.label}
+                            </span>
+                            <span
+                              class="inline-flex h-4 items-center rounded border border-border/40 bg-muted/40 px-1 font-mono text-[9px] font-semibold text-muted-foreground"
+                            >
+                              {preset.aspect}
+                            </span>
+                          </div>
+                          {#if preset.description}
+                            <div
+                              class="truncate text-[10.5px] text-muted-foreground/80"
+                            >
+                              {preset.description}
+                            </div>
+                          {/if}
                         </div>
-                      {/if}
-                    </div>
-                    {#if active}
-                      <CornerDownLeft
-                        class="size-3 shrink-0 text-muted-foreground"
-                      />
-                    {/if}
-                  </button>
+                        {#if active}
+                          <CornerDownLeft
+                            class="size-3 shrink-0 text-muted-foreground"
+                          />
+                        {:else if isApplied}
+                          <Check class="size-3 shrink-0 text-primary" />
+                        {/if}
+                      </button>
+                    {/each}
+                  </div>
                 {/each}
               </div>
             </div>
@@ -527,6 +686,8 @@
           <KbdGroup>
             <Kbd>↑</Kbd>
             <Kbd>↓</Kbd>
+            <Kbd>←</Kbd>
+            <Kbd>→</Kbd>
           </KbdGroup>
           <span>Navigate</span>
         </span>

@@ -9,12 +9,11 @@
     Waves,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
-  import { SegmentedToggle } from "@recast/ui/segmented";
-  import { cn } from "@recast/ui/utils";
+  import { Segmented, SegmentedToggle } from "@recast/ui/segmented";
+  import { SliderControl } from "@recast/ui/slider-control";
   import { onDestroy, onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly, scale } from "svelte/transition";
-  import { SliderControl } from "@recast/ui/slider-control";
   import PanelSection from "./PanelSection.svelte";
 
   interface Props {
@@ -101,6 +100,15 @@
     );
   }
 
+  // The currently matching preset (if any) drives the Segmented selection;
+  // dragging the sliders to a custom value leaves nothing selected.
+  const activePreset = $derived(
+    FADE_PRESETS.find((p) => isPresetActive(p))?.label ?? "",
+  );
+  const fadePresetOptions = $derived(
+    FADE_PRESETS.map((p) => ({ value: p.label, label: p.label })),
+  );
+
   // SVG path for a tiny gain envelope visualization. Mirrors the FFmpeg
   // afade behaviour: linear ramp 0→1 over fadeIn at the head, hold at 1,
   // then linear ramp 1→0 over fadeOut at the tail.
@@ -123,56 +131,16 @@
     const s = Math.floor(t % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
-
-  // Derived "tracks" summary. Today the export pipeline mixes system audio
-  // and microphone behind one volume; this section labels the channels for
-  // discoverability and is structured so per-track gain (Phase 2 audio
-  // work) can land here without redoing the layout.
-  type Track = {
-    id: "output" | "system" | "mic";
-    label: string;
-    icon: typeof Speaker;
-    state: "live" | "muted" | "absent";
-    description: string;
-  };
-
-  const tracks = $derived.by<Track[]>(() => {
-    const muted = store.audioSettings.muted || store.audioSettings.volume <= 0;
-    const out: Track[] = [
-      {
-        id: "output",
-        label: "Master output",
-        icon: AudioLines,
-        state: muted ? "muted" : "live",
-        description: muted
-          ? "Silenced in playback and export."
-          : `${store.audioSettings.volume}% · ${dbForVolume(store.audioSettings.volume)}`,
-      },
-      {
-        id: "system",
-        label: "System audio",
-        icon: Speaker,
-        state: muted ? "muted" : "live",
-        description: "Captured from the recording session.",
-      },
-      {
-        id: "mic",
-        label: "Microphone",
-        icon: Mic,
-        state: muted ? "muted" : "live",
-        description:
-          "Mixed into the master at the same gain. (Per-track gain coming next.)",
-      },
-    ];
-    return out;
-  });
 </script>
 
-<div class="flex flex-col gap-4" in:fly={{ y: 8, duration: 260, delay: 40, easing: cubicOut }}>
-  <!-- Master gain readout + mute -->
+<div
+  class="flex flex-col gap-4"
+  in:fly={{ y: 8, duration: 260, delay: 40, easing: cubicOut }}
+>
+  <!-- Output: master gain readout sits directly above the slider that drives it -->
   <PanelSection
-    title="Master"
-    hint="Volume affects editor playback and export. Fades are applied during export. Press M to toggle mute."
+    title="Output"
+    hint="Volume affects editor playback and export. Press M to toggle mute."
     flush
   >
     {#snippet action()}
@@ -201,152 +169,93 @@
       </div>
     {/snippet}
 
-    <!-- Big readout: master gain + dB -->
-    <div
-      class="rounded-md border border-border bg-card/60 px-3 py-2.5"
-      class:opacity-50={store.audioSettings.muted}
-    >
-      <div class="flex items-end justify-between gap-2">
-        <div>
-          <p
-            class="text-[10px] uppercase tracking-wider text-muted-foreground"
-          >
-            Output gain
-          </p>
-          <p
-            class="font-mono text-2xl font-medium tabular-nums leading-none {volumeZone ===
-            'hot'
-              ? 'text-destructive'
-              : volumeZone === 'boost'
-                ? 'text-warning'
-                : 'text-foreground'}"
-          >
-            {store.audioSettings.volume}<span
-              class="ml-0.5 text-base text-muted-foreground">%</span
-            >
-          </p>
-          <p
-            class="mt-0.5 font-mono text-[10px] tabular-nums {volumeZone ===
-            'hot'
-              ? 'text-destructive'
-              : volumeZone === 'boost'
-                ? 'text-warning'
-                : 'text-muted-foreground'}"
-          >
-            {dbForVolume(store.audioSettings.volume)}
-          </p>
-        </div>
-        {#if volumeZone === "boost" || volumeZone === "hot"}
-          <span
-            in:scale={{ start: 0.85, duration: 220, easing: cubicOut }}
-            class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider {volumeZone ===
-            'hot'
-              ? 'border-destructive/40 bg-destructive/10 text-destructive'
-              : 'border-warning/40 bg-warning/10 text-warning'}"
-          >
-            <Waves size={10} />
-            {volumeZone === "hot" ? "Clipping risk" : "Boost"}
-          </span>
-        {/if}
-      </div>
-
-      <!-- Linear gain bar with 100% reference mark -->
+    <div class="flex flex-col gap-2.5">
+      <!-- Hero meter: gain % + dB + clipping warning + linear gain bar -->
       <div
-        class="relative mt-2 h-1.5 overflow-hidden rounded-full bg-background"
+        class="rounded-md border border-border bg-card/60 px-3 py-2.5"
+        class:opacity-50={store.audioSettings.muted}
       >
-        <div
-          class="absolute inset-y-0 left-0 transition-all duration-300 {volumeZone === 'hot'
-            ? 'bg-destructive'
-            : volumeZone === 'boost'
-              ? 'bg-warning'
-              : volumeZone === 'low'
-                ? 'bg-success/70'
-                : 'bg-success'}"
-          style="width: {Math.min(100, (store.audioSettings.volume / 200) * 100)}%"
-        ></div>
-        <!-- 100% reference tick -->
-        <div
-          class="absolute inset-y-0 w-px bg-foreground/40"
-          style="left: 50%"
-          aria-hidden="true"
-        ></div>
-      </div>
-    </div>
-  </PanelSection>
-
-  <PanelSection
-    title="Tracks"
-    hint="System audio and microphone share the master gain today. Per-track levels land in the next audio pass."
-    flush
-    collapsible
-    defaultOpen={false}
-  >
-    <ul class="flex flex-col gap-1">
-      {#each tracks as track, i (track.id)}
-        {@const Icon = track.icon}
-        <li
-          in:fly={{ y: 6, duration: 240, delay: 140 + i * 50, easing: cubicOut }}
-          class={cn(
-            "flex items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2.5 py-1.5 shadow-(--shadow-craft-inset) transition-opacity",
-            track.state === "muted" && "opacity-60",
-          )}
-        >
-          <span
-            class={cn(
-              "flex size-7 items-center justify-center rounded border",
-              track.state === "muted"
-                ? "border-border bg-muted text-muted-foreground"
-                : "border-primary/30 bg-primary/10 text-primary",
-            )}
-          >
-            <Icon size={12} />
-          </span>
-          <div class="flex-1 min-w-0">
-            <p class="text-[11px] font-medium text-foreground">
-              {track.label}
+        <div class="flex items-end justify-between gap-2">
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Output gain
             </p>
-            <p class="truncate text-[10px] text-muted-foreground">
-              {track.description}
+            <p
+              class="font-mono text-2xl font-medium tabular-nums leading-none {volumeZone ===
+              'hot'
+                ? 'text-destructive'
+                : volumeZone === 'boost'
+                  ? 'text-warning'
+                  : 'text-foreground'}"
+            >
+              {store.audioSettings.volume}<span
+                class="ml-0.5 text-base text-muted-foreground">%</span
+              >
+            </p>
+            <p
+              class="mt-0.5 font-mono text-[10px] tabular-nums {volumeZone === 'hot'
+                ? 'text-destructive'
+                : volumeZone === 'boost'
+                  ? 'text-warning'
+                  : 'text-muted-foreground'}"
+            >
+              {dbForVolume(store.audioSettings.volume)}
             </p>
           </div>
-          <span
-            class="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider"
-          >
+          {#if volumeZone === "boost" || volumeZone === "hot"}
             <span
-              class={cn(
-                "size-1.5 rounded-full",
-                track.state === "live"
-                  ? "bg-success"
-                  : "bg-muted-foreground",
-              )}
-            ></span>
-            {track.state === "live" ? "Live" : "Muted"}
-          </span>
-        </li>
-      {/each}
-    </ul>
-  </PanelSection>
+              in:scale={{ start: 0.85, duration: 220, easing: cubicOut }}
+              class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider {volumeZone ===
+              'hot'
+                ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                : 'border-warning/40 bg-warning/10 text-warning'}"
+            >
+              <Waves size={10} />
+              {volumeZone === "hot" ? "Clipping risk" : "Boost"}
+            </span>
+          {/if}
+        </div>
 
-  <PanelSection
-    title="Mix"
-    hint="Mute preserves the chosen volume so the toggle restores the previous level."
-  >
-    <SliderControl
-      label="Output volume"
-      value={store.audioSettings.volume}
-      min={0}
-      max={200}
-      step={5}
-      unit="%"
-      disabled={store.audioSettings.muted}
-      onstart={() => store.pushUndoState()}
-      onchange={(next) => store.updateAudioSettings({ volume: next })}
-      formatValue={(v) => `${v}%`}
-    >
-      {#snippet icon()}
-        <AudioLines size={11} />
-      {/snippet}
-    </SliderControl>
+        <!-- Linear gain bar with 100% reference mark -->
+        <div class="relative mt-2 h-1.5 overflow-hidden rounded-full bg-background">
+          <div
+            class="absolute inset-y-0 left-0 transition-all duration-300 {volumeZone ===
+            'hot'
+              ? 'bg-destructive'
+              : volumeZone === 'boost'
+                ? 'bg-warning'
+                : volumeZone === 'low'
+                  ? 'bg-success/70'
+                  : 'bg-success'}"
+            style="width: {Math.min(100, (store.audioSettings.volume / 200) * 100)}%"
+          ></div>
+          <!-- 100% reference tick -->
+          <div
+            class="absolute inset-y-0 w-px bg-foreground/40"
+            style="left: 50%"
+            aria-hidden="true"
+          ></div>
+        </div>
+      </div>
+
+      <!-- The control for the readout above -->
+      <SliderControl
+        label="Output volume"
+        value={store.audioSettings.volume}
+        min={0}
+        max={200}
+        step={5}
+        unit="%"
+        disabled={store.audioSettings.muted}
+        onstart={() => store.pushUndoState()}
+        onchange={(next) => store.updateAudioSettings({ volume: next })}
+        formatValue={(v) => `${v}%`}
+      >
+        {#snippet icon()}
+          <AudioLines size={11} />
+        {/snippet}
+      </SliderControl>
+    </div>
   </PanelSection>
 
   <PanelSection
@@ -356,7 +265,9 @@
     collapsible
   >
     {#snippet action()}
-      <span class="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+      <span
+        class="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+      >
         <AudioWaveform size={10} />
         Envelope
       </span>
@@ -400,30 +311,17 @@
     </div>
 
     <!-- Presets -->
-    <div class="mt-2 flex items-center gap-1">
-      {#each FADE_PRESETS as preset, i (preset.label)}
-        {@const isActive = isPresetActive(preset)}
-        <span
-          class="flex flex-1"
-          in:scale={{ start: 0.92, duration: 220, delay: 280 + i * 35, easing: cubicOut }}
-        >
-          <Button
-            variant="raw"
-            size="xs"
-            aria-pressed={isActive}
-            onclick={() => applyPreset(preset)}
-            class={cn(
-              "flex-1 gap-1 rounded-md border text-[10px] transition-colors",
-              isActive
-                ? "border-primary/60 bg-primary/10 text-primary ring-1 ring-primary/30"
-                : "border-border/60 bg-background text-muted-foreground hover:border-border hover:text-foreground",
-            )}
-            title="Set fade in to {preset.in.toFixed(2)}s and fade out to {preset.out.toFixed(2)}s"
-          >
-            {preset.label}
-          </Button>
-        </span>
-      {/each}
+    <div class="mt-2">
+      <Segmented
+        size="xs"
+        aria-label="Fade preset"
+        value={activePreset}
+        options={fadePresetOptions}
+        onValueChange={(v) => {
+          const preset = FADE_PRESETS.find((p) => p.label === v);
+          if (preset) applyPreset(preset);
+        }}
+      />
     </div>
 
     <div class="mt-2.5 space-y-2.5">
@@ -449,6 +347,34 @@
         onchange={(next) => store.updateAudioSettings({ fadeOut: next })}
         formatValue={(v) => `${v.toFixed(2)}s`}
       />
+    </div>
+  </PanelSection>
+
+  <!-- Honest summary of what's in the mix. Per-track gain is not built yet. -->
+  <PanelSection
+    title="Sources"
+    hint="System audio and microphone are captured together and share the master gain. Per-track levels land in the next audio pass."
+    flush
+  >
+    <div
+      class="flex items-center gap-2.5 rounded-lg border border-border/60 bg-card/40 px-2.5 py-2 shadow-(--shadow-craft-inset)"
+    >
+      <span class="flex items-center gap-1 text-muted-foreground" aria-hidden="true">
+        <span class="grid size-6 place-items-center rounded-md bg-muted/60">
+          <Speaker size={12} />
+        </span>
+        <span class="grid size-6 place-items-center rounded-md bg-muted/60">
+          <Mic size={12} />
+        </span>
+      </span>
+      <div class="min-w-0 flex-1">
+        <p class="text-[11px] font-medium text-foreground">
+          System audio + microphone
+        </p>
+        <p class="truncate text-[10px] text-muted-foreground">
+          Mixed at master gain · per-track levels coming soon
+        </p>
+      </div>
     </div>
   </PanelSection>
 </div>

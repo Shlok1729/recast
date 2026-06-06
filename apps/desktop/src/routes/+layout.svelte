@@ -96,6 +96,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, tick } from "svelte";
+  import { log } from "$lib/logger";
 
   const TRANSPARENT_ROUTES = [
     "/camera-preview",
@@ -287,7 +288,36 @@
       }
     }
   });
+
+  // Diagnostic: record the TRUE fields of every modifier-involved keydown so a
+  // "phantom shortcut" report (e.g. "Ctrl alone toggles the sidebar") can be
+  // traced to the actual event. One Svelte-managed listener, gated through
+  // `log.debug` (emits only in dev or when Diagnostic logging is on), so it's
+  // silent in a normal release build. Plain typing is skipped to keep it
+  // readable. Reading guide: if a panel opens on a keydown whose logged `key`
+  // is "Control"/"Meta" (a bare modifier), the action came from a STALE
+  // listener running OLD code — a classic dev-server HMR leak — and a full
+  // `pnpm tauri dev` restart clears it. If you instead see the SAME keydown
+  // logged twice per physical press, listeners are accumulating.
+  function logKeyDiagnostic(e: KeyboardEvent) {
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) return;
+    const t = e.target as HTMLElement | null;
+    log.debug("input", "keydown", {
+      key: e.key,
+      code: e.code,
+      ctrl: e.ctrlKey,
+      meta: e.metaKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      repeat: e.repeat,
+      target: t?.tagName?.toLowerCase() ?? null,
+      route: page.url.pathname,
+    });
+  }
 </script>
+
+<svelte:window onkeydown={logKeyDiagnostic} />
+
 <TooltipProvider>
   <NavProgress />
   <ModeWatcher />

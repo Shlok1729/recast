@@ -388,6 +388,7 @@
   open={showPresetsPicker}
   onOpenChange={(v) => (showPresetsPicker = v)}
   onapply={applyPreset}
+  currentId={store.lastAppliedPresetId}
 />
 
 <ConfirmDialog
