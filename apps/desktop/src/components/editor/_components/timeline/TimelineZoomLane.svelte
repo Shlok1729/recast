@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import { Eye, EyeOff } from "@lucide/svelte";
   import type { TimeMode } from "./timeline-helpers";
-  import { buildSnapTargets, type SnapTarget } from "./timeline-snap";
+  import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import ZoomLayerCard from "./ZoomLayerCard.svelte";
 
   // Lane that hosts zoom-region cards. The lane builds the snap target list
@@ -50,37 +49,6 @@
   class="relative mt-1.5 min-h-9 rounded-md border border-border/60 bg-background/40 px-1.5 py-1.5 transition-opacity"
   class:opacity-50={!store.focusEnabled}
 >
-  <!-- Lane label + per-lane visibility toggle. position:sticky pins it to
-       the visible left edge of the horizontally-scrolling timeline so it
-       never gets scrolled away or covered by a card sitting at t≈0. -->
-  <div
-    class="pointer-events-none sticky left-1.5 top-1 z-50 inline-flex w-fit items-center gap-1"
-  >
-    <span
-      class="inline-flex items-center rounded-sm bg-primary/15 px-1.5 py-px font-mono text-[8px] font-bold uppercase tracking-wider text-primary backdrop-blur-sm"
-    >
-      Focus
-    </span>
-    <button
-      type="button"
-      onpointerdown={(e) => e.stopPropagation()}
-      onclick={(e) => {
-        e.stopPropagation();
-        store.focusEnabled = !store.focusEnabled;
-      }}
-      title={store.focusEnabled
-        ? "Disable focus (zoom regions stay; preview & export ignore them)"
-        : "Enable focus"}
-      aria-label={store.focusEnabled ? "Disable focus" : "Enable focus"}
-      class="pointer-events-auto flex size-4 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-    >
-      {#if store.focusEnabled}
-        <Eye class="size-2.5" />
-      {:else}
-        <EyeOff class="size-2.5" />
-      {/if}
-    </button>
-  </div>
   {#if store.zoomRegions.length === 0}
     <div
       class="flex h-6 items-center justify-center text-[10px] text-muted-foreground"
@@ -122,34 +90,3 @@
     </div>
   {/if}
 </div>
-
-<script lang="ts" module>
-  import type { SnapKind } from "./timeline-snap";
-
-  // User-facing label for the snap badge. Kept as a top-level helper so
-  // each card render doesn't allocate a fresh closure.
-  function snapLabel(kind: SnapKind): string {
-    switch (kind) {
-      case "playhead":
-        return "Playhead";
-      case "in-point":
-        return "In";
-      case "out-point":
-        return "Out";
-      case "origin":
-        return "Start";
-      case "duration":
-        return "End";
-      case "region-start":
-        return "Region start";
-      case "region-end":
-        return "Region end";
-      case "annotation-start":
-        return "Annotation start";
-      case "annotation-end":
-        return "Annotation end";
-      case "frame":
-        return "Frame";
-    }
-  }
-</script>

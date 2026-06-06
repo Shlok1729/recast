@@ -18,26 +18,13 @@
   let contentHeight = $state(0);
 
   // Global registration. Safe to call on every mount because
-  // `registerMany` deduplicates by id.
+  // `registerMany` deduplicates by id. The Mod+K open shortcut itself lives in
+  // the central shortcut registry (`general.palette`), dispatched once from the
+  // root layout — so there is no per-component `window` listener here to leak
+  // under HMR (the "bare Ctrl toggles the palette" ghost is gone for good).
   onMount(() => {
     commandPalette.registerMany(buildGlobalCommands());
   });
-
-  // Bound to the OS shortcut: Cmd/Ctrl+K. Wired via `<svelte:window>` (below)
-  // rather than an imperative `window.addEventListener`: an imperative
-  // listener captures THIS function reference at mount, and Vite HMR can patch
-  // the module without re-running onMount/onDestroy — leaving a stale listener
-  // bound to old logic on `window` (the "bare Ctrl toggles the palette" ghost).
-  // Svelte rebinds this attribute on every hot patch, so it can't leak.
-  function handleGlobalKeydown(e: KeyboardEvent) {
-    // A bare modifier press (Ctrl/Cmd alone) is never this shortcut — require
-    // the literal "k" before doing anything.
-    if (e.key.toLowerCase() !== "k") return;
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-      e.preventDefault();
-      commandPalette.toggle();
-    }
-  }
 
   function close() {
     commandPalette.hide();
@@ -157,8 +144,6 @@
     return flatItems.indexOf(cmd);
   }
 </script>
-
-<svelte:window onkeydown={handleGlobalKeydown} />
 
 {#if commandPalette.open}
   <div

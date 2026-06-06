@@ -58,7 +58,8 @@
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { browser } from "$app/environment";
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
+  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
 
   import { log } from "$lib/logger";
   import { cubicOut } from "svelte/easing";
@@ -1087,6 +1088,30 @@
     }
   }
 
+  // Wire the editor's mod-combo shortcuts to the central registry. They stay
+  // bound for exactly as long as this route is mounted, and are inert on every
+  // other route (no handler registered there). Each bails while the export flow
+  // dialog owns the screen.
+  onMount(() =>
+    registerShortcutHandlers({
+      "editor.undo": () => {
+        if (!isExportFlowOpen) store.undo();
+      },
+      "editor.redo": () => {
+        if (!isExportFlowOpen) store.redo();
+      },
+      "editor.save": () => {
+        if (!isExportFlowOpen) void handleSave();
+      },
+      "editor.toggleSidebar": () => {
+        if (!isExportFlowOpen) showSidebar = !showSidebar;
+      },
+      "editor.toggleTimeline": () => {
+        if (!isExportFlowOpen) showTimeline = !showTimeline;
+      },
+    }),
+  );
+
   function handleKeydown(e: KeyboardEvent) {
     // `repeat` fires this on auto-repeat while a key is held — a held
     // Ctrl+B would otherwise flip the panel on every tick. Bail so each
@@ -1108,39 +1133,14 @@
       return;
     }
 
-    const mod = e.ctrlKey || e.metaKey;
+    // Mod-combo editor shortcuts (undo/redo/save, toggle panels, presets) are
+    // owned by the central shortcut registry — see `registerShortcutHandlers`
+    // below and `$lib/shortcuts`. Dispatched once from the root layout, so they
+    // can't double-fire. Bail here on any held Ctrl/⌘ so a modifier combo never
+    // trips a plain-key action below.
+    if (e.ctrlKey || e.metaKey) return;
 
-    // Modifier combos are handled first and exclusively: every branch
-    // returns, so a Ctrl/⌘ shortcut can never also trip a plain-key action
-    // below. Any combo we don't own falls through and is left to the
-    // browser/OS (e.g. Ctrl+F find, Ctrl+R reload).
-    if (mod) {
-      switch (e.key.toLowerCase()) {
-        case "z":
-          e.preventDefault();
-          if (e.shiftKey) store.redo();
-          else store.undo();
-          return;
-        case "s":
-          e.preventDefault();
-          void handleSave();
-          return;
-        case "b":
-          // ⌘/Ctrl+B — toggle the right properties panel (VS Code parity).
-          e.preventDefault();
-          showSidebar = !showSidebar;
-          return;
-        case "j":
-          // ⌘/Ctrl+J — toggle the bottom timeline (VS Code's panel shortcut).
-          e.preventDefault();
-          showTimeline = !showTimeline;
-          return;
-      }
-      return;
-    }
-
-    // Plain keys (no Ctrl/⌘). Gated behind `!mod` above so they never fire
-    // as a side effect of a modifier combo.
+    // Plain keys (no Ctrl/⌘): play/pause, frame step, fullscreen.
     switch (e.key) {
       case " ":
         e.preventDefault();

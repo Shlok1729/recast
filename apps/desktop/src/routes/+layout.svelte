@@ -84,6 +84,8 @@
   });
 
   import CommandPaletteHost from "$components/layout/CommandPaletteHost.svelte";
+  import ShortcutsDialog from "$components/layout/ShortcutsDialog.svelte";
+  import { dispatchShortcut } from "$lib/shortcuts/registry.svelte";
   import FirstRunConsent from "$components/FirstRunConsent.svelte";
   import { analytics } from "$lib/analytics/client";
   import { desktopConsent } from "$lib/stores/consent.svelte";
@@ -314,9 +316,46 @@
       route: page.url.pathname,
     });
   }
+
+  // Hard stop for "phantom shortcut" triggers. A modifier key pressed ALONE
+  // (Ctrl / Cmd / Shift / Alt with no other key) is never a shortcut, yet a
+  // stale listener left on `window` by a dev-server hot-reload can still act on
+  // it (the "bare Ctrl toggles the sidebar / palette" ghost). We swallow the
+  // lone-modifier keydown in the CAPTURE phase — which runs before every
+  // bubble-phase listener, ghosts included — so nothing downstream ever sees
+  // it. Harmless in production (nothing should react to a lone modifier);
+  // decisive against HMR ghosts in dev. A real combo like Ctrl+B is untouched:
+  // its keydown carries `key === "b"`, not a bare modifier, so it propagates
+  // normally. Registered via `$effect` so HMR re-establishes it on every patch.
+  const BARE_MODIFIER_KEYS = new Set([
+    "Control",
+    "Shift",
+    "Alt",
+    "Meta",
+    "OS",
+    "AltGraph",
+  ]);
+  $effect(() => {
+    const swallowBareModifier = (e: KeyboardEvent) => {
+      if (BARE_MODIFIER_KEYS.has(e.key)) e.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", swallowBareModifier, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", swallowBareModifier, {
+        capture: true,
+      });
+  });
 </script>
 
-<svelte:window onkeydown={logKeyDiagnostic} />
+<!-- One window keydown hook (Svelte allows only one): diagnostics first, then
+     the central shortcut dispatcher. The dispatcher is skipped on the small
+     overlay windows, which own their own minimal key handling. -->
+<svelte:window
+  onkeydown={(e) => {
+    logKeyDiagnostic(e);
+    if (!isTransparentRoute) dispatchShortcut(e);
+  }}
+/>
 
 <TooltipProvider>
   <NavProgress />
@@ -334,6 +373,8 @@
     <!-- Command palette host: owns the ⌘K shortcut + dialog so they work on
          every route (editor included), not just the (app) sidebar layout. -->
     <CommandPaletteHost />
+    <!-- Global keyboard-shortcut reference (opened from the titlebar or Mod+/). -->
+    <ShortcutsDialog />
   {/if}
   <div
     class="relative flex min-h-screen min-w-dvw w-full flex-col {isTransparentRoute

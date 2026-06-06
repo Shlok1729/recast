@@ -1070,13 +1070,11 @@
       resizeObserver = new ResizeObserver(() => draw());
       resizeObserver.observe(targetEl);
     }
-    window.addEventListener("keydown", handleKeyDown);
   });
 
   onDestroy(() => {
     if (rafHandle !== null) cancelAnimationFrame(rafHandle);
     resizeObserver?.disconnect();
-    window.removeEventListener("keydown", handleKeyDown);
   });
 
   // Map a handle name to a CSS resize cursor so dragging from a corner shows
@@ -1114,6 +1112,11 @@
     return cursorForHandle(hoverHandle);
   });
 </script>
+
+<!-- Local annotation editing keys (delete, deselect, Mod+D/[/], arrow nudge —
+     documented in the central shortcut registry). `<svelte:window>` so HMR
+     rebinds rather than leaks the listener. -->
+<svelte:window onkeydown={handleKeyDown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <canvas

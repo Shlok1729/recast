@@ -4,6 +4,7 @@
     ZoomRegion,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
+  import { Eye, EyeOff, Film, Pencil, Scissors, Target } from "@lucide/svelte";
   import { onMount } from "svelte";
   import TimelineAnnotationLane from "./_components/timeline/TimelineAnnotationLane.svelte";
   import TimelineClipBar from "./_components/timeline/TimelineClipBar.svelte";
@@ -35,7 +36,6 @@
 
   let timelineEl: HTMLDivElement | undefined = $state();
   let isDraggingPlayhead = $state(false);
-  let showSuggestions = $state(false);
   let timelineWidth = $state(900);
 
   const SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0] as const;
@@ -45,12 +45,7 @@
   // user-visible label (toolbar chip, playhead pill, trim tooltips, card
   // subtitles). Lives in the orchestrator so a single click flips the
   // entire timeline at once.
-  const TIME_MODE_CYCLE: readonly TimeMode[] = ["smpte", "seconds", "frames"];
   let timeMode = $state<TimeMode>("smpte");
-  function cycleTimeMode() {
-    const i = TIME_MODE_CYCLE.indexOf(timeMode);
-    timeMode = TIME_MODE_CYCLE[(i + 1) % TIME_MODE_CYCLE.length];
-  }
 
   // JKL transport: cycles 1×→2×→4× on each consecutive press, like Avid /
   // Premiere. K parks playback. We don't drive reverse playback through
@@ -156,10 +151,6 @@
         center * nextPps - timelineEl.clientWidth * 0.5,
       );
     });
-  }
-
-  function toggleSuggestions() {
-    showSuggestions = !showSuggestions;
   }
 
   function clientXToTime(clientX: number): number {
@@ -549,6 +540,33 @@
   });
 </script>
 
+<!-- Track-header chip for the fixed left rail. Hue per lane, shape shared. -->
+{#snippet railLabel(Icon: typeof Film, label: string, chipClass: string)}
+  <span
+    class="inline-flex items-center gap-1 rounded-sm px-1.5 py-px font-mono text-[8px] font-bold uppercase tracking-wider {chipClass}"
+  >
+    <Icon class="size-2" />
+    {label}
+  </span>
+{/snippet}
+
+{#snippet railEye(visible: boolean, toggle: () => void, title: string)}
+  <button
+    type="button"
+    onclick={toggle}
+    {title}
+    aria-label={title}
+    aria-pressed={!visible}
+    class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+  >
+    {#if visible}
+      <Eye class="size-2.5" />
+    {:else}
+      <EyeOff class="size-2.5" />
+    {/if}
+  </button>
+{/snippet}
+
 <div
   class="shrink-0 select-none border-t border-border/60 bg-card/30 px-2 pt-1.5 pb-2"
 >
@@ -558,44 +576,99 @@
     {hasTrim}
     {aspectRatioLabel}
     {frameCount}
-    {showSuggestions}
     {playbackSpeed}
     speeds={SPEEDS}
     {timeMode}
     hasSelectedRegion={!!store.selectedZoomRegionId}
     onSetTrim={setTrimPoint}
     onAddFocusRegion={addFocusRegion}
-    onToggleSuggestions={toggleSuggestions}
-    onCloseSuggestions={() => (showSuggestions = false)}
     onResetTrim={resetTrim}
     onZoomTimeline={zoomTimeline}
     onSelectSpeed={(speed) => (playbackSpeed = speed)}
-    onCycleTimeMode={cycleTimeMode}
+    onSetTimeMode={(mode) => (timeMode = mode)}
     onZoomToFit={zoomToFit}
     onZoomToSelection={zoomToSelection}
   />
 
+  <!-- Track-header rail (fixed) + scrolling tracks. The rail lives OUTSIDE the
+       horizontal scroller so lane names never overlap a card sitting at t≈0
+       (the NLE convention). Row heights mirror the track side exactly —
+       h-7 ruler spacer, h-12 clip, mt-1.5 + min-h-9 per lane — so labels line
+       up with their lanes. The scroller's internal coordinate system is
+       unchanged, so playhead / snap / card math is untouched. -->
   <div
-    bind:this={timelineEl}
-    role="slider"
-    tabindex="0"
-    aria-label="Timeline scrubber"
-    aria-valuemin={0}
-    aria-valuemax={duration}
-    aria-valuenow={store.currentTime}
-    class="custom-scrollbar relative overflow-x-auto overflow-y-hidden rounded-xl border border-border/60 bg-background/60 shadow-(--shadow-craft-inset)"
-    onpointerdown={handleTimelinePointerDown}
-    onpointermove={handleTimelinePointerMove}
-    onpointerup={handleTimelinePointerUp}
-    onpointercancel={handleTimelinePointerUp}
-    onwheel={handleTimelineWheel}
-    onkeydown={handleTimelineKeydown}
+    class="relative flex overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-(--shadow-craft-inset)"
   >
     <div
-      class="relative min-w-full"
-      style="width: {totalWidth}px; height: {experimentalStore.silenceDetection ? 250 : 204}px;"
+      class="relative z-10 flex w-20 shrink-0 flex-col border-r border-border/60 bg-card/50"
     >
-      <TimelineRuler {duration} {pixelsPerSecond} />
+      <!-- Aligns with the ruler -->
+      <div class="h-7 border-b border-border/60"></div>
+      <div class="px-1.5 pb-2 pt-1.5">
+        <!-- Clip (no toggle) -->
+        <div class="flex h-12 items-center">
+          {@render railLabel(Film, "Clip", "bg-foreground/10 text-foreground/80")}
+        </div>
+        <!-- Focus -->
+        <div class="mt-1.5 flex min-h-9 items-center justify-between gap-1">
+          {@render railLabel(Target, "Focus", "bg-primary/15 text-primary")}
+          {@render railEye(
+            store.focusEnabled,
+            () => (store.focusEnabled = !store.focusEnabled),
+            store.focusEnabled
+              ? "Disable focus (regions stay; preview & export ignore them)"
+              : "Enable focus",
+          )}
+        </div>
+        <!-- Notes -->
+        <div class="mt-1.5 flex min-h-9 items-center justify-between gap-1">
+          {@render railLabel(Pencil, "Notes", "bg-warning/15 text-warning")}
+          {@render railEye(
+            !store.annotationsGloballyHidden,
+            () =>
+              (store.annotationsGloballyHidden = !store.annotationsGloballyHidden),
+            store.annotationsGloballyHidden
+              ? "Enable notes"
+              : "Disable notes (annotations stay; preview & export ignore them)",
+          )}
+        </div>
+        {#if experimentalStore.silenceDetection}
+          <!-- Cuts -->
+          <div class="mt-1.5 flex min-h-9 items-center justify-between gap-1">
+            {@render railLabel(Scissors, "Cuts", "bg-destructive/15 text-destructive")}
+            {@render railEye(
+              store.cutsEnabled,
+              () => (store.cutsEnabled = !store.cutsEnabled),
+              store.cutsEnabled
+                ? "Disable cuts (cuts stay; playback & export ignore them)"
+                : "Enable cuts",
+            )}
+          </div>
+        {/if}
+      </div>
+    </div>
+
+    <div
+      bind:this={timelineEl}
+      role="slider"
+      tabindex="0"
+      aria-label="Timeline scrubber"
+      aria-valuemin={0}
+      aria-valuemax={duration}
+      aria-valuenow={store.currentTime}
+      class="custom-scrollbar relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+      onpointerdown={handleTimelinePointerDown}
+      onpointermove={handleTimelinePointerMove}
+      onpointerup={handleTimelinePointerUp}
+      onpointercancel={handleTimelinePointerUp}
+      onwheel={handleTimelineWheel}
+      onkeydown={handleTimelineKeydown}
+    >
+      <div
+        class="relative min-w-full"
+        style="width: {totalWidth}px; height: {experimentalStore.silenceDetection ? 250 : 204}px;"
+      >
+        <TimelineRuler {duration} {pixelsPerSecond} />
 
       <div class="relative px-2 pb-2 pt-1.5">
         <TimelineClipBar
@@ -643,6 +716,7 @@
         {timeMode}
         tall={experimentalStore.silenceDetection}
       />
+      </div>
     </div>
   </div>
 </div>

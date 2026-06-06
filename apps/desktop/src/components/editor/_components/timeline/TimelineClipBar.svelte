@@ -147,11 +147,6 @@
 </script>
 
 <div class="relative h-12 rounded-md border border-border/60 bg-background">
-  <span
-    class="pointer-events-none sticky left-1.5 top-1 z-50 inline-flex w-fit items-center rounded-sm bg-foreground/10 px-1.5 py-px font-mono text-[8px] font-bold uppercase tracking-wider text-foreground/80 backdrop-blur-sm"
-  >
-    Clip
-  </span>
   <div
     class="absolute inset-y-0 rounded-md border border-primary/40 bg-primary/5"
     style="left: {clipLeft}px; width: {clipWidth}px;"
@@ -207,7 +202,7 @@
       class="group absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-ew-resize focus-visible:outline-none"
     >
       <div
-        class="mx-auto h-full w-1 rounded-l-md bg-primary transition-all group-hover:w-1.5 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.3)]"
+        class="mx-auto h-full w-1 rounded-l-md bg-primary transition-all group-hover:w-1.5 group-hover:ring-2 group-hover:ring-primary/30"
       ></div>
       {#if activeTrimHandle === "in" && trimDragContext}
         {@const delta = store.inPoint - trimDragContext.originalAt}
@@ -237,7 +232,7 @@
       class="group absolute inset-y-0 right-0 z-10 w-2 translate-x-1 cursor-ew-resize focus-visible:outline-none"
     >
       <div
-        class="mx-auto h-full w-1 rounded-r-md bg-primary transition-all group-hover:w-1.5 group-hover:shadow-[0_0_0_2px_rgba(59,130,246,0.3)]"
+        class="mx-auto h-full w-1 rounded-r-md bg-primary transition-all group-hover:w-1.5 group-hover:ring-2 group-hover:ring-primary/30"
       ></div>
       {#if activeTrimHandle === "out" && trimDragContext}
         {@const delta = store.outPoint - trimDragContext.originalAt}

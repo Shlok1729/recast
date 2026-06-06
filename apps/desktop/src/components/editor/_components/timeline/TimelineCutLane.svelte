@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import type { TimelineCut } from "$lib/timeline/cuts";
-  import { Eye, EyeOff, Scissors, X } from "@lucide/svelte";
+  import { X } from "@lucide/svelte";
 
   // Lane that hosts cut bands — the ranges removed from the timeline.
   // Drag empty lane space to carve a new cut; drag a band's edges to
@@ -173,33 +173,6 @@
       <path d={waveformPath} class="fill-foreground/20" />
     </svg>
   {/if}
-
-  <div
-    class="pointer-events-none sticky left-1.5 top-1 z-50 inline-flex w-fit items-center gap-1"
-  >
-    <span
-      class="inline-flex items-center gap-1 rounded-sm bg-destructive/15 px-1.5 py-px font-mono text-[8px] font-bold uppercase tracking-wider text-destructive backdrop-blur-sm"
-    >
-      <Scissors class="size-2" />
-      Cuts
-    </span>
-    <button
-      type="button"
-      onpointerdown={(e) => e.stopPropagation()}
-      onclick={() => (store.cutsEnabled = !store.cutsEnabled)}
-      title={store.cutsEnabled
-        ? "Disable cuts (cuts stay; playback & export ignore them)"
-        : "Enable cuts"}
-      aria-label={store.cutsEnabled ? "Disable cuts" : "Enable cuts"}
-      class="pointer-events-auto flex size-4 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-    >
-      {#if store.cutsEnabled}
-        <Eye class="size-2.5" />
-      {:else}
-        <EyeOff class="size-2.5" />
-      {/if}
-    </button>
-  </div>
 
   {#if store.cuts.length === 0}
     <div

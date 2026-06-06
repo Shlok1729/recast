@@ -38,7 +38,6 @@
   import { SliderControl } from "@recast/ui/slider-control";
   import { Textarea } from "@recast/ui/textarea";
   import { cn } from "@recast/ui/utils";
-  import { onDestroy, onMount } from "svelte";
   import BezierEditor from "../_components/BezierEditor.svelte";
   import AnnotationAppearance from "./annotations/AnnotationAppearance.svelte";
   import AnnotationGeometry from "./annotations/AnnotationGeometry.svelte";
@@ -109,12 +108,6 @@
     setTool(tool.id);
   }
 
-  onMount(() => {
-    window.addEventListener("keydown", handleHotkey);
-  });
-  onDestroy(() => {
-    window.removeEventListener("keydown", handleHotkey);
-  });
 
   function fmtTime(sec: number): string {
     const s = Math.max(0, sec);
@@ -161,6 +154,10 @@
     }
   });
 </script>
+
+<!-- Local, focus-aware tool hotkeys (V/R/O/A/T/B — documented in the central
+     shortcut registry). `<svelte:window>` so HMR can't leak the listener. -->
+<svelte:window onkeydown={handleHotkey} />
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
   <!-- Tools — the "create" surface, at the top (the way you add annotations). -->

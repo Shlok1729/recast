@@ -5,7 +5,8 @@
 </script>
 <script lang="ts">
   import { isTauriApp } from "$lib/runtime/tauri";
-  import { Minus, Square, X } from "@lucide/svelte";
+  import { shortcutsDialog } from "$lib/shortcuts/registry.svelte";
+  import { Keyboard, Minus, Square, X } from "@lucide/svelte";
   import { cn } from "@recast/ui/utils";
   import type { Snippet } from "svelte";
   import { onMount } from "svelte";
@@ -77,6 +78,19 @@
       {@render children()}
     {/if}
   </div>
+
+  <!-- Keyboard-shortcuts reference. Outside the drag region so the click
+       registers; sits just left of the window controls on every main window. -->
+  <button
+    type="button"
+    onclick={() => shortcutsDialog.show()}
+    onmousedown={(e) => e.stopPropagation()}
+    aria-label="Keyboard shortcuts"
+    title="Keyboard shortcuts (Ctrl + /)"
+    class={cn(baseClass, "shrink-0")}
+  >
+    <Keyboard size={15} />
+  </button>
 
   <!-- Window controls: outside the drag region so clicks aren't intercepted -->
   {#if isTauri}

@@ -20,6 +20,8 @@
   import { cn } from "@recast/ui/utils";
   import ConfirmDialog from "../recast/ConfirmDialog.svelte";
   import PresetPicker, { PRESETS, type Preset } from "./PresetPicker.svelte";
+  import { onMount } from "svelte";
+  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
 
   interface Props {
     store: EditorStore;
@@ -57,6 +59,16 @@
     );
   let showPresetsPicker = $state(false);
   let showRevertConfirm = $state(false);
+
+  // Mod+P (export presets) is dispatched by the central shortcut registry —
+  // no per-component `window` listener to leak under HMR.
+  onMount(() =>
+    registerShortcutHandlers({
+      "editor.presets": () => {
+        showPresetsPicker = true;
+      },
+    }),
+  );
 
   function applyPreset(preset: Preset) {
     store.pushUndoState();
@@ -400,13 +412,4 @@
   cancelLabel="Keep editing"
   variant="destructive"
   onConfirm={() => store.revertToSaved()}
-/>
-
-<svelte:window
-  onkeydown={(e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "p") {
-      e.preventDefault();
-      showPresetsPicker = true;
-    }
-  }}
 />

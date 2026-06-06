@@ -11,7 +11,6 @@
   import { Button } from "@recast/ui/button";
   import { Segmented, SegmentedToggle } from "@recast/ui/segmented";
   import { SliderControl } from "@recast/ui/slider-control";
-  import { onDestroy, onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly, scale } from "svelte/transition";
   import PanelSection from "./PanelSection.svelte";
@@ -55,8 +54,6 @@
       toggleMute();
     }
   }
-  onMount(() => window.addEventListener("keydown", handleKey));
-  onDestroy(() => window.removeEventListener("keydown", handleKey));
 
   // Volume zones for the slider readout. Above 100% the export pipeline
   // applies straight gain, which can clip — surface that as a warning.
@@ -132,6 +129,10 @@
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
 </script>
+
+<!-- Local, focus-aware: `M` toggles mute (documented in the central shortcut
+     registry). `<svelte:window>` so Svelte rebinds it on every HMR patch. -->
+<svelte:window onkeydown={handleKey} />
 
 <div
   class="flex flex-col gap-4"
