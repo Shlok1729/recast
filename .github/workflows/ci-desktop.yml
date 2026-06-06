@@ -1,11 +1,11 @@
 name: CI Desktop App
 
-# Per-push compile gate for the desktop app on all three target OSes.
-# `release-desktop.yml` already builds + bundles Windows/macOS/Linux, but it
-# only fires on `v*` tags — far too late to catch a change that broke a
-# platform you can't run locally. This workflow compiles (no bundling, no
-# signing, no FFmpeg execution) on every push/PR so cross-platform code stays
-# green while it's being written.
+# Per-push compile + unit-test gate for the desktop app on all three target
+# OSes. `release-desktop.yml` already builds + bundles Windows/macOS/Linux, but
+# it only fires on `v*` tags — far too late to catch a change that broke a
+# platform you can't run locally. This workflow compiles and runs the (OS-
+# agnostic) Rust unit tests (no bundling, no signing, no FFmpeg execution) on
+# every push/PR so cross-platform code stays green while it's being written.
 #
 # Why this is the right tool: the Linux capture stack (`pipewire`, `ashpd`,
 # `x11rb`) links against system C libraries and cannot build on a Windows
@@ -152,6 +152,18 @@ jobs:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
         run: pnpm --filter recast-desktop tauri build --no-bundle ${{ matrix.platform.tauri_args }}
+
+      # Rust unit tests. The suite is OS-agnostic (pure functions: filter-graph
+      # construction, zoom-expression budgeting, blur-radius clamping per plane,
+      # cursor/scale math, the combinatorial export-option matrices) — but we
+      # run it on every target so a test that accidentally depends on a platform
+      # is caught here too. `--lib` matches the local `test:rust` script (library
+      # target only — no integration tests spawn FFmpeg). `--release` plus the
+      # same `tauri_args` target reuses the artifacts the compile step just
+      # built, so this is the test-harness compile + run, not a fresh build.
+      # Deliberately no `continue-on-error`: a failing test must fail the build.
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib --release ${{ matrix.platform.tauri_args }}
 
       # Clippy after the build so the compile gate above is the hard failure
       # signal; lint findings surface here without blocking until the team
