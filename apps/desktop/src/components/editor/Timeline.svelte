@@ -253,6 +253,25 @@
   function handleTimelineKeydown(event: KeyboardEvent) {
     if (duration <= 0) return;
 
+    const mod = event.ctrlKey || event.metaKey;
+
+    // Cmd/Ctrl + V pastes a previously-copied region at the playhead — the
+    // only modifier-combo this scope owns. Cards own copy/duplicate (those
+    // need a focused card), but paste works anywhere in the timeline.
+    if (mod && (event.key === "v" || event.key === "V")) {
+      if (zoomClipboard) {
+        event.preventDefault();
+        pasteRegion();
+      }
+      return;
+    }
+
+    // Every remaining timeline shortcut is a plain (optionally Shift/Alt) key.
+    // Bail when Ctrl/Cmd is held so a global combo (⌘K command palette, ⌘J
+    // timeline toggle, ⌘S save, …) doesn't ALSO fire the matching
+    // single-letter transport (J/K/L) or marker (I/O/Home/End) action here.
+    if (mod) return;
+
     const step = event.shiftKey ? 1 : frameStep();
 
     if (event.key === "ArrowLeft" && !event.altKey) {
@@ -293,19 +312,8 @@
 
     // Alt+[ trims the IN point one frame later (shrinks from the head);
     // Alt+] trims the OUT point one frame earlier (shrinks from the tail).
-    // Shift+Alt+ switches the unit from one frame to one second. We match
+    // Shift+Alt switches the unit from one frame to one second. We match
     // `event.code` because shifted brackets become "{"/"}" on some layouts.
-    // Cmd/Ctrl + V pastes a previously-copied region at the playhead. Cards
-    // own copy/duplicate themselves (those need a focused card), but paste
-    // works anywhere in the timeline scope.
-    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) {
-      if (zoomClipboard) {
-        event.preventDefault();
-        pasteRegion();
-        return;
-      }
-    }
-
     if (event.altKey && event.code === "BracketLeft") {
       event.preventDefault();
       nudgeTrim("in", 1, event.shiftKey);

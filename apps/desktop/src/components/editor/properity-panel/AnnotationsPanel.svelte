@@ -1,4 +1,14 @@
 <script lang="ts">
+  import { kindIcon, kindLabel } from "$lib/annotations/kind-label";
+  import {
+    FONT_FAMILIES,
+    FONT_WEIGHTS,
+    STROKE_SWATCHES,
+  } from "$lib/annotations/palette";
+  import {
+    getRecentColors,
+    pushRecentColor,
+  } from "$lib/annotations/recent-colors";
   import { EASE } from "$lib/easing/cubic-bezier";
   import {
     DEFAULT_ANNOTATION_RAMP,
@@ -13,26 +23,23 @@
     ArrowUpRight,
     Circle,
     Droplets,
-    ImageIcon,
-    Lock,
     MousePointer2,
-    Pencil,
     Square,
     SquareDashedMousePointer,
     Trash2,
     Type as TypeIcon,
   } from "@lucide/svelte";
-  import {
-    getRecentColors,
-    pushRecentColor,
-  } from "$lib/annotations/recent-colors";
   import { Button } from "@recast/ui/button";
   import { ColorField } from "@recast/ui/color-field";
   import { Kbd } from "@recast/ui/kbd";
+  import { Segmented } from "@recast/ui/segmented";
+  import { SegmentedToggle } from "@recast/ui/segmented";
+  import * as Select from "@recast/ui/select";
+  import { SliderControl } from "@recast/ui/slider-control";
+  import { Textarea } from "@recast/ui/textarea";
   import { cn } from "@recast/ui/utils";
   import { onDestroy, onMount } from "svelte";
   import BezierEditor from "../_components/BezierEditor.svelte";
-  import { SliderControl } from "@recast/ui/slider-control";
   import AnnotationAppearance from "./annotations/AnnotationAppearance.svelte";
   import AnnotationGeometry from "./annotations/AnnotationGeometry.svelte";
   import AnnotationLayerPanel from "./annotations/AnnotationLayerPanel.svelte";
@@ -53,17 +60,19 @@
     store.annotations.find((a) => a.id === store.selectedAnnotationId) ?? null,
   );
 
+  // Which ramp the Fade-curves editor targets — one large graph at a time
+  // (matches the Focus panel) instead of two cramped side-by-side editors.
+  let customCurve = $state<"in" | "out">("in");
+
   type ToolDef = {
     id: AnnotationKindName | "select";
     label: string;
     icon: typeof Square;
     hotkey: string;
-    /** Disabled tools are shown for discoverability with a "coming soon" tip. */
-    disabled?: boolean;
   };
 
-  // Tool palette. Disabled entries (image, polygon, blur) appear so users see
-  // the roadmap; toggling them is a no-op.
+  // Working tools only. (Image/polygon roadmap entries were removed — a
+  // disabled, locked tile is clutter, not discovery.)
   const tools: ToolDef[] = [
     { id: "select", label: "Select", icon: MousePointer2, hotkey: "V" },
     { id: "rect", label: "Rectangle", icon: Square, hotkey: "R" },
@@ -71,11 +80,9 @@
     { id: "arrow", label: "Arrow", icon: ArrowUpRight, hotkey: "A" },
     { id: "text", label: "Text", icon: TypeIcon, hotkey: "T" },
     { id: "blur", label: "Blur", icon: Droplets, hotkey: "B" },
-    { id: "image", label: "Image", icon: ImageIcon, hotkey: "I", disabled: true },
   ];
 
-  function setTool(id: ToolDef["id"], disabled?: boolean) {
-    if (disabled) return;
+  function setTool(id: ToolDef["id"]) {
     if (id === "select") {
       store.annotationTool = null;
       return;
@@ -98,7 +105,6 @@
     const key = event.key.toLowerCase();
     const tool = tools.find((t) => t.hotkey.toLowerCase() === key);
     if (!tool) return;
-    if (tool.disabled) return;
     event.preventDefault();
     setTool(tool.id);
   }
@@ -123,13 +129,6 @@
     store.updateAnnotation(selected.id, updates);
   }
 
-  function setStroke(update: Partial<Annotation["stroke"]>) {
-    if (!selected) return;
-    store.updateAnnotation(selected.id, {
-      stroke: { ...selected.stroke, ...update },
-    });
-  }
-
   function resetCurves() {
     if (!selected) return;
     store.pushUndoState();
@@ -140,85 +139,6 @@
       rampOut: DEFAULT_ANNOTATION_RAMP,
     });
   }
-
-  function kindLabel(a: Annotation): string {
-    switch (a.kind.kind) {
-      case "rect":
-        return "Rectangle";
-      case "ellipse":
-        return "Ellipse";
-      case "arrow":
-        return "Arrow";
-      case "text":
-        return a.kind.content.trim().slice(0, 32) || "Text";
-      case "image":
-        return "Image";
-      case "blur":
-        return "Blur";
-    }
-  }
-  function kindIcon(a: Annotation): typeof Square {
-    switch (a.kind.kind) {
-      case "rect":
-        return Square;
-      case "ellipse":
-        return Circle;
-      case "arrow":
-        return ArrowUpRight;
-      case "text":
-        return TypeIcon;
-      case "image":
-        return ImageIcon;
-      case "blur":
-        return Droplets;
-    }
-  }
-
-  const STROKE_SWATCHES = [
-    "#3b82f6",
-    "#ef4444",
-    "#22c55e",
-    "#f59e0b",
-    "#a855f7",
-    "#ec4899",
-    "#06b6d4",
-    "#ffffff",
-  ];
-
-  const FILL_SWATCHES = [
-    "transparent",
-    "rgba(59,130,246,0.20)",
-    "rgba(239,68,68,0.20)",
-    "rgba(34,197,94,0.20)",
-    "rgba(245,158,11,0.20)",
-    "rgba(168,85,247,0.20)",
-    "rgba(0,0,0,0.35)",
-    "rgba(255,255,255,0.20)",
-  ];
-
-  // Curated text-overlay font whitelist. All variable fonts already loaded
-  // via @fontsource-variable/* in app.css, plus generic system fallbacks.
-  const FONT_FAMILIES = [
-    { value: "'Geist Variable', system-ui, sans-serif", label: "Geist" },
-    {
-      value: "'Geist Mono Variable', ui-monospace, monospace",
-      label: "Geist Mono",
-    },
-    {
-      value: "'Google Sans Variable', system-ui, sans-serif",
-      label: "Google Sans",
-    },
-    { value: "system-ui, sans-serif", label: "System" },
-    { value: "ui-serif, Georgia, serif", label: "Serif" },
-    { value: "ui-monospace, monospace", label: "Monospace" },
-  ];
-
-  const FONT_WEIGHTS: { value: 400 | 500 | 600 | 700; label: string }[] = [
-    { value: 400, label: "R" },
-    { value: 500, label: "M" },
-    { value: 600, label: "SB" },
-    { value: 700, label: "B" },
-  ];
 
   function maxRamp(a: Annotation): number {
     return Math.max(0, (a.end - a.start) * 0.5);
@@ -243,29 +163,25 @@
 </script>
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
-  <!-- Tool palette -->
+  <!-- Tools — the "create" surface, at the top (the way you add annotations). -->
   <PanelSection
     title="Tools"
-    hint="Pick a tool, then drag on the preview. Annotations are anchored in video-space so they follow zoom and crop. Press Esc to cancel placement. Hold Alt while dragging to bypass snap."
+    hint="Pick a tool, then drag on the preview. Annotations are anchored in video-space so they follow zoom and crop. Press Esc to cancel placement; hold Alt while dragging to bypass snap."
     flush
   >
     {#snippet action()}
-      <button
-        type="button"
-        aria-pressed={store.annotationSnapEnabled}
-        onclick={() => (store.annotationSnapEnabled = !store.annotationSnapEnabled)}
-        title="Toggle snap (Alt while dragging bypasses)"
-        class={cn(
-          "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors",
-          store.annotationSnapEnabled
-            ? "bg-primary/10 text-primary"
-            : "bg-muted/40 text-muted-foreground hover:text-foreground",
-        )}
-      >
-        Snap
-      </button>
+      <div class="flex items-center gap-1.5">
+        <span class="text-[10px] text-muted-foreground">Snap</span>
+        <SegmentedToggle
+          checked={store.annotationSnapEnabled}
+          size="xs"
+          aria-label="Snap to guides"
+          onCheckedChange={(next) => (store.annotationSnapEnabled = next)}
+        />
+      </div>
     {/snippet}
-    <div class="grid grid-cols-6 gap-1">
+
+    <div class="grid grid-cols-3 gap-1">
       {#each tools as tool (tool.id)}
         {@const Icon = tool.icon}
         {@const isActive =
@@ -275,30 +191,18 @@
         <button
           type="button"
           aria-pressed={isActive}
-          aria-disabled={tool.disabled}
-          disabled={tool.disabled}
-          onclick={() => setTool(tool.id, tool.disabled)}
-          title={tool.disabled
-            ? `${tool.label} — coming soon`
-            : `${tool.label} (${tool.hotkey})`}
+          onclick={() => setTool(tool.id)}
+          title={`${tool.label} (${tool.hotkey})`}
           class={cn(
-            "group relative flex h-10 flex-col items-center justify-center gap-0.5 rounded-md border text-[9px] font-medium transition-colors",
-            "focus:outline-none focus:ring-1 focus:ring-ring",
-            tool.disabled
-              ? "border-dashed border-border text-muted-foreground/40 cursor-not-allowed"
-              : isActive
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border bg-background text-muted-foreground hover:text-foreground",
+            "group flex h-12 flex-col items-center justify-center gap-1 rounded-md border text-[10px] font-medium transition-all duration-150",
+            "focus:outline-none focus:ring-2 focus:ring-ring/40",
+            isActive
+              ? "border-primary/60 bg-primary/10 text-primary shadow-(--shadow-craft-inset)"
+              : "border-border/60 bg-card/60 text-muted-foreground hover:border-border hover:text-foreground",
           )}
         >
           <Icon size={14} />
           <span class="leading-none">{tool.label}</span>
-          {#if tool.disabled}
-            <Lock
-              size={8}
-              class="absolute right-0.5 top-0.5 text-muted-foreground/50"
-            />
-          {/if}
         </button>
       {/each}
     </div>
@@ -311,14 +215,18 @@
     {/if}
   </PanelSection>
 
-  <!-- Annotation list -->
+  <!-- Layers -->
   {#if store.annotations.length === 0}
     <div
-      class="flex flex-col items-center gap-2 rounded-md border border-dashed border-border bg-card/40 px-3 py-6 text-center"
+      class="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border/70 bg-card/40 px-3 py-6 text-center"
     >
-      <SquareDashedMousePointer size={18} class="text-muted-foreground" />
+      <div
+        class="flex size-9 items-center justify-center rounded-lg border border-border/60 bg-card/70 text-muted-foreground shadow-(--shadow-craft-inset)"
+      >
+        <SquareDashedMousePointer size={16} />
+      </div>
       <p class="text-[11px] font-medium text-foreground">No annotations yet</p>
-      <p class="text-[10px] text-muted-foreground">
+      <p class="text-[10px] leading-snug text-muted-foreground">
         Pick a tool above, then drag on the preview.
       </p>
     </div>
@@ -326,22 +234,307 @@
     <AnnotationLayerPanel {store} />
   {/if}
 
-  <!-- Selected annotation editor -->
+  <!-- Selected annotation editor — appearance & content lead; timing, fade
+       curves, and geometry collapse below (what you reach for after drawing). -->
   {#if selected}
     {@const a = selected}
-    <div class="flex flex-col gap-3 border-t border-border pt-3">
-      <PanelSection title={kindLabel(a)}>
-        {#snippet action()}
-          <Button
-            variant="destructive_soft"
-            size="xs"
-            class="gap-1.5"
-            onclick={() => store.removeAnnotation(a.id)}
+    {@const Icon = kindIcon(a)}
+    <div class="flex flex-col gap-3 border-t border-border/50 pt-3">
+      <!-- Orientation header + delete -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex min-w-0 items-center gap-1.5">
+          <span
+            class="grid size-5 shrink-0 place-items-center rounded bg-primary/15 text-primary"
           >
-            <Trash2 size={11} />
-            Delete
-          </Button>
-        {/snippet}
+            <Icon size={11} />
+          </span>
+          <div class="min-w-0">
+            <p
+              class="truncate text-[11px] font-semibold tracking-tight text-foreground"
+            >
+              {kindLabel(a)}
+            </p>
+            <p class="text-[10px] tabular-nums text-muted-foreground">
+              {fmtTime(a.start)}–{fmtTime(a.end)}
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="destructive_soft"
+          size="xs"
+          class="shrink-0 gap-1.5"
+          onclick={() => store.removeAnnotation(a.id)}
+        >
+          <Trash2 size={11} />
+          Delete
+        </Button>
+      </div>
+
+      <!-- Text content + typography (text's primary edit surface) -->
+      {#if a.kind.kind === "text"}
+        {@const k = a.kind}
+        {@const currentFont =
+          FONT_FAMILIES.find((f) => f.value === k.fontFamily)?.label ?? "Font"}
+        <PanelSection title="Text">
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] text-muted-foreground">Content</span>
+            <Textarea
+              rows={2}
+              value={k.content}
+              onfocus={() => store.pushUndoState()}
+              oninput={(e) => {
+                if (a.kind.kind !== "text") return;
+                updateSelected({
+                  kind: {
+                    ...a.kind,
+                    content: (e.currentTarget as HTMLTextAreaElement).value,
+                  },
+                });
+              }}
+              class="min-h-14 resize-none text-[11px]"
+            />
+          </div>
+
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] text-muted-foreground">Font</span>
+            <Select.Root
+              type="single"
+              value={k.fontFamily}
+              onValueChange={(v: string) => {
+                if (a.kind.kind !== "text") return;
+                store.pushUndoState();
+                updateSelected({ kind: { ...a.kind, fontFamily: v } });
+              }}
+            >
+              <Select.Trigger
+                size="sm"
+                class="h-7 w-40 gap-1 rounded-md border-border/60 px-2 text-[11px]"
+                aria-label="Font family"
+              >
+                <span data-slot="select-value" style="font-family: {k.fontFamily}">
+                  {currentFont}
+                </span>
+              </Select.Trigger>
+              <Select.Content align="end" sideOffset={6} class="w-44 p-1">
+                {#each FONT_FAMILIES as font (font.value)}
+                  <Select.Item
+                    value={font.value}
+                    label={font.label}
+                    class="text-[11.5px]"
+                  >
+                    <span style="font-family: {font.value}">{font.label}</span>
+                  </Select.Item>
+                {/each}
+              </Select.Content>
+            </Select.Root>
+          </div>
+
+          <SliderControl
+            label="Size"
+            value={k.fontSize * 100}
+            min={2}
+            max={20}
+            step={0.5}
+            unit="%"
+            description="Percentage of canvas height."
+            formatValue={(v) => `${v.toFixed(1)}%`}
+            onstart={() => store.pushUndoState()}
+            onchange={(v) => {
+              if (a.kind.kind !== "text") return;
+              updateSelected({ kind: { ...a.kind, fontSize: v / 100 } });
+            }}
+          />
+
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] text-muted-foreground">Weight</span>
+            <Segmented
+              size="xs"
+              fill={false}
+              aria-label="Font weight"
+              value={String(k.fontWeight)}
+              options={FONT_WEIGHTS.map((w) => ({
+                value: String(w.value),
+                label: w.label,
+                title: w.title,
+              }))}
+              onValueChange={(v) => {
+                if (a.kind.kind !== "text") return;
+                store.pushUndoState();
+                updateSelected({
+                  kind: {
+                    ...a.kind,
+                    fontWeight: Number(v) as 400 | 500 | 600 | 700,
+                  },
+                });
+              }}
+            />
+          </div>
+
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] text-muted-foreground">Align</span>
+            {#snippet alignLeftIcon()}<AlignLeft size={12} />{/snippet}
+            {#snippet alignCenterIcon()}<AlignCenter size={12} />{/snippet}
+            {#snippet alignRightIcon()}<AlignRight size={12} />{/snippet}
+            <Segmented
+              size="xs"
+              fill={false}
+              aria-label="Text alignment"
+              value={k.align}
+              options={[
+                { value: "left", icon: alignLeftIcon, title: "Left" },
+                { value: "center", icon: alignCenterIcon, title: "Center" },
+                { value: "right", icon: alignRightIcon, title: "Right" },
+              ]}
+              onValueChange={(v) => {
+                if (a.kind.kind !== "text") return;
+                store.pushUndoState();
+                updateSelected({
+                  kind: {
+                    ...a.kind,
+                    align: v as "left" | "center" | "right",
+                  },
+                });
+              }}
+            />
+          </div>
+
+          <ColorField
+            label="Color"
+            value={k.color}
+            swatches={STROKE_SWATCHES}
+            {recents}
+            oncommit={(c: string) => {
+              if (a.kind.kind !== "text") return;
+              store.pushUndoState();
+              updateSelected({ kind: { ...a.kind, color: c } });
+              rememberColor(c);
+            }}
+          />
+        </PanelSection>
+      {/if}
+
+      <!-- Blur is its own primary edit surface -->
+      {#if a.kind.kind === "blur"}
+        {@const k = a.kind}
+        <PanelSection title="Blur">
+          <SliderControl
+            label="Strength"
+            value={k.strength * 100}
+            min={0}
+            max={100}
+            step={1}
+            unit="%"
+            description="How much the underlying pixels are softened. Applied at export."
+            formatValue={(v) => `${v.toFixed(0)}%`}
+            onstart={() => store.pushUndoState()}
+            onchange={(v) => {
+              if (a.kind.kind !== "blur") return;
+              updateSelected({ kind: { ...a.kind, strength: v / 100 } });
+            }}
+          />
+          <SliderControl
+            label="Corner radius"
+            value={k.radius * 1000}
+            min={0}
+            max={50}
+            step={1}
+            unit="‰"
+            formatValue={(v) => `${v.toFixed(0)}‰`}
+            onstart={() => store.pushUndoState()}
+            onchange={(v) => {
+              if (a.kind.kind !== "blur") return;
+              updateSelected({ kind: { ...a.kind, radius: v / 1000 } });
+            }}
+          />
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] text-muted-foreground">Style</span>
+            <Segmented
+              size="xs"
+              fill={false}
+              aria-label="Blur style"
+              value={k.variant}
+              options={[
+                { value: "glass", label: "Glass" },
+                { value: "white", label: "White" },
+                { value: "black", label: "Black" },
+                { value: "color", label: "Color" },
+              ]}
+              onValueChange={(v) => {
+                if (a.kind.kind !== "blur") return;
+                store.pushUndoState();
+                updateSelected({
+                  kind: {
+                    ...a.kind,
+                    variant: v as "glass" | "white" | "black" | "color",
+                  },
+                });
+              }}
+            />
+          </div>
+          {#if k.variant === "color"}
+            <ColorField
+              label="Tint"
+              value={k.tintColor}
+              swatches={STROKE_SWATCHES}
+              {recents}
+              oncommit={(c: string) => {
+                if (a.kind.kind !== "blur") return;
+                store.pushUndoState();
+                updateSelected({ kind: { ...a.kind, tintColor: c } });
+                rememberColor(c);
+              }}
+            />
+          {/if}
+        </PanelSection>
+      {/if}
+
+      <!-- Appearance: stroke / fill / opacity / glow (adapts per kind) -->
+      <AnnotationAppearance {store} annotation={a} />
+
+      <!-- Shape-specific finishing -->
+      {#if a.kind.kind === "rect"}
+        {@const k = a.kind}
+        <PanelSection title="Shape">
+          <SliderControl
+            label="Corner radius"
+            value={k.radius * 1000}
+            min={0}
+            max={50}
+            step={1}
+            unit="‰"
+            formatValue={(v) => `${v.toFixed(0)}‰`}
+            onstart={() => store.pushUndoState()}
+            onchange={(v) => {
+              if (a.kind.kind !== "rect") return;
+              updateSelected({ kind: { ...a.kind, radius: v / 1000 } });
+            }}
+          />
+        </PanelSection>
+      {/if}
+
+      {#if a.kind.kind === "arrow"}
+        {@const k = a.kind}
+        <PanelSection title="Arrowhead">
+          <SliderControl
+            label="Head size"
+            value={k.headSize * 100}
+            min={5}
+            max={40}
+            step={1}
+            unit="%"
+            description="Length of the arrowhead as a percentage of the line."
+            formatValue={(v) => `${v.toFixed(0)}%`}
+            onstart={() => store.pushUndoState()}
+            onchange={(v) => {
+              if (a.kind.kind !== "arrow") return;
+              updateSelected({ kind: { ...a.kind, headSize: v / 100 } });
+            }}
+          />
+        </PanelSection>
+      {/if}
+
+      <!-- Timing -->
+      <PanelSection title="Timing" collapsible defaultOpen>
         <SliderControl
           label="Start"
           value={a.start}
@@ -388,342 +581,46 @@
         />
       </PanelSection>
 
-      <!-- Fade curves -->
-      <PanelSection title="Fade curves" flush collapsible defaultOpen={false}>
+      <!-- Fade curves: one large editor, switched in/out (matches Focus). -->
+      <PanelSection title="Fade curves" collapsible defaultOpen={false}>
         {#snippet action()}
           <Button variant="ghost" size="xs" onclick={resetCurves}>Reset</Button>
         {/snippet}
-        <div class="grid grid-cols-2 gap-3">
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] font-medium text-muted-foreground">
+              Editing the fade-{customCurve} curve
+            </span>
+            <SegmentedToggle
+              checked={customCurve === "out"}
+              offLabel="In"
+              onLabel="Out"
+              size="xs"
+              aria-label="Edit fade-in or fade-out curve"
+              onCheckedChange={(next) => (customCurve = next ? "out" : "in")}
+            />
+          </div>
           <BezierEditor
-            label="Fade in"
-            value={a.easeIn}
-            onchange={(v) => updateSelected({ easeIn: v }, true)}
+            value={customCurve === "in" ? a.easeIn : a.easeOut}
+            onchange={(v) =>
+              updateSelected(
+                customCurve === "in" ? { easeIn: v } : { easeOut: v },
+                true,
+              )}
             showPresets={false}
-            size={130}
-          />
-          <BezierEditor
-            label="Fade out"
-            value={a.easeOut}
-            onchange={(v) => updateSelected({ easeOut: v }, true)}
-            showPresets={false}
-            size={130}
+            size={220}
           />
         </div>
       </PanelSection>
 
-      <!-- Appearance: stroke (with style + custom picker), fill, glow, opacity -->
-      <AnnotationAppearance {store} annotation={a} />
-
-      <!-- Geometry: numeric inputs + frame-relative alignment -->
+      <!-- Geometry: numeric box + frame alignment (power-user, collapsed). -->
       <AnnotationGeometry {store} annotation={a} />
-
-      <!-- Per-kind specific properties -->
-      {#if a.kind.kind === "rect"}
-        <SliderControl
-          label="Corner radius"
-          value={a.kind.radius * 1000}
-          min={0}
-          max={50}
-          step={1}
-          unit="‰"
-          formatValue={(v) => `${v.toFixed(0)}‰`}
-          onstart={() => store.pushUndoState()}
-          onchange={(v) => {
-            if (a.kind.kind !== "rect") return;
-            updateSelected({
-              kind: { ...a.kind, radius: v / 1000 },
-            });
-          }}
-        />
-      {/if}
-
-      {#if a.kind.kind === "blur"}
-        <PanelSection title="Blur">
-          <SliderControl
-            label="Strength"
-            value={a.kind.strength * 100}
-            min={0}
-            max={100}
-            step={1}
-            unit="%"
-            description="Controls how much the underlying pixels are softened. Applied at export."
-            formatValue={(v) => `${v.toFixed(0)}%`}
-            onstart={() => store.pushUndoState()}
-            onchange={(v) => {
-              if (a.kind.kind !== "blur") return;
-              updateSelected({ kind: { ...a.kind, strength: v / 100 } });
-            }}
-          />
-          <SliderControl
-            label="Corner radius"
-            value={a.kind.radius * 1000}
-            min={0}
-            max={50}
-            step={1}
-            unit="‰"
-            formatValue={(v) => `${v.toFixed(0)}‰`}
-            onstart={() => store.pushUndoState()}
-            onchange={(v) => {
-              if (a.kind.kind !== "blur") return;
-              updateSelected({ kind: { ...a.kind, radius: v / 1000 } });
-            }}
-          />
-          <div class="space-y-1">
-            <span
-              class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
-            >
-              Style
-            </span>
-            <div class="grid grid-cols-4 gap-1">
-              {#each [
-                { id: "glass", label: "Glass", swatch: "bg-gradient-to-br from-white/40 to-blue-200/30" },
-                { id: "white", label: "White", swatch: "bg-white" },
-                { id: "black", label: "Black", swatch: "bg-black" },
-                { id: "color", label: "Color", swatch: "bg-gradient-to-br from-rose-400 via-amber-300 to-emerald-400" },
-              ] as opt (opt.id)}
-                {@const sel = a.kind.kind === "blur" && a.kind.variant === opt.id}
-                <button
-                  type="button"
-                  aria-pressed={sel}
-                  onclick={() => {
-                    if (a.kind.kind !== "blur") return;
-                    store.pushUndoState();
-                    updateSelected({
-                      kind: {
-                        ...a.kind,
-                        variant: opt.id as "glass" | "white" | "black" | "color",
-                      },
-                    });
-                  }}
-                  class={cn(
-                    "group flex flex-col items-center gap-1 rounded-md border px-1 py-1.5 transition-all duration-150",
-                    sel
-                      ? "border-primary/50 bg-primary/8 ring-1 ring-primary/30"
-                      : "border-border/40 bg-background/40 hover:border-border",
-                  )}
-                >
-                  <span
-                    class={cn(
-                      "h-4 w-full rounded border border-border/50",
-                      opt.swatch,
-                    )}
-                  ></span>
-                  <span
-                    class={cn(
-                      "text-[10px] font-semibold",
-                      sel ? "text-primary" : "text-foreground",
-                    )}
-                  >
-                    {opt.label}
-                  </span>
-                </button>
-              {/each}
-            </div>
-          </div>
-          {#if a.kind.kind === "blur" && a.kind.variant === "color"}
-            {@const tintColor = a.kind.tintColor}
-            <ColorField
-              label="Tint"
-              value={tintColor}
-              {recents}
-              oncommit={(c: string) => {
-                if (a.kind.kind !== "blur") return;
-                store.pushUndoState();
-                updateSelected({ kind: { ...a.kind, tintColor: c } });
-                rememberColor(c);
-              }}
-            />
-          {/if}
-        </PanelSection>
-      {/if}
-
-      {#if a.kind.kind === "arrow"}
-        <SliderControl
-          label="Head size"
-          value={a.kind.headSize * 100}
-          min={5}
-          max={40}
-          step={1}
-          unit="%"
-          description="Length of the arrowhead as a percentage of the line."
-          formatValue={(v) => `${v.toFixed(0)}%`}
-          onstart={() => store.pushUndoState()}
-          onchange={(v) => {
-            if (a.kind.kind !== "arrow") return;
-            updateSelected({
-              kind: { ...a.kind, headSize: v / 100 },
-            });
-          }}
-        />
-      {/if}
-
-      {#if a.kind.kind === "text"}
-        <PanelSection title="Text">
-          <label
-            class="flex flex-col gap-1 text-[10px] text-muted-foreground"
-          >
-            <span>Content</span>
-            <textarea
-              class="rounded-md border border-border bg-background px-2 py-1.5 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              rows={2}
-              value={a.kind.content}
-              onfocus={() => store.pushUndoState()}
-              oninput={(e) => {
-                if (a.kind.kind !== "text") return;
-                updateSelected({
-                  kind: {
-                    ...a.kind,
-                    content: (e.currentTarget as HTMLTextAreaElement).value,
-                  },
-                });
-              }}
-            ></textarea>
-          </label>
-
-          <label
-            class="flex flex-col gap-1 text-[10px] text-muted-foreground"
-          >
-            <span>Font</span>
-            <select
-              class="rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              value={a.kind.fontFamily}
-              onchange={(e) => {
-                if (a.kind.kind !== "text") return;
-                store.pushUndoState();
-                updateSelected({
-                  kind: {
-                    ...a.kind,
-                    fontFamily: (e.currentTarget as HTMLSelectElement).value,
-                  },
-                });
-              }}
-            >
-              {#each FONT_FAMILIES as font (font.value)}
-                <option value={font.value}>{font.label}</option>
-              {/each}
-            </select>
-          </label>
-
-          <SliderControl
-            label="Size"
-            value={a.kind.fontSize * 100}
-            min={2}
-            max={20}
-            step={0.5}
-            unit="%"
-            description="Percentage of canvas height."
-            formatValue={(v) => `${v.toFixed(1)}%`}
-            onstart={() => store.pushUndoState()}
-            onchange={(v) => {
-              if (a.kind.kind !== "text") return;
-              updateSelected({
-                kind: { ...a.kind, fontSize: v / 100 },
-              });
-            }}
-          />
-
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-[10px] text-muted-foreground">Weight</span>
-            <div
-              class="flex items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5"
-            >
-              {#each FONT_WEIGHTS as weight (weight.value)}
-                {@const isActive = a.kind.kind === "text" &&
-                  a.kind.fontWeight === weight.value}
-                <button
-                  type="button"
-                  aria-pressed={isActive}
-                  onclick={() => {
-                    if (a.kind.kind !== "text") return;
-                    store.pushUndoState();
-                    updateSelected({
-                      kind: { ...a.kind, fontWeight: weight.value },
-                    });
-                  }}
-                  class={cn(
-                    "h-6 min-w-6 rounded px-1.5 text-[10px] font-mono",
-                    isActive
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  style="font-weight: {weight.value}"
-                >
-                  {weight.label}
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-[10px] text-muted-foreground">Align</span>
-            <div
-              class="flex items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5"
-            >
-              {#each [{ id: "left", icon: AlignLeft }, { id: "center", icon: AlignCenter }, { id: "right", icon: AlignRight }] as opt (opt.id)}
-                {@const Icon = opt.icon}
-                {@const isActive = a.kind.kind === "text" &&
-                  a.kind.align === opt.id}
-                <button
-                  type="button"
-                  aria-pressed={isActive}
-                  aria-label={opt.id}
-                  onclick={() => {
-                    if (a.kind.kind !== "text") return;
-                    store.pushUndoState();
-                    updateSelected({
-                      kind: {
-                        ...a.kind,
-                        align: opt.id as "left" | "center" | "right",
-                      },
-                    });
-                  }}
-                  class={cn(
-                    "flex h-6 w-6 items-center justify-center rounded",
-                    isActive
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Icon size={12} />
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <div>
-            <p class="text-[10px] text-muted-foreground mb-1">Color</p>
-            <div class="flex flex-wrap gap-1">
-              {#each STROKE_SWATCHES as swatch (swatch)}
-                {@const isActive = a.kind.kind === "text" &&
-                  a.kind.color === swatch}
-                <button
-                  type="button"
-                  aria-label="Color {swatch}"
-                  aria-pressed={isActive}
-                  onclick={() => {
-                    if (a.kind.kind !== "text") return;
-                    store.pushUndoState();
-                    updateSelected({
-                      kind: { ...a.kind, color: swatch },
-                    });
-                  }}
-                  class={cn(
-                    "size-5 rounded-full border-2 transition",
-                    isActive
-                      ? "border-ring ring-1 ring-ring"
-                      : "border-border",
-                  )}
-                  style:background={swatch}
-                ></button>
-              {/each}
-            </div>
-          </div>
-        </PanelSection>
-      {/if}
     </div>
   {:else if store.annotations.length > 0}
-    <p class="rounded-md border border-dashed border-border bg-card/40 px-3 py-3 text-center text-[10px] text-muted-foreground">
-      Select an annotation to edit its timing, curves, and appearance.
+    <p
+      class="rounded-xl border border-dashed border-border/70 bg-card/40 px-3 py-3 text-center text-[10px] text-muted-foreground"
+    >
+      Select a layer to edit its appearance, timing, and geometry.
     </p>
   {/if}
 </div>

@@ -1069,6 +1069,43 @@ void main() {
 		return { scale: 1.0, cx: 0.5, cy: 0.5, motionBlur: 0 };
 	}
 
+	// Blur annotations are composited by AnnotationOverlay, which reads this
+	// canvas back via Canvas2D `drawImage` from its OWN rAF loop. With
+	// `preserveDrawingBuffer: false` the WebGL back buffer is only valid for a
+	// cross-canvas read within the SAME task that issued `draw()` — an
+	// out-of-task read (the overlay's separate loop) intermittently samples a
+	// cleared buffer, which is the blur "flicker" during playback. Fix: mirror
+	// the composite into a plain 2D canvas in-task right after each draw(); the
+	// overlay samples the mirror (whose pixels persist across tasks) instead of
+	// the live GL canvas. Maintained only while a blur exists, so the common
+	// path pays nothing.
+	let blurMirrorEl = $state<HTMLCanvasElement | null>(null);
+	const hasBlurAnnotation = $derived(
+		store.annotations.some((a) => a.kind.kind === "blur" && !a.hidden),
+	);
+
+	function syncBlurMirror() {
+		if (!hasBlurAnnotation || !canvasEl) return;
+		const w = canvasEl.width;
+		const h = canvasEl.height;
+		if (!w || !h) return;
+		let mirror = blurMirrorEl ?? document.createElement("canvas");
+		if (mirror.width !== w || mirror.height !== h) {
+			mirror.width = w;
+			mirror.height = h;
+		}
+		const ctx = mirror.getContext("2d");
+		if (!ctx) return;
+		try {
+			// Same-task drawImage from a WebGL canvas captures the current
+			// buffer even when preserveDrawingBuffer is false (cf. captureFrame).
+			ctx.drawImage(canvasEl, 0, 0);
+		} catch {
+			return;
+		}
+		if (blurMirrorEl !== mirror) blurMirrorEl = mirror;
+	}
+
 	function draw() {
 		if (!gl || !program || !canvasEl || !store.metadata) return;
 		if (!resizeCanvas()) return;
@@ -1348,6 +1385,9 @@ void main() {
 		}
 
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+		// In-task mirror for blur read-back (see comment on blurMirrorEl).
+		syncBlurMirror();
 	}
 
 	function requestRedraw() {
@@ -1553,7 +1593,7 @@ void main() {
 			{store}
 			{videoEl}
 			targetEl={previewRectEl}
-			compositeCanvasEl={canvasEl}
+			compositeCanvasEl={blurMirrorEl ?? canvasEl}
 		/>
 		<TextAnnotationLayer {store} {videoEl} targetEl={previewRectEl} />
 		<div class="contents transition-opacity duration-200 ease-out motion-reduce:transition-none group-data-[annotations-active=true]/preview:opacity-55">
