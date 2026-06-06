@@ -327,6 +327,7 @@ impl RenderGraph {
         asset_cache_dir: Option<&Path>,
         border_radius_mask: Option<PathBuf>,
         drop_shadow_mask: Option<PathBuf>,
+        gradient_image: Option<PathBuf>,
         canvas: CanvasGeometry,
     ) -> Result<ExportPlan> {
         let background = self.nodes.iter().find_map(|node| match node {
@@ -415,6 +416,10 @@ impl RenderGraph {
             Some(bg) if matches!(bg.background_type.as_str(), "wallpaper" | "image") => {
                 resolve_background_path(&bg.value, static_root, asset_cache_dir)
             }
+            // Gradients are pre-rasterised to a PNG by the caller and composited
+            // exactly like an image — so the export matches the WebGL preview
+            // instead of collapsing to a flat fallback color.
+            Some(bg) if bg.background_type == "gradient" => gradient_image.clone(),
             _ => None,
         };
         let will_push_bg_image = resolved_bg_image.is_some();
@@ -425,11 +430,21 @@ impl RenderGraph {
 
         let filter_complex = match background {
             Some(background)
-                if matches!(background.background_type.as_str(), "wallpaper" | "image") =>
+                if matches!(
+                    background.background_type.as_str(),
+                    "wallpaper" | "image" | "gradient"
+                ) =>
             {
                 if resolved_bg_image.is_some() {
                     let mut segments = prelude_segments.clone();
-                    let blur_sigma = (background.blur / 8.0).max(0.0);
+                    // Gradients render edge-to-edge and must NOT be blurred (the
+                    // preview shader doesn't blur them); blur is an image-only
+                    // finishing control.
+                    let blur_sigma = if background.background_type == "gradient" {
+                        0.0
+                    } else {
+                        (background.blur / 8.0).max(0.0)
+                    };
                     segments.push(format!(
                         "[{bg_image_input_index}:v]scale={canvas_width}:{canvas_height}:force_original_aspect_ratio=increase,crop={canvas_width}:{canvas_height},boxblur={blur_sigma}[bg0]"
                     ));
@@ -999,6 +1014,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 test_canvas(),
             )
             .expect("plan")
@@ -1016,6 +1032,7 @@ mod tests {
                 None,
                 None,
                 Some(shadow_path),
+                None,
                 test_canvas(),
             )
             .expect("plan")

@@ -59,6 +59,8 @@
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { browser } from "$app/environment";
   import { onDestroy, tick } from "svelte";
+
+  import { log } from "$lib/logger";
   import { cubicOut } from "svelte/easing";
   import { fade, slide } from "svelte/transition";
 
@@ -163,6 +165,7 @@
 
   onDestroy(() => {
     stopAutosave();
+    log.clearRecast();
     // Clear autosave on clean exit.
     if (documentPath) {
       clearAutosave(documentPath).catch(() => {});
@@ -374,6 +377,14 @@
       store.videoPath = document.projectPath;
       store.metadata = document.metadata;
       store.loadRenderState(document.renderState);
+      // Scope every subsequent log in this window to the opened recast.
+      log.setRecast(documentPath, {
+        width: document.metadata.width,
+        height: document.metadata.height,
+        durationSec: Math.round(document.metadata.duration),
+        fps: document.metadata.fps,
+        codec: document.metadata.codec,
+      });
       void loadThumbnailStrip(document.projectPath);
       videoSrc = convertFileSrc(document.mediaPath);
       cursorPath = document.cursorPath ?? null;
@@ -405,6 +416,7 @@
       void maybeRunAutoZoom();
     } catch (err) {
       console.error("Failed to load editor document", err);
+      log.error("session", "recast_load_failed", { error: String(err) });
       error = `Could not load project: ${err}`;
       isLoading = false;
     }
@@ -753,6 +765,20 @@
       };
 
       prepSending = "done";
+      // Capture the exact settings this export ran with — the single most
+      // useful line when a user reports "my export looked wrong".
+      log.info("export", "export_started", {
+        exportId,
+        format: store.exportFormat,
+        quality: store.exportQuality,
+        speed: store.exportSpeed,
+        gif: store.exportFormat === "gif" ? store.gifSettings : undefined,
+        annotations: finalRenderState.annotations.length,
+        zoomRegions: finalRenderState.zoomRegions.length,
+        cuts: finalRenderState.cuts?.length ?? 0,
+        padding: finalRenderState.padding ?? 0,
+        durationSec: meta ? Math.round(meta.duration) : undefined,
+      });
       const path = await exportVideo(
         documentPath || data.filePath,
         store.exportFormat,
@@ -767,6 +793,10 @@
       if (!exportResult) {
         setExportResult({ kind: "success", path });
       }
+      log.info("export", "export_completed", {
+        exportId,
+        elapsedMs: Date.now() - exportStartedAt,
+      });
     } catch (err) {
       const message =
         typeof err === "string"
@@ -777,8 +807,10 @@
       if (!exportResult) {
         if (message.toLowerCase().includes("cancel")) {
           setExportResult({ kind: "cancelled" });
+          log.info("export", "export_cancelled", { exportId });
         } else {
           console.error("Export failed:", err);
+          log.error("export", "export_failed", { exportId, message });
           setExportResult({ kind: "error", message });
         }
       }
@@ -1056,19 +1088,59 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.defaultPrevented) return;
+    // `repeat` fires this on auto-repeat while a key is held — a held
+    // Ctrl+B would otherwise flip the panel on every tick. Bail so each
+    // physical press counts once.
+    if (e.defaultPrevented || e.repeat) return;
 
     // The flow dialog now owns Esc routing per phase; just bail if it's
     // active so the global shortcuts below don't fire under it.
     if (isExportFlowOpen) return;
 
+    // Never hijack typing. Inputs, textareas, and contenteditable surfaces
+    // (text annotations) all own their own keystrokes.
+    const target = e.target;
     if (
-      e.target instanceof HTMLInputElement ||
-      e.target instanceof HTMLTextAreaElement
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
     ) {
       return;
     }
 
+    const mod = e.ctrlKey || e.metaKey;
+
+    // Modifier combos are handled first and exclusively: every branch
+    // returns, so a Ctrl/⌘ shortcut can never also trip a plain-key action
+    // below. Any combo we don't own falls through and is left to the
+    // browser/OS (e.g. Ctrl+F find, Ctrl+R reload).
+    if (mod) {
+      switch (e.key.toLowerCase()) {
+        case "z":
+          e.preventDefault();
+          if (e.shiftKey) store.redo();
+          else store.undo();
+          return;
+        case "s":
+          e.preventDefault();
+          void handleSave();
+          return;
+        case "b":
+          // ⌘/Ctrl+B — toggle the right properties panel (VS Code parity).
+          e.preventDefault();
+          showSidebar = !showSidebar;
+          return;
+        case "j":
+          // ⌘/Ctrl+J — toggle the bottom timeline (VS Code's panel shortcut).
+          e.preventDefault();
+          showTimeline = !showTimeline;
+          return;
+      }
+      return;
+    }
+
+    // Plain keys (no Ctrl/⌘). Gated behind `!mod` above so they never fire
+    // as a side effect of a modifier combo.
     switch (e.key) {
       case " ":
         e.preventDefault();
@@ -1098,47 +1170,13 @@
           store.currentTime = videoEl.currentTime;
         }
         break;
-      case "z":
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            store.redo();
-          } else {
-            store.undo();
-          }
-        }
-        break;
-      case "s":
-      case "S":
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          void handleSave();
-        }
-        break;
       case "f":
       case "F":
-        if (e.ctrlKey || e.metaKey) return;
         e.preventDefault();
         if (document.fullscreenElement) {
           void document.exitFullscreen();
         } else if (previewContainerEl) {
           void previewContainerEl.requestFullscreen();
-        }
-        break;
-      case "b":
-      case "B":
-        // ⌘/Ctrl+B — toggle the right properties panel (VS Code parity).
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          showSidebar = !showSidebar;
-        }
-        break;
-      case "j":
-      case "J":
-        // ⌘/Ctrl+J — toggle the bottom timeline (VS Code's panel shortcut).
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          showTimeline = !showTimeline;
         }
         break;
     }

@@ -3,6 +3,7 @@
   import CloudEndpoint from "$components/settings/CloudEndpoint.svelte";
   import CloudSignIn from "$components/settings/CloudSignIn.svelte";
   import DeviceCapabilities from "$components/settings/DeviceCapabilities.svelte";
+  import DiagnosticsPanel from "$components/settings/DiagnosticsPanel.svelte";
   import GoogleDriveConnection from "$components/settings/GoogleDriveConnection.svelte";
   import { config } from "$constants/app";
   import { getOutputDir, setOutputDir } from "$lib/ipc";
@@ -792,6 +793,8 @@
                   </div>
                 </div>
               </section>
+
+              <DiagnosticsPanel />
         </Tabs.Content>
 
         <Tabs.Content value="experimental" class="flex min-w-0 flex-col gap-8">

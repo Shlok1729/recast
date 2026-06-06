@@ -223,6 +223,203 @@ fn parse_hex_rgb(value: &str) -> Option<(u8, u8, u8)> {
     }
 }
 
+/// One parsed gradient stop: sRGB color + position in 0..1 along the line.
+struct GradStop {
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
+    pos: f64,
+}
+
+/// Parse a CSS `linear-gradient(<deg>, <#hex> <pct>%, …)` string into an angle
+/// (radians) and a sorted list of stops. Mirrors the TS `parseGradient`: a
+/// missing angle defaults to 135°, missing positions distribute evenly, and at
+/// least two stops are always returned. Returns `None` only when no color can
+/// be found at all (caller falls back to a flat color).
+fn parse_css_gradient(value: &str) -> Option<(f64, Vec<GradStop>)> {
+    // Slice the comma-separated body inside the outermost parentheses.
+    let inner = value
+        .find('(')
+        .and_then(|s| value.rfind(')').map(|e| &value[s + 1..e]))
+        .unwrap_or(value);
+    let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
+
+    let mut angle_deg = 135.0_f64;
+    let mut color_parts: Vec<&str> = Vec::new();
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 && part.ends_with("deg") {
+            if let Ok(a) = part.trim_end_matches("deg").trim().parse::<f64>() {
+                angle_deg = a;
+            }
+            continue;
+        }
+        if part.starts_with('#') {
+            color_parts.push(part);
+        }
+    }
+
+    let n = color_parts.len();
+    if n == 0 {
+        return None;
+    }
+
+    let mut stops: Vec<GradStop> = Vec::with_capacity(n.max(2));
+    for (i, part) in color_parts.iter().enumerate() {
+        let mut tokens = part.split_whitespace();
+        let hex = tokens.next().unwrap_or("");
+        let (r, g, b) = parse_hex_rgb(hex)?;
+        // Alpha (8-digit hex) — premultiplied over black on rasterisation so a
+        // translucent stop reads the same as the preview's clear-to-black.
+        let a = {
+            let t = hex.trim_start_matches('#');
+            if t.len() == 8 {
+                u8::from_str_radix(&t[6..8], 16)
+                    .map(|v| v as f64 / 255.0)
+                    .unwrap_or(1.0)
+            } else {
+                1.0
+            }
+        };
+        let pos = tokens
+            .next()
+            .and_then(|p| p.trim_end_matches('%').parse::<f64>().ok())
+            .map(|p| (p / 100.0).clamp(0.0, 1.0))
+            .unwrap_or_else(|| {
+                if n <= 1 {
+                    0.0
+                } else {
+                    i as f64 / (n - 1) as f64
+                }
+            });
+        stops.push(GradStop {
+            r: r as f64 / 255.0,
+            g: g as f64 / 255.0,
+            b: b as f64 / 255.0,
+            a,
+            pos,
+        });
+    }
+
+    if stops.len() == 1 {
+        let s = &stops[0];
+        let dup = GradStop {
+            r: s.r,
+            g: s.g,
+            b: s.b,
+            a: s.a,
+            pos: 1.0,
+        };
+        stops[0].pos = 0.0;
+        stops.push(dup);
+    }
+
+    stops.sort_by(|a, b| {
+        a.pos
+            .partial_cmp(&b.pos)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Some((angle_deg.to_radians(), stops))
+}
+
+/// Sample the gradient at parameter `t` (0..1), interpolating in sRGB to match
+/// the WebGL shader's `mix` (which never linearises). Returns premultiplied
+/// 0..1 RGB (alpha folded over black).
+fn sample_gradient(stops: &[GradStop], t: f64) -> (f64, f64, f64) {
+    let first = &stops[0];
+    let last = &stops[stops.len() - 1];
+    let (r, g, b, a) = if t <= first.pos {
+        (first.r, first.g, first.b, first.a)
+    } else if t >= last.pos {
+        (last.r, last.g, last.b, last.a)
+    } else {
+        let mut out = (last.r, last.g, last.b, last.a);
+        for w in stops.windows(2) {
+            let (s0, s1) = (&w[0], &w[1]);
+            if t >= s0.pos && t <= s1.pos {
+                let span = (s1.pos - s0.pos).max(1e-6);
+                let f = ((t - s0.pos) / span).clamp(0.0, 1.0);
+                out = (
+                    s0.r + (s1.r - s0.r) * f,
+                    s0.g + (s1.g - s0.g) * f,
+                    s0.b + (s1.b - s0.b) * f,
+                    s0.a + (s1.a - s0.a) * f,
+                );
+                break;
+            }
+        }
+        out
+    };
+    (r * a, g * a, b * a)
+}
+
+/// Rasterise a CSS linear-gradient to an opaque PNG at the given canvas size so
+/// the FFmpeg export composites the exact gradient the preview shows (the
+/// pipeline otherwise collapses gradients to a flat color). The projection math
+/// is identical to the WebGL shader in `VideoPreview.svelte` — keep them in
+/// lockstep. Returns `Ok(None)` if the value carries no parseable color.
+pub fn render_gradient_background(
+    value: &str,
+    width: u32,
+    height: u32,
+) -> Result<Option<MaskResult>> {
+    if width == 0 || height == 0 {
+        return Err(anyhow!("gradient background has zero dimension"));
+    }
+    let Some((angle, stops)) = parse_css_gradient(value) else {
+        return Ok(None);
+    };
+
+    let counter = SCRATCH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let scratch_dir = std::env::temp_dir().join(format!("recast-export-gradient-{ts}-{counter}"));
+    fs::create_dir_all(&scratch_dir).with_context(|| {
+        format!(
+            "failed to create gradient scratch dir {}",
+            scratch_dir.display()
+        )
+    })?;
+    let guard = TempDirGuard::new(scratch_dir.clone());
+    let out_path = scratch_dir.join("gradient_bg.png");
+
+    let w = width as f64;
+    let h = height as f64;
+    let dir = (angle.sin(), -angle.cos());
+    let ext = (dir.0.abs() * w + dir.1.abs() * h).max(1.0);
+
+    let mut img = RgbaImage::new(width, height);
+    for y in 0..height {
+        let py = (y as f64 + 0.5) - h / 2.0;
+        for x in 0..width {
+            let px = (x as f64 + 0.5) - w / 2.0;
+            let proj = px * dir.0 + py * dir.1;
+            let t = (0.5 + proj / ext).clamp(0.0, 1.0);
+            let (r, g, b) = sample_gradient(&stops, t);
+            img.put_pixel(
+                x,
+                y,
+                Rgba([
+                    (r * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (g * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (b * 255.0).round().clamp(0.0, 255.0) as u8,
+                    255,
+                ]),
+            );
+        }
+    }
+
+    img.save(&out_path)
+        .with_context(|| format!("failed to write gradient background {}", out_path.display()))?;
+
+    Ok(Some(MaskResult {
+        path: out_path,
+        _guard: guard,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +453,42 @@ mod tests {
         };
         let result = render_drop_shadow_mask(req).expect("must not error");
         assert!(result.is_none(), "opacity 0 must short-circuit");
+    }
+
+    #[test]
+    fn parse_css_gradient_reads_angle_and_stops() {
+        let (angle, stops) =
+            parse_css_gradient("linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%)")
+                .expect("parses");
+        assert!((angle - 135f64.to_radians()).abs() < 1e-9);
+        assert_eq!(stops.len(), 3);
+        assert!((stops[0].pos - 0.0).abs() < 1e-9);
+        assert!((stops[1].pos - 0.5).abs() < 1e-9);
+        assert!((stops[2].pos - 1.0).abs() < 1e-9);
+        // First stop is #6366f1.
+        assert!((stops[0].r - 0x63 as f64 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_css_gradient_distributes_missing_positions() {
+        let (_, stops) =
+            parse_css_gradient("linear-gradient(90deg, #000000, #ffffff)").expect("parses");
+        assert_eq!(stops.len(), 2);
+        assert!((stops[0].pos - 0.0).abs() < 1e-9);
+        assert!((stops[1].pos - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn render_gradient_background_varies_across_axis() {
+        let result =
+            render_gradient_background("linear-gradient(90deg, #000000 0%, #ffffff 100%)", 64, 8)
+                .expect("must not error")
+                .expect("produces an image");
+        let img = image::open(&result.path).expect("readable png").to_rgba8();
+        // 90deg = left→right: left edge is black, right edge is white.
+        let left = img.get_pixel(0, 4)[0];
+        let right = img.get_pixel(63, 4)[0];
+        assert!(left < 20, "left edge should be near-black, got {left}");
+        assert!(right > 235, "right edge should be near-white, got {right}");
     }
 }

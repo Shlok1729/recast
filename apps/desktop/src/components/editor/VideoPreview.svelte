@@ -8,7 +8,11 @@
 	import { CURSOR_STYLES, cursorStyleDataUrl } from "$lib/cursor/styles";
 	import { bezierY } from "$lib/easing/cubic-bezier";
 	import { assetsStore } from "$lib/stores/assets-store.svelte";
-	import { type EditorStore } from "$lib/stores/editor-store.svelte";
+	import {
+		MAX_GRADIENT_STOPS,
+		parseGradient as parseGradientSpec,
+		type EditorStore,
+	} from "$lib/stores/editor-store.svelte";
 	import { experimentalStore } from "$lib/stores/experimental.svelte";
 	import { Spinner } from "@recast/ui/spinner";
 	import { convertFileSrc } from "@tauri-apps/api/core";
@@ -405,8 +409,14 @@ uniform vec2 u_videoOrigin;       // pixels — top-left of source video
 uniform vec2 u_videoSize;         // pixels — source video w/h
 uniform int u_bgType;             // 0=color, 1=gradient, 2=image
 uniform vec4 u_bgColor;           // [0..1]
-uniform vec4 u_gradStart;
-uniform vec4 u_gradEnd;
+// Multi-stop linear gradient. Colors + their positions (0..1) along the
+// gradient line, plus the stop count and the CSS angle (radians). MAX_STOPS
+// mirrors MAX_GRADIENT_STOPS in the store + the Rust export rasteriser.
+#define MAX_STOPS 8
+uniform vec4 u_gradColors[MAX_STOPS];
+uniform float u_gradStops[MAX_STOPS];
+uniform int u_gradCount;
+uniform float u_gradAngle;        // radians (CSS convention: 0 = up, CW)
 uniform float u_bgBlurPx;         // image-mode blur radius in canvas pixels (0 = off)
 uniform vec2 u_zoomCenter;        // [0..1] in video UV
 uniform float u_zoomScale;        // 1.0 = no zoom
@@ -435,9 +445,27 @@ out vec4 frag;
 vec4 sampleBackground(vec2 uv) {
 	if (u_bgType == 0) return u_bgColor;
 	if (u_bgType == 1) {
-		// Diagonal gradient (matches the 135deg gradient presets in the store)
-		float t = clamp((uv.x + uv.y) * 0.5, 0.0, 1.0);
-		return mix(u_gradStart, u_gradEnd, t);
+		// Multi-stop linear gradient with a real CSS angle. Project the pixel
+		// onto the gradient line in PIXEL space (aspect-aware) so the visual
+		// angle matches the picker swatch and the exported PNG exactly. The
+		// Rust rasteriser uses identical math — keep the two in lockstep.
+		vec2 dir = vec2(sin(u_gradAngle), -cos(u_gradAngle));
+		vec2 p = (uv - 0.5) * u_canvasSize;
+		float ext = abs(dir.x) * u_canvasSize.x + abs(dir.y) * u_canvasSize.y;
+		float t = clamp(0.5 + dot(p, dir) / max(ext, 1.0), 0.0, 1.0);
+		// Walk the stops; the highest stop whose position is <= t owns the
+		// segment, so the final assignment is the correct interpolation.
+		vec4 col = u_gradColors[0];
+		for (int i = 0; i < MAX_STOPS - 1; i++) {
+			if (i + 1 >= u_gradCount) break;
+			float a = u_gradStops[i];
+			float b = u_gradStops[i + 1];
+			if (t >= a) {
+				float seg = clamp((t - a) / max(b - a, 1e-5), 0.0, 1.0);
+				col = mix(u_gradColors[i], u_gradColors[i + 1], seg);
+			}
+		}
+		return col;
 	}
 	// Image / wallpaper — optionally blurred with a cheap separable-ish 9-tap kernel.
 	if (u_bgBlurPx <= 0.5) {
@@ -638,8 +666,10 @@ void main() {
 			"u_videoSize",
 			"u_bgType",
 			"u_bgColor",
-			"u_gradStart",
-			"u_gradEnd",
+			"u_gradColors[0]",
+			"u_gradStops[0]",
+			"u_gradCount",
+			"u_gradAngle",
 			"u_bgBlurPx",
 			"u_zoomCenter",
 			"u_zoomScale",
@@ -880,15 +910,31 @@ void main() {
 		const r = parseInt(s.slice(0, 2), 16) / 255;
 		const g = parseInt(s.slice(2, 4), 16) / 255;
 		const b = parseInt(s.slice(4, 6), 16) / 255;
-		return [r, g, b, alpha];
+		const a = s.length >= 8 ? parseInt(s.slice(6, 8), 16) / 255 : alpha;
+		return [r, g, b, a];
 	}
 
-	function parseGradient(value: string): [[number, number, number, number], [number, number, number, number]] {
-		// Match the format used in store: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)
-		const matches = value.match(/#[0-9a-fA-F]{6,8}/g) ?? [];
-		const a = matches[0] ? hexToRgba(matches[0]) : [0.94, 0.58, 0.98, 1] as [number, number, number, number];
-		const b = matches[1] ? hexToRgba(matches[1]) : [0.96, 0.34, 0.42, 1] as [number, number, number, number];
-		return [a, b];
+	// Pack the store's gradient string into the flat uniform arrays the shader
+	// consumes. Stops are sorted, padded to MAX_GRADIENT_STOPS (extra slots
+	// repeat the last stop so the shader's clamp is a no-op), and the angle is
+	// converted CSS-degrees → radians. Shares the store parser with the picker
+	// and the Rust rasteriser so preview === export.
+	function buildGradientUniforms(value: string) {
+		const spec = parseGradientSpec(value || "");
+		const sorted = [...spec.stops].sort((a, b) => a.pos - b.pos);
+		const count = Math.min(Math.max(sorted.length, 2), MAX_GRADIENT_STOPS);
+		const colors = new Float32Array(MAX_GRADIENT_STOPS * 4);
+		const positions = new Float32Array(MAX_GRADIENT_STOPS);
+		for (let i = 0; i < MAX_GRADIENT_STOPS; i++) {
+			const stop = sorted[Math.min(i, sorted.length - 1)];
+			const [r, g, b, a] = hexToRgba(stop.color);
+			colors[i * 4] = r;
+			colors[i * 4 + 1] = g;
+			colors[i * 4 + 2] = b;
+			colors[i * 4 + 3] = a;
+			positions[i] = Math.min(1, Math.max(0, stop.pos / 100));
+		}
+		return { colors, positions, count, angleRad: (spec.angle * Math.PI) / 180 };
 	}
 
 	//  Sizing
@@ -1110,9 +1156,11 @@ void main() {
 			gl.uniform4fv(uniforms.u_bgColor, hexToRgba(store.backgroundValue || "#111111"));
 		} else if (bgType === "gradient") {
 			gl.uniform1i(uniforms.u_bgType, 1);
-			const [a, b] = parseGradient(store.backgroundValue || "");
-			gl.uniform4fv(uniforms.u_gradStart, a);
-			gl.uniform4fv(uniforms.u_gradEnd, b);
+			const grad = buildGradientUniforms(store.backgroundValue || "");
+			gl.uniform4fv(uniforms["u_gradColors[0]"], grad.colors);
+			gl.uniform1fv(uniforms["u_gradStops[0]"], grad.positions);
+			gl.uniform1i(uniforms.u_gradCount, grad.count);
+			gl.uniform1f(uniforms.u_gradAngle, grad.angleRad);
 		} else {
 			// wallpaper / image
 			if (bgTexReady) {
