@@ -27,14 +27,20 @@ const DEFAULT_HOST: &str = "https://eu.i.posthog.com";
 /// can point at a test project without recompiling); baked at compile time for
 /// release, deliberately ignoring the runtime env — same stance as
 /// `auth::cloud_api_url`, so an injected env can't redirect telemetry.
+///
+/// The `PUBLIC_` prefix is shared with the Svelte frontend (which reads the
+/// same `PUBLIC_POSTHOG_KEY` via Vite's `import.meta.env`) and the web app, so
+/// one injected value configures analytics on both sides of the app.
 fn posthog_key() -> Option<String> {
     #[cfg(debug_assertions)]
     {
-        std::env::var("POSTHOG_KEY").ok().filter(|s| !s.is_empty())
+        std::env::var("PUBLIC_POSTHOG_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
     }
     #[cfg(not(debug_assertions))]
     {
-        option_env!("POSTHOG_KEY")
+        option_env!("PUBLIC_POSTHOG_KEY")
             .map(|s| s.to_string())
             .filter(|s| !s.is_empty())
     }
@@ -42,9 +48,9 @@ fn posthog_key() -> Option<String> {
 
 fn posthog_host() -> String {
     #[cfg(debug_assertions)]
-    let v = std::env::var("POSTHOG_HOST").ok();
+    let v = std::env::var("PUBLIC_POSTHOG_HOST").ok();
     #[cfg(not(debug_assertions))]
-    let v = option_env!("POSTHOG_HOST").map(|s| s.to_string());
+    let v = option_env!("PUBLIC_POSTHOG_HOST").map(|s| s.to_string());
     v.filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_HOST.to_string())
 }

@@ -1026,3 +1026,113 @@ fn build_stats(pipeline: &RecordingPipeline, duration_ms: u64) -> RecordingStats
         nominal_fps: 60,
     }
 }
+
+#[cfg(test)]
+mod scale_tests {
+    use super::*;
+
+    fn target(source: CaptureArea, crop: CaptureArea) -> CaptureTarget {
+        CaptureTarget {
+            kind: CaptureKind::Region,
+            id: 1,
+            display_id: 1,
+            label: "t".into(),
+            source,
+            crop,
+            scale_factor: 1.0,
+        }
+    }
+
+    #[test]
+    fn scale_area_scales_origin_and_keeps_even_dims() {
+        let a = CaptureArea {
+            x: 10,
+            y: 20,
+            width: 101,
+            height: 51,
+        };
+        let s = scale_area(a, 2.0);
+        assert_eq!((s.x, s.y), (20, 40));
+        // 101*2 = 202, 51*2 = 102 — both already even.
+        assert_eq!((s.width, s.height), (202, 102));
+    }
+
+    #[test]
+    fn scale_area_forces_even_dimensions() {
+        // 75 → round → 75 → & !1 → 74; libx264 needs even dims.
+        let a = CaptureArea {
+            x: 0,
+            y: 0,
+            width: 75,
+            height: 75,
+        };
+        let s = scale_area(a, 1.0);
+        assert_eq!((s.width, s.height), (74, 74));
+    }
+
+    #[test]
+    fn apply_device_scale_is_noop_at_one() {
+        let area = CaptureArea {
+            x: 5,
+            y: 7,
+            width: 100,
+            height: 80,
+        };
+        let mut t = target(area, area);
+        apply_device_scale(&mut t, 1.0);
+        assert_eq!(t.scale_factor, 1.0);
+        assert_eq!(t.source.width, 100);
+        assert_eq!((t.crop.x, t.crop.y), (5, 7));
+        assert_eq!((t.crop.width, t.crop.height), (100, 80));
+    }
+
+    #[test]
+    fn apply_device_scale_lifts_source_and_crop_to_physical() {
+        let source = CaptureArea {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+        };
+        let crop = CaptureArea {
+            x: 50,
+            y: 25,
+            width: 100,
+            height: 50,
+        };
+        let mut t = target(source, crop);
+        apply_device_scale(&mut t, 2.0);
+        assert_eq!(t.scale_factor, 2.0);
+        assert_eq!((t.source.width, t.source.height), (400, 200));
+        assert_eq!((t.crop.x, t.crop.y), (100, 50));
+        assert_eq!((t.crop.width, t.crop.height), (200, 100));
+    }
+
+    #[test]
+    fn apply_device_scale_clamps_scaled_crop_within_scaled_source() {
+        // A crop that runs off the display (e.g. a window pulled past the
+        // screen edge): after scaling it must be clamped so the encoder's
+        // crop filter never exceeds the captured frame.
+        let source = CaptureArea {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+        let crop = CaptureArea {
+            x: 60,
+            y: 60,
+            width: 80,
+            height: 80,
+        };
+        let mut t = target(source, crop);
+        apply_device_scale(&mut t, 2.0);
+        // source → 200×200; crop origin → (120,120); available = 80 each way.
+        assert_eq!((t.source.width, t.source.height), (200, 200));
+        assert_eq!((t.crop.x, t.crop.y), (120, 120));
+        assert_eq!((t.crop.width, t.crop.height), (80, 80));
+        // Crop stays inside the captured frame.
+        assert!(t.crop.x + t.crop.width as i32 <= t.source.x + t.source.width as i32);
+        assert!(t.crop.y + t.crop.height as i32 <= t.source.y + t.source.height as i32);
+    }
+}

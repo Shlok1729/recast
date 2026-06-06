@@ -342,3 +342,70 @@ pub fn shift_cursor_track(track: &mut CursorTrack, offset_us: u64) {
         z.timestamp_us = z.timestamp_us.saturating_sub(offset_us);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::smoothing::ZoomTriggerReason;
+    use super::*;
+
+    fn sample(ts: u64) -> CursorSample {
+        CursorSample {
+            timestamp_us: ts,
+            x: 0,
+            y: 0,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
+            visible: true,
+            left_down: false,
+            right_down: false,
+        }
+    }
+
+    #[test]
+    fn shift_by_zero_is_a_noop() {
+        let mut track = CursorTrack::default();
+        track.samples.push(sample(5_000));
+        shift_cursor_track(&mut track, 0);
+        assert_eq!(track.samples[0].timestamp_us, 5_000);
+    }
+
+    #[test]
+    fn shift_subtracts_offset_across_every_track_and_saturates_at_zero() {
+        let mut track = CursorTrack {
+            samples: vec![sample(1_000), sample(5_000)],
+            clicks: vec![CursorClickEvent {
+                timestamp_us: 500,
+                button: "left".into(),
+                phase: "down".into(),
+                x: 0,
+                y: 0,
+                duration_us: 0,
+            }],
+            idle_periods: vec![IdlePeriod {
+                start_us: 1_000,
+                end_us: 4_000,
+                x: 0,
+                y: 0,
+            }],
+            zoom_triggers: vec![ZoomTrigger {
+                timestamp_us: 6_000,
+                x: 0,
+                y: 0,
+                reason: ZoomTriggerReason::Click,
+                score: 0.5,
+            }],
+        };
+
+        shift_cursor_track(&mut track, 2_000);
+
+        // A sample/click before the offset clamps to 0; later ones shift down.
+        assert_eq!(track.samples[0].timestamp_us, 0);
+        assert_eq!(track.samples[1].timestamp_us, 3_000);
+        assert_eq!(track.clicks[0].timestamp_us, 0);
+        // Idle windows shift both ends, clamping the start.
+        assert_eq!(track.idle_periods[0].start_us, 0);
+        assert_eq!(track.idle_periods[0].end_us, 2_000);
+        // Zoom triggers shift too.
+        assert_eq!(track.zoom_triggers[0].timestamp_us, 4_000);
+    }
+}

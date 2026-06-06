@@ -57,8 +57,10 @@
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { browser } from "$app/environment";
   import { onDestroy, tick } from "svelte";
-  import { fade } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
+  import { fade, slide } from "svelte/transition";
 
   interface Props {
     data: {
@@ -81,6 +83,45 @@
   // audio elements, and we want one source of truth for "what happens at
   // the end of the clip" (pause vs. loop).
   let loopEnabled = $state(false);
+
+  // Editor layout — VS Code/Cursor-style toggles for the right properties
+  // panel and the bottom timeline. Persisted so the choice survives reloads;
+  // a missing or malformed key falls back to "everything visible".
+  const LAYOUT_KEY = "recast-editor-layout";
+  function loadLayout(): { sidebar: boolean; timeline: boolean } {
+    const fallback = { sidebar: true, timeline: true };
+    if (!browser) return fallback;
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw) as Partial<typeof fallback>;
+      return {
+        sidebar:
+          typeof parsed?.sidebar === "boolean" ? parsed.sidebar : true,
+        timeline:
+          typeof parsed?.timeline === "boolean" ? parsed.timeline : true,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+  const initialLayout = loadLayout();
+  let showSidebar = $state(initialLayout.sidebar);
+  let showTimeline = $state(initialLayout.timeline);
+
+  $effect(() => {
+    if (!browser) return;
+    try {
+      localStorage.setItem(
+        LAYOUT_KEY,
+        JSON.stringify({ sidebar: showSidebar, timeline: showTimeline }),
+      );
+    } catch {
+      // localStorage can throw in private-mode/quota edge cases — the toggle
+      // still works for the session, it just won't be remembered.
+    }
+  });
+
   let previewContainerEl: HTMLDivElement | null = $state(null);
   let systemAudioEl: HTMLAudioElement | null = $state(null);
   let micAudioEl: HTMLAudioElement | null = $state(null);
@@ -1084,6 +1125,22 @@
           void previewContainerEl.requestFullscreen();
         }
         break;
+      case "b":
+      case "B":
+        // ⌘/Ctrl+B — toggle the right properties panel (VS Code parity).
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          showSidebar = !showSidebar;
+        }
+        break;
+      case "j":
+      case "J":
+        // ⌘/Ctrl+J — toggle the bottom timeline (VS Code's panel shortcut).
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          showTimeline = !showTimeline;
+        }
+        break;
     }
   }
 
@@ -1179,6 +1236,10 @@
       onexport={openExportOptions}
       onsave={handleSave}
       {isSaving}
+      {showSidebar}
+      {showTimeline}
+      onToggleSidebar={() => (showSidebar = !showSidebar)}
+      onToggleTimeline={() => (showTimeline = !showTimeline)}
     />
   </CustomTitlebar>
 
@@ -1270,15 +1331,32 @@
           />
         </div>
 
-        <Timeline {store} {videoEl} />
+        <!-- Timeline collapses vertically. `slide` (axis:y) animates the
+             wrapper height to 0 while the inner keeps its natural height,
+             so the preview smoothly reclaims the space instead of snapping. -->
+        {#if showTimeline}
+          <div
+            class="shrink-0 overflow-hidden"
+            transition:slide={{ axis: "y", duration: 240, easing: cubicOut }}
+          >
+            <Timeline {store} {videoEl} />
+          </div>
+        {/if}
       </div>
 
-      <!-- Right column: properties panel -->
-      <aside
-        class="min-h-0 w-80 shrink-0 border-l border-border/60 xl:w-88"
-      >
-        <PropertiesPanel {store} {cameraPath} />
-      </aside>
+      <!-- Right column: properties panel. Collapses horizontally — the inner
+           div holds the fixed width so `slide` (axis:x) clips it cleanly to
+           0 rather than reflowing the panel's container queries mid-animation. -->
+      {#if showSidebar}
+        <aside
+          class="min-h-0 shrink-0 overflow-hidden border-l border-border/60"
+          transition:slide={{ axis: "x", duration: 240, easing: cubicOut }}
+        >
+          <div class="h-full w-80 xl:w-88">
+            <PropertiesPanel {store} {cameraPath} />
+          </div>
+        </aside>
+      {/if}
     </div>
   {/if}
 

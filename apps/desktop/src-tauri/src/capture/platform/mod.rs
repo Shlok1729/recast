@@ -22,6 +22,66 @@ use anyhow::Result;
 use super::CaptureSource;
 use crate::recording::CaptureTarget;
 
+/// Parse FFmpeg's avfoundation device listing into `(screen_ordinal,
+/// avfoundation_input_index)` pairs, one per "Capture screen N" entry.
+///
+/// FFmpeg prints lines like `[AVFoundation indev @ 0x..] [3] Capture screen 1`,
+/// where `[3]` is the *global* input index `-i "3:"` expects (cameras are
+/// listed first, then screens) and the trailing `1` is the screen ordinal.
+/// macOS maps a chosen display (by its position in `CGGetActiveDisplayList`) to
+/// the matching capture input through this. Kept pure + listing-driven — no
+/// macOS APIs — so it's unit-testable on any host. Used by
+/// `capture::platform::macos`; dead elsewhere.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn parse_capture_screen_listing(stderr: &str) -> Vec<(u32, u32)> {
+    let mut out = Vec::new();
+    let mut in_video = false;
+    for line in stderr.lines() {
+        if line.contains("video devices:") {
+            in_video = true;
+            continue;
+        }
+        if line.contains("audio devices:") {
+            // Audio devices can also be named "...screen..."; only the video
+            // section holds capture screens, so stop matching here.
+            in_video = false;
+            continue;
+        }
+        if !in_video {
+            continue;
+        }
+        let lower = line.to_ascii_lowercase();
+        let Some(pos) = lower.find("capture screen") else {
+            continue;
+        };
+        // Screen ordinal: the first integer after "capture screen" (handles
+        // double digits — "Capture screen 10" → 10, not 1).
+        let after = &lower[pos + "capture screen".len()..];
+        let ordinal: u32 = match after
+            .split(|c: char| !c.is_ascii_digit())
+            .find(|t| !t.is_empty())
+            .and_then(|t| t.parse().ok())
+        {
+            Some(n) => n,
+            None => continue,
+        };
+        // Global input index: the last `[N]` bracket pair BEFORE the "Capture
+        // screen" text — skips the `[AVFoundation indev @ 0x..]` log prefix and
+        // never reads into the label itself.
+        let prefix = &line[..pos];
+        let Some(close) = prefix.rfind(']') else {
+            continue;
+        };
+        let Some(open) = prefix[..close].rfind('[') else {
+            continue;
+        };
+        if let Ok(global) = prefix[open + 1..close].trim().parse::<u32>() {
+            out.push((ordinal, global));
+        }
+    }
+    out
+}
+
 pub fn create_source(target: &CaptureTarget) -> Result<Box<dyn CaptureSource>> {
     #[cfg(windows)]
     {
@@ -72,5 +132,51 @@ pub fn create_source(target: &CaptureTarget) -> Result<Box<dyn CaptureSource>> {
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         fallback::create_source(target)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_capture_screen_listing;
+
+    // A realistic `ffmpeg -f avfoundation -list_devices true -i ""` dump:
+    // one camera (global [0]) ahead of two screens, then the audio section.
+    const LISTING: &str = "\
+[AVFoundation indev @ 0x7fa] AVFoundation video devices:
+[AVFoundation indev @ 0x7fa] [0] FaceTime HD Camera
+[AVFoundation indev @ 0x7fa] [1] Capture screen 0
+[AVFoundation indev @ 0x7fa] [2] Capture screen 1
+[AVFoundation indev @ 0x7fa] AVFoundation audio devices:
+[AVFoundation indev @ 0x7fa] [0] MacBook Pro Microphone";
+
+    #[test]
+    fn maps_screen_ordinals_to_global_input_indices() {
+        // Screen 0 is global input 1 (camera took 0); screen 1 is input 2.
+        assert_eq!(parse_capture_screen_listing(LISTING), vec![(0, 1), (1, 2)]);
+    }
+
+    #[test]
+    fn ignores_audio_section_and_handles_no_screens() {
+        let camera_only = "\
+[AVFoundation indev @ 0x1] AVFoundation video devices:
+[AVFoundation indev @ 0x1] [0] FaceTime HD Camera
+[AVFoundation indev @ 0x1] AVFoundation audio devices:
+[AVFoundation indev @ 0x1] [0] Capture screen audio (not a real device)";
+        assert!(parse_capture_screen_listing(camera_only).is_empty());
+    }
+
+    #[test]
+    fn parses_double_digit_ordinals() {
+        let many = "\
+[x] AVFoundation video devices:
+[x] [9] Capture screen 9
+[x] [10] Capture screen 10";
+        assert_eq!(parse_capture_screen_listing(many), vec![(9, 9), (10, 10)]);
+    }
+
+    #[test]
+    fn empty_or_garbage_listing_yields_nothing() {
+        assert!(parse_capture_screen_listing("").is_empty());
+        assert!(parse_capture_screen_listing("no devices here").is_empty());
     }
 }

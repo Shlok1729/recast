@@ -197,20 +197,29 @@ jobs:
           TAG: ${{ needs.create-release.outputs.tag_name }}
         run: node scripts/release/sync-version.mjs
 
-      # Google Drive OAuth client credentials. The Rust gdrive module pulls
-      # these via `option_env!` at compile time (with a runtime
-      # std::env::var fallback for local dev), so they must be visible to
-      # cargo during `tauri build`. Writing to apps/desktop/.env mirrors
-      # the local dev path exactly — dotenvy in lib.rs picks them up, and
-      # `option_env!` resolves from the build process env that cargo
-      # inherits. Forks without secrets get empty values; gdrive_connect
-      # then returns "OAuth not configured" instead of failing the build.
-      - name: Write Google OAuth credentials to apps/desktop/.env
+      # Frontend (Vite) build-time config. `tauri build` runs the frontend
+      # build (`beforeBuildCommand: pnpm run ui:build`) with Vite rooted at
+      # apps/desktop, so Vite reads apps/desktop/.env and inlines the
+      # `PUBLIC_*` vars into the bundle (envPrefix in vite.config.ts). This is
+      # the ONLY path that gets PostHog into the Svelte side — release builds
+      # don't read .env at runtime. The Rust side gets the same values via the
+      # build-step env below (option_env!), so one secret drives both.
+      #
+      # NOTE on the Google creds: in a RELEASE build the .env is NOT read by
+      # Rust (dotenvy in lib.rs is `#[cfg(debug_assertions)]`-gated). They reach
+      # cargo solely through `option_env!` resolving the build-step env on the
+      # "Build Tauri app" step. We still write them here only for parity with
+      # the local-dev file layout; the line is inert for the release binary.
+      # Forks without secrets get empty values, which the code treats as
+      # "unconfigured" (no-op) rather than failing the build.
+      - name: Write build-time config to apps/desktop/.env
         shell: bash
         run: |
           {
             echo "GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}"
             echo "GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}"
+            echo "PUBLIC_POSTHOG_KEY=${{ secrets.PUBLIC_POSTHOG_KEY }}"
+            echo "PUBLIC_POSTHOG_HOST=${{ secrets.PUBLIC_POSTHOG_HOST }}"
           } >> apps/desktop/.env
 
       - name: Build Tauri app
@@ -222,11 +231,17 @@ jobs:
           # succeeds but produces unsigned bundles the updater will reject.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Belt-and-suspenders: pass the OAuth creds via env too, so
-          # `option_env!` resolves even on hosts where dotenvy isn't
-          # active during build (e.g. if .env loading fails silently).
+          # Rust reads these at COMPILE time via `option_env!` (release builds
+          # ignore the runtime env / .env entirely). They must be in the build
+          # step's env so cargo/rustc inherit them. The Google creds feed
+          # commands/gdrive.rs; the PUBLIC_POSTHOG_* pair feeds telemetry.rs and
+          # is the SAME pair the frontend bundle gets from apps/desktop/.env
+          # above — one secret, both sides. Empty (forks) → treated as
+          # unconfigured / analytics no-op.
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          PUBLIC_POSTHOG_KEY: ${{ secrets.PUBLIC_POSTHOG_KEY }}
+          PUBLIC_POSTHOG_HOST: ${{ secrets.PUBLIC_POSTHOG_HOST }}
         run: pnpm --filter recast-desktop tauri build ${{ matrix.platform.tauri_args }}
 
       - name: Tag macOS updater bundle with arch

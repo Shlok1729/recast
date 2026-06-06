@@ -5,7 +5,7 @@
  * crash reporting is default opt-in (default ON). The provider is NOT stood up
  * at launch for an errors-only install — `eagerInit` is omitted, so PostHog
  * makes zero network calls until a real crash or an explicit opt-in. When
- * `VITE_POSTHOG_KEY` is blank the whole client is a no-op.
+ * `PUBLIC_POSTHOG_KEY` is blank the whole client is a no-op.
  *
  * The anonymous `distinct_id` is the persistent install id, so a crash reported
  * before sign-in attributes to the same person as later identified events.

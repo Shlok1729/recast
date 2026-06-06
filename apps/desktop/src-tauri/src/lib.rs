@@ -112,14 +112,17 @@ fn enable_webview_media(webview: &tauri::Webview) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Load `src-tauri/.env` (the canonical source for Rust-side dev config:
-    // TAURI_SIGNING_PRIVATE_KEY, GOOGLE_OAUTH_CLIENT_ID/_SECRET, …). It sits in
-    // the cargo CWD, so `dotenvy::dotenv()`'s walk-up finds it first. Keep all
-    // Rust env here — a second `.env` one level up (apps/desktop/.env, the Vite
-    // frontend's file) would be shadowed by this one and never load. Silent on
-    // missing/invalid file — release installs have no .env and that's fine.
+    // Load the desktop app's single `.env` at `apps/desktop/.env` (the same
+    // file Vite reads), so dev config lives in ONE place for both the Svelte
+    // frontend and this Rust backend: PUBLIC_POSTHOG_*, GOOGLE_OAUTH_*,
+    // CLOUD_API_URL, TAURI_SIGNING_PRIVATE_KEY, … We load it by an EXPLICIT
+    // path rather than `dotenvy::dotenv()`'s walk-up: the cargo CWD is
+    // `src-tauri/`, and a stray `.env` there would otherwise shadow the app
+    // file. `CARGO_MANIFEST_DIR` is `…/apps/desktop/src-tauri`, so `../.env` is
+    // the app root .env. Silent on missing/invalid file — release installs have
+    // no .env (and release reads creds via `option_env!` at build time anyway).
     #[cfg(debug_assertions)]
-    let _ = dotenvy::dotenv();
+    let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../.env"));
 
     let mut builder = tauri::Builder::default()
         // Single-instance MUST be the first plugin registered. The handler

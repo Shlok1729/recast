@@ -33,6 +33,12 @@ export default defineConfig({
 		include: ['@recast/analytics'],
 		// exclude: ['@recast/analytics'],
 	},
-	// Env variables starting with the item of `envPrefix` will be exposed in tauri's source code through `import.meta.env`.
-	envPrefix: ['VITE_', 'TAURI_ENV_*']
+	// Env variables starting with the item of `envPrefix` are exposed to the
+	// webview via `import.meta.env`. We use the `PUBLIC_` prefix (matching the
+	// web app and SvelteKit's convention) rather than `VITE_` so the SAME var
+	// name — e.g. `PUBLIC_POSTHOG_KEY` — can be consumed by BOTH the Svelte
+	// frontend (here) and the Rust backend (which reads it prefix-agnostically
+	// via std::env::var / option_env!). `TAURI_ENV_*` is Tauri's own injected
+	// build context and must stay.
+	envPrefix: ['PUBLIC_', 'TAURI_ENV_*']
 });
