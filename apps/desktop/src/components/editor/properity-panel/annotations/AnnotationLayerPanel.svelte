@@ -155,10 +155,10 @@
       onfocusout={() => handleHover(null)}
       class={cn(
         "group relative flex items-center gap-1.5 rounded-md border px-1.5 py-1.5 transition-all",
-        "focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         isActive
-          ? "border-primary/30 bg-primary/8"
-          : "border-border/40 bg-card/40 hover:bg-muted/40",
+          ? "border-primary/60 bg-primary/10 shadow-(--shadow-craft-inset)"
+          : "border-border/60 bg-card/60 hover:border-border hover:bg-card",
         isDragging && "opacity-40",
         isOverThis && "ring-1 ring-primary/40",
         a.hidden && "opacity-60",

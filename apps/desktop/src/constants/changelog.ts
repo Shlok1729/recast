@@ -37,6 +37,46 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.2',
+		date: '2026-06-05',
+		highlights: [
+			'**Recast Cloud management got broader and sharper** — uploads, shares, poster replacement, engagement tracking, and dashboard-side performance views all moved forward together.',
+			'**Desktop playback and editing feel faster on real projects** — thumbnail and waveform data can now be cached on disk instead of being recomputed every session.',
+			'**Capture setup is more defensive** — camera capability gating and browser-side device enumeration reduce bad hardware choices before recording starts.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Poster replacement for recasts, plus engagement tracking and supporting shares / performance surfaces on the dashboard so cloud-hosted recordings are easier to manage after upload.' },
+			{ kind: 'added', summary: 'Browser-side device enumeration and capability checks for cameras, helping the recorder present more reliable hardware choices before capture begins.' },
+			{ kind: 'added', summary: 'New SVG cursor sprites and the supporting cursor-style management refactor, laying cleaner groundwork for richer cursor overlays in the editor and exports.' },
+			{ kind: 'changed', summary: 'Dashboard upload and recast-management flows were expanded, giving Recast Cloud a more complete post-upload management surface instead of treating upload as the end of the workflow.' },
+			{ kind: 'changed', summary: 'Legacy share-visibility values are normalized more consistently, and share access management is clearer across older and newer recast records.' },
+			{ kind: 'changed', summary: 'Desktop environment configuration was reorganized, and the macOS capture path received follow-up handling improvements as the beta setup hardened.' },
+			{ kind: 'changed', summary: 'macOS installation guidance was tightened up so download and setup steps are clearer for beta users.' },
+			{ kind: 'fixed', summary: 'Thumbnails and waveform data can now be cached to disk, cutting down repeated processing and improving responsiveness when reopening projects.' },
+		],
+	},
+	{
+		version: '0.2.1',
+		date: '2026-06-03',
+		highlights: [
+			'**Recast Cloud arrived in earnest** — uploads, share links, password protection, expiry, workspace-aware routing, and self-host configuration all landed across web and desktop.',
+			'**Library organization got real tools** — tags, archives, and tag-management UI make larger recast collections manageable instead of flat lists.',
+			'**Recording startup became more controllable** — countdown support, per-profile delay overrides, and Windows aspect-ratio locking smooth out capture setup.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Recast Cloud upload and share flows across the app, including workspace-aware upload routing and broader share-management plumbing for cloud-hosted recasts.' },
+			{ kind: 'added', summary: 'Password-protected and expiring share links, plus account-less access for selected shares so private distribution has more than one mode.' },
+			{ kind: 'added', summary: 'Tags and archives for recasts: API support, archived recast management, and a tag-management dialog for renaming, recoloring, and deleting tags.' },
+			{ kind: 'added', summary: 'Self-hosting endpoint configuration in desktop settings through the `CloudEndpoint` settings surface.' },
+			{ kind: 'added', summary: 'Recording countdown support with customizable duration and per-profile overrides, so different recording setups can start with different delays.' },
+			{ kind: 'added', summary: 'Analytics groundwork across web and desktop for measuring product and sharing behavior as Recast Cloud rolls out.' },
+			{ kind: 'changed', summary: 'Local desktop persistence moved from raw `localStorage` usage to `safeStorage`-backed handling where appropriate, improving resilience and synchronization for saved state.' },
+			{ kind: 'changed', summary: 'Azure storage configuration validation was hardened with constant-time comparison, reducing opportunities for subtle auth and config mistakes.' },
+			{ kind: 'changed', summary: 'Shared recast pages picked up release-process and SEO improvements, and the pricing table layout was adjusted to hold up better at narrower widths.' },
+			{ kind: 'changed', summary: 'The Windows recording window now respects aspect-ratio locking while resizing, making capture setup less fussy.' },
+		],
+	},
+	{
 		version: '0.2.0',
 		date: '2026-05-30',
 		highlights: [

@@ -57,8 +57,13 @@
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { onDestroy, tick } from "svelte";
-  import { fade } from "svelte/transition";
+  import { browser } from "$app/environment";
+  import { onDestroy, onMount, tick } from "svelte";
+  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
+
+  import { log } from "$lib/logger";
+  import { cubicOut } from "svelte/easing";
+  import { fade, slide } from "svelte/transition";
 
   interface Props {
     data: {
@@ -81,6 +86,45 @@
   // audio elements, and we want one source of truth for "what happens at
   // the end of the clip" (pause vs. loop).
   let loopEnabled = $state(false);
+
+  // Editor layout — VS Code/Cursor-style toggles for the right properties
+  // panel and the bottom timeline. Persisted so the choice survives reloads;
+  // a missing or malformed key falls back to "everything visible".
+  const LAYOUT_KEY = "recast-editor-layout";
+  function loadLayout(): { sidebar: boolean; timeline: boolean } {
+    const fallback = { sidebar: true, timeline: true };
+    if (!browser) return fallback;
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw) as Partial<typeof fallback>;
+      return {
+        sidebar:
+          typeof parsed?.sidebar === "boolean" ? parsed.sidebar : true,
+        timeline:
+          typeof parsed?.timeline === "boolean" ? parsed.timeline : true,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+  const initialLayout = loadLayout();
+  let showSidebar = $state(initialLayout.sidebar);
+  let showTimeline = $state(initialLayout.timeline);
+
+  $effect(() => {
+    if (!browser) return;
+    try {
+      localStorage.setItem(
+        LAYOUT_KEY,
+        JSON.stringify({ sidebar: showSidebar, timeline: showTimeline }),
+      );
+    } catch {
+      // localStorage can throw in private-mode/quota edge cases — the toggle
+      // still works for the session, it just won't be remembered.
+    }
+  });
+
   let previewContainerEl: HTMLDivElement | null = $state(null);
   let systemAudioEl: HTMLAudioElement | null = $state(null);
   let micAudioEl: HTMLAudioElement | null = $state(null);
@@ -122,6 +166,7 @@
 
   onDestroy(() => {
     stopAutosave();
+    log.clearRecast();
     // Clear autosave on clean exit.
     if (documentPath) {
       clearAutosave(documentPath).catch(() => {});
@@ -333,6 +378,14 @@
       store.videoPath = document.projectPath;
       store.metadata = document.metadata;
       store.loadRenderState(document.renderState);
+      // Scope every subsequent log in this window to the opened recast.
+      log.setRecast(documentPath, {
+        width: document.metadata.width,
+        height: document.metadata.height,
+        durationSec: Math.round(document.metadata.duration),
+        fps: document.metadata.fps,
+        codec: document.metadata.codec,
+      });
       void loadThumbnailStrip(document.projectPath);
       videoSrc = convertFileSrc(document.mediaPath);
       cursorPath = document.cursorPath ?? null;
@@ -364,6 +417,7 @@
       void maybeRunAutoZoom();
     } catch (err) {
       console.error("Failed to load editor document", err);
+      log.error("session", "recast_load_failed", { error: String(err) });
       error = `Could not load project: ${err}`;
       isLoading = false;
     }
@@ -712,6 +766,20 @@
       };
 
       prepSending = "done";
+      // Capture the exact settings this export ran with — the single most
+      // useful line when a user reports "my export looked wrong".
+      log.info("export", "export_started", {
+        exportId,
+        format: store.exportFormat,
+        quality: store.exportQuality,
+        speed: store.exportSpeed,
+        gif: store.exportFormat === "gif" ? store.gifSettings : undefined,
+        annotations: finalRenderState.annotations.length,
+        zoomRegions: finalRenderState.zoomRegions.length,
+        cuts: finalRenderState.cuts?.length ?? 0,
+        padding: finalRenderState.padding ?? 0,
+        durationSec: meta ? Math.round(meta.duration) : undefined,
+      });
       const path = await exportVideo(
         documentPath || data.filePath,
         store.exportFormat,
@@ -726,6 +794,10 @@
       if (!exportResult) {
         setExportResult({ kind: "success", path });
       }
+      log.info("export", "export_completed", {
+        exportId,
+        elapsedMs: Date.now() - exportStartedAt,
+      });
     } catch (err) {
       const message =
         typeof err === "string"
@@ -736,8 +808,10 @@
       if (!exportResult) {
         if (message.toLowerCase().includes("cancel")) {
           setExportResult({ kind: "cancelled" });
+          log.info("export", "export_cancelled", { exportId });
         } else {
           console.error("Export failed:", err);
+          log.error("export", "export_failed", { exportId, message });
           setExportResult({ kind: "error", message });
         }
       }
@@ -1014,20 +1088,59 @@
     }
   }
 
+  // Wire the editor's mod-combo shortcuts to the central registry. They stay
+  // bound for exactly as long as this route is mounted, and are inert on every
+  // other route (no handler registered there). Each bails while the export flow
+  // dialog owns the screen.
+  onMount(() =>
+    registerShortcutHandlers({
+      "editor.undo": () => {
+        if (!isExportFlowOpen) store.undo();
+      },
+      "editor.redo": () => {
+        if (!isExportFlowOpen) store.redo();
+      },
+      "editor.save": () => {
+        if (!isExportFlowOpen) void handleSave();
+      },
+      "editor.toggleSidebar": () => {
+        if (!isExportFlowOpen) showSidebar = !showSidebar;
+      },
+      "editor.toggleTimeline": () => {
+        if (!isExportFlowOpen) showTimeline = !showTimeline;
+      },
+    }),
+  );
+
   function handleKeydown(e: KeyboardEvent) {
-    if (e.defaultPrevented) return;
+    // `repeat` fires this on auto-repeat while a key is held — a held
+    // Ctrl+B would otherwise flip the panel on every tick. Bail so each
+    // physical press counts once.
+    if (e.defaultPrevented || e.repeat) return;
 
     // The flow dialog now owns Esc routing per phase; just bail if it's
     // active so the global shortcuts below don't fire under it.
     if (isExportFlowOpen) return;
 
+    // Never hijack typing. Inputs, textareas, and contenteditable surfaces
+    // (text annotations) all own their own keystrokes.
+    const target = e.target;
     if (
-      e.target instanceof HTMLInputElement ||
-      e.target instanceof HTMLTextAreaElement
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
     ) {
       return;
     }
 
+    // Mod-combo editor shortcuts (undo/redo/save, toggle panels, presets) are
+    // owned by the central shortcut registry — see `registerShortcutHandlers`
+    // below and `$lib/shortcuts`. Dispatched once from the root layout, so they
+    // can't double-fire. Bail here on any held Ctrl/⌘ so a modifier combo never
+    // trips a plain-key action below.
+    if (e.ctrlKey || e.metaKey) return;
+
+    // Plain keys (no Ctrl/⌘): play/pause, frame step, fullscreen.
     switch (e.key) {
       case " ":
         e.preventDefault();
@@ -1057,26 +1170,8 @@
           store.currentTime = videoEl.currentTime;
         }
         break;
-      case "z":
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            store.redo();
-          } else {
-            store.undo();
-          }
-        }
-        break;
-      case "s":
-      case "S":
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          void handleSave();
-        }
-        break;
       case "f":
       case "F":
-        if (e.ctrlKey || e.metaKey) return;
         e.preventDefault();
         if (document.fullscreenElement) {
           void document.exitFullscreen();
@@ -1179,6 +1274,10 @@
       onexport={openExportOptions}
       onsave={handleSave}
       {isSaving}
+      {showSidebar}
+      {showTimeline}
+      onToggleSidebar={() => (showSidebar = !showSidebar)}
+      onToggleTimeline={() => (showTimeline = !showTimeline)}
     />
   </CustomTitlebar>
 
@@ -1270,15 +1369,32 @@
           />
         </div>
 
-        <Timeline {store} {videoEl} />
+        <!-- Timeline collapses vertically. `slide` (axis:y) animates the
+             wrapper height to 0 while the inner keeps its natural height,
+             so the preview smoothly reclaims the space instead of snapping. -->
+        {#if showTimeline}
+          <div
+            class="shrink-0 overflow-hidden"
+            transition:slide={{ axis: "y", duration: 240, easing: cubicOut }}
+          >
+            <Timeline {store} {videoEl} />
+          </div>
+        {/if}
       </div>
 
-      <!-- Right column: properties panel -->
-      <aside
-        class="min-h-0 w-80 shrink-0 border-l border-border/60 xl:w-88"
-      >
-        <PropertiesPanel {store} {cameraPath} />
-      </aside>
+      <!-- Right column: properties panel. Collapses horizontally — the inner
+           div holds the fixed width so `slide` (axis:x) clips it cleanly to
+           0 rather than reflowing the panel's container queries mid-animation. -->
+      {#if showSidebar}
+        <aside
+          class="min-h-0 shrink-0 overflow-hidden border-l border-border/60"
+          transition:slide={{ axis: "x", duration: 240, easing: cubicOut }}
+        >
+          <div class="h-full w-80 xl:w-88">
+            <PropertiesPanel {store} {cameraPath} />
+          </div>
+        </aside>
+      {/if}
     </div>
   {/if}
 

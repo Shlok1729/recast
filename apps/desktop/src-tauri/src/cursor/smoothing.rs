@@ -525,3 +525,89 @@ pub fn detect_zoom_triggers(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(ts: u64, x: i32, y: i32) -> CursorSample {
+        CursorSample {
+            timestamp_us: ts,
+            x,
+            y,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
+            visible: true,
+            left_down: false,
+            right_down: false,
+        }
+    }
+
+    #[test]
+    fn sigma_mapping_clamps_and_scales() {
+        assert_eq!(smoothing_strength_to_sigma_ms(50.0), 75.0);
+        assert_eq!(smoothing_strength_to_sigma_ms(0.0), 0.0);
+        assert_eq!(smoothing_strength_to_sigma_ms(100.0), 150.0);
+        // Out-of-range inputs clamp before scaling.
+        assert_eq!(smoothing_strength_to_sigma_ms(-5.0), 0.0);
+        assert_eq!(smoothing_strength_to_sigma_ms(150.0), 150.0);
+    }
+
+    #[test]
+    fn dist_px_is_euclidean() {
+        assert_eq!(dist_px(0, 0, 3, 4), 5.0);
+        assert_eq!(dist_px(7, 7, 7, 7), 0.0);
+    }
+
+    #[test]
+    fn idle_detection_needs_at_least_two_samples() {
+        assert!(detect_idle_periods(&[], 1, 5.0).is_empty());
+        assert!(detect_idle_periods(&[s(0, 0, 0)], 1, 5.0).is_empty());
+    }
+
+    #[test]
+    fn idle_detected_when_cursor_dwells_then_moves() {
+        let samples = [
+            s(0, 100, 100),
+            s(1_000_000, 100, 100),
+            s(2_000_000, 100, 100),
+            s(2_100_000, 600, 600), // jumps out of the radius
+        ];
+        let periods = detect_idle_periods(&samples, 2_000_000, 5.0);
+        assert_eq!(periods.len(), 1);
+        assert_eq!((periods[0].start_us, periods[0].end_us), (0, 2_000_000));
+        assert_eq!((periods[0].x, periods[0].y), (100, 100));
+    }
+
+    #[test]
+    fn no_idle_when_dwell_is_shorter_than_threshold() {
+        let samples = [
+            s(0, 0, 0),
+            s(500_000, 0, 0),
+            s(600_000, 400, 400), // moves after only 0.5 s
+        ];
+        assert!(detect_idle_periods(&samples, 2_000_000, 5.0).is_empty());
+    }
+
+    #[test]
+    fn smoothing_passes_trivial_inputs_through_unchanged() {
+        // Empty in, empty out.
+        assert!(smooth_cursor_path(&[], 75.0, false, 0.0).is_empty());
+        // A single sample is returned at its raw position.
+        let out = smooth_cursor_path(&[s(0, 10, 20)], 75.0, false, 0.0);
+        assert_eq!(out.len(), 1);
+        assert_eq!((out[0].x, out[0].y), (10.0, 20.0));
+        // sigma <= 0 disables smoothing — positions match the raw samples.
+        let many = [s(0, 0, 0), s(1000, 50, 50), s(2000, 0, 0)];
+        assert_eq!(smooth_cursor_path(&many, 0.0, false, 0.0)[1].x, 50.0);
+    }
+
+    #[test]
+    fn smoothing_a_constant_path_stays_constant() {
+        let samples: Vec<CursorSample> = (0..5).map(|i| s(i * 1000, 10, 20)).collect();
+        for sm in smooth_cursor_path(&samples, 75.0, false, 0.0) {
+            assert!((sm.x - 10.0).abs() < 1e-6);
+            assert!((sm.y - 20.0).abs() < 1e-6);
+        }
+    }
+}

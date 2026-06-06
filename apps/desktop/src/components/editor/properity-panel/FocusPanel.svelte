@@ -13,11 +13,28 @@
     type ZoomRegion,
   } from "$lib/stores/editor-store.svelte";
   import { resolveZoomCenter } from "$lib/zoom/auto-apply";
-  import { Crosshair, Plus, Sparkles, Target, Trash2, Wand2 } from "@lucide/svelte";
+  import {
+    Clock,
+    Crosshair,
+    MoveHorizontal,
+    MoveVertical,
+    Plus,
+    Sparkles,
+    Target,
+    TrendingDown,
+    TrendingUp,
+    Trash2,
+    Wand2,
+    ZoomIn,
+  } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
-  import { cn } from "@recast/ui/utils";
-  import BezierEditor from "../_components/BezierEditor.svelte";
+  import { SegmentedToggle } from "@recast/ui/segmented";
   import { SliderControl } from "@recast/ui/slider-control";
+  import { cn } from "@recast/ui/utils";
+  import { cubicOut } from "svelte/easing";
+  import { fly } from "svelte/transition";
+  import BezierEditor from "../_components/BezierEditor.svelte";
+  import InspectorHint from "../InspectorHint.svelte";
   import PanelSection from "./PanelSection.svelte";
 
   interface Props {
@@ -27,8 +44,13 @@
   let { store }: Props = $props();
 
   const selected = $derived<ZoomRegion | null>(
-    store.zoomRegions.find((r) => r.id === store.selectedZoomRegionId) ?? null
+    store.zoomRegions.find((r) => r.id === store.selectedZoomRegionId) ?? null,
   );
+
+  // Which ramp the Custom-curves editor is targeting. One large, usable graph
+  // shown at a time (switched here) beats two cramped side-by-side editors in
+  // the narrow inspector.
+  let customCurve = $state<"in" | "out">("in");
 
   function addRegion() {
     const duration = store.metadata?.duration ?? 0;
@@ -117,7 +139,9 @@
       const y = h - normScale(s) * h * 0.9 - 1;
       samples.push([x, y]);
     }
-    return samples.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+    return samples
+      .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`)
+      .join(" ");
   }
 
   function scaleAt(r: ZoomRegion, t: number): number {
@@ -159,125 +183,190 @@
 </script>
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
+  <!-- Regions: the navigator + Add. The list is the primary, frequently-used
+       surface, so it leads; the set-once Auto-zoom config is pushed to a
+       collapsed section at the bottom rather than sitting on top of it. -->
   <PanelSection
     title="Regions"
-    hint="Each region zooms in on the clip with your own ease-in and ease-out curves. Use split ramps to hold at full zoom before releasing."
-    flush
+    hint="Each region zooms the clip with its own ease-in / ease-out. Park the playhead where you want to zoom, then Add."
   >
     {#snippet action()}
-      <Button variant="secondary" size="xs" class="gap-1.5" onclick={addRegion}>
-        <Plus size={11} />
-        Add
-      </Button>
-    {/snippet}
-    <!-- Smart Auto-Zoom controls -->
-    <div class="flex flex-col gap-1.5 rounded-md border border-border/60 bg-card/40 p-2">
-      <label class="flex items-center gap-2 text-[11px] text-foreground">
-        <input
-          type="checkbox"
-          class="size-3 accent-primary"
-          checked={store.autoZoomEnabled}
-          onchange={(e) => (store.autoZoomEnabled = (e.target as HTMLInputElement).checked)}
-        />
-        <Sparkles size={11} class="text-primary" />
-        <span class="flex-1">Smart Auto-Zoom on import</span>
-      </label>
-      <p class="text-[10px] leading-snug text-muted-foreground">
-        Adds a focus moment at every click and settle point when a recording first opens.
-      </p>
-      <div class="flex items-center justify-end gap-1 pt-0.5">
-        {#if hasAutoZooms}
-          <Button variant="ghost" size="xs" onclick={clearAuto}>Clear auto zooms</Button>
+      <div class="flex items-center gap-2">
+        {#if store.zoomRegions.length > 0}
+          <span class="font-mono text-[10px] tabular-nums text-muted-foreground">
+            {store.zoomRegions.length}
+          </span>
         {/if}
         <Button
           variant="secondary"
           size="xs"
           class="gap-1.5"
-          onclick={rerunAutoZoom}
-          disabled={!store.cursorPath}
+          onclick={addRegion}
+          disabled={!store.metadata?.duration}
         >
-          <Wand2 size={11} />
-          Re-run
+          <Plus size={11} />
+          Add
         </Button>
       </div>
-    </div>
-  </PanelSection>
+    {/snippet}
 
-  <!-- Region list -->
-  {#if store.zoomRegions.length === 0}
+    <!-- Smart Auto-Zoom — a headline feature, kept right next to "Add" (the
+         other way to create regions) so it's the first thing you see, not
+         buried below the list. On-import preference + an on-demand re-run. -->
     <div
-      class="flex flex-col items-center gap-2 rounded-md border border-dashed border-border bg-card/40 px-3 py-6 text-center"
+      class="flex flex-col gap-2 rounded-xl border border-border/60 bg-card/70 px-2.5 py-2 shadow-(--shadow-craft-inset) backdrop-blur"
     >
-      <Target size={18} class="text-muted-foreground" />
-      <p class="text-[11px] font-medium text-foreground">No focus regions yet</p>
-      <p class="text-[10px] text-muted-foreground">
-        Park the playhead where you want to zoom, then press Add.
-      </p>
+      <div class="flex items-center gap-1.5">
+        <Sparkles size={12} class="shrink-0 text-primary" />
+        <span class="text-[11px] font-medium text-foreground">Smart Auto-Zoom</span>
+        <InspectorHint
+          content="Adds a focus moment at every click and settle point when a recording first opens."
+        />
+        <div class="ml-auto flex items-center gap-1.5">
+          <span class="text-[10px] text-muted-foreground">On import</span>
+          <SegmentedToggle
+            checked={store.autoZoomEnabled}
+            size="xs"
+            aria-label="Smart auto-zoom on import"
+            onCheckedChange={(next) => (store.autoZoomEnabled = next)}
+          />
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-[10px] leading-snug text-muted-foreground">
+          Generate focus moments from cursor activity.
+        </p>
+        <div class="flex shrink-0 items-center gap-1">
+          {#if hasAutoZooms}
+            <Button variant="ghost" size="xs" onclick={clearAuto}>Clear</Button>
+          {/if}
+          <Button
+            variant="secondary"
+            size="xs"
+            class="gap-1.5"
+            onclick={rerunAutoZoom}
+            disabled={!store.cursorPath}
+          >
+            <Wand2 size={11} />
+            Re-run
+          </Button>
+        </div>
+      </div>
     </div>
-  {:else}
-    <section class="flex flex-col gap-1">
-      {#each store.zoomRegions as region (region.id)}
-        {@const isActive = region.id === store.selectedZoomRegionId}
-        <button
-          type="button"
-          onclick={() => (store.selectedZoomRegionId = region.id)}
-          class={cn(
-            "group flex items-center gap-2 rounded-md border px-2 py-1.5 text-left transition-colors",
-            "focus:outline-none focus:ring-1 focus:ring-ring",
-            isActive
-              ? "border-primary bg-primary/10"
-              : "border-border bg-card hover:bg-muted/50"
-          )}
+
+    {#if store.zoomRegions.length === 0}
+      <div
+        class="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border/70 bg-card/40 px-3 py-6 text-center"
+      >
+        <div
+          class="flex size-9 items-center justify-center rounded-lg border border-border/60 bg-card/70 text-muted-foreground shadow-(--shadow-craft-inset)"
         >
-          <div class="flex-1 min-w-0 flex items-center gap-2">
-            <svg viewBox="0 0 100 18" width="48" height="14" class="shrink-0 text-primary">
-              <path
-                d={sparklinePath(region, 100, 18)}
-                stroke="currentColor"
-                stroke-width="1.4"
-                fill="none"
-              />
-            </svg>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5 truncate">
-                <span class="truncate text-[11px] font-medium text-foreground">
-                  {region.scale.toFixed(2)}× · {fmtTime(region.start)}–{fmtTime(region.end)}
+          <Target size={16} />
+        </div>
+        <p class="text-[11px] font-medium text-foreground">No focus regions yet</p>
+        <p class="text-[10px] leading-snug text-muted-foreground">
+          Park the playhead where you want to zoom, then press Add.
+        </p>
+      </div>
+    {:else}
+      <div class="flex flex-col gap-1">
+        {#each store.zoomRegions as region, i (region.id)}
+          {@const isActive = region.id === store.selectedZoomRegionId}
+          <button
+            type="button"
+            in:fly={{ y: 4, duration: 200, delay: i * 25, easing: cubicOut }}
+            onclick={() => (store.selectedZoomRegionId = region.id)}
+            aria-pressed={isActive}
+            class={cn(
+              "group relative flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-all duration-150",
+              "focus:outline-none focus:ring-2 focus:ring-ring/40",
+              isActive
+                ? "border-primary/60 bg-primary/10 shadow-(--shadow-craft-inset)"
+                : "border-border/60 bg-card/60 hover:border-border hover:bg-card",
+            )}
+          >
+            <span
+              class={cn(
+                "flex h-8 w-12 shrink-0 items-center justify-center rounded-md border transition-colors",
+                isActive
+                  ? "border-primary/40 bg-background/40 text-primary"
+                  : "border-border/50 bg-background/40 text-muted-foreground group-hover:text-foreground",
+              )}
+            >
+              <svg viewBox="0 0 100 18" width="40" height="13" aria-hidden="true">
+                <path
+                  d={sparklinePath(region, 100, 18)}
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span
+                  class="truncate text-[11px] font-medium tabular-nums text-foreground"
+                >
+                  {region.scale.toFixed(2)}× · {fmtTime(region.start)}–{fmtTime(
+                    region.end,
+                  )}
                 </span>
                 {#if region.source === "auto"}
                   <span
-                    class="shrink-0 rounded-sm border border-primary/30 bg-primary/10 px-1 text-[9px] font-semibold uppercase tracking-wider text-primary"
+                    class="inline-flex shrink-0 items-center gap-0.5 rounded-sm border border-primary/30 bg-primary/10 px-1 text-[9px] font-semibold uppercase tracking-wider text-primary"
                   >
+                    <Sparkles size={8} />
                     Auto
                   </span>
                 {/if}
               </div>
-              <div class="text-[10px] text-muted-foreground">
-                {(region.end - region.start).toFixed(2)}s
+              <div class="text-[10px] tabular-nums text-muted-foreground">
+                {(region.end - region.start).toFixed(2)}s duration
               </div>
             </div>
-          </div>
-        </button>
-      {/each}
-    </section>
-  {/if}
+            {#if isActive}
+              <span
+                aria-hidden="true"
+                class="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_0_1.5px_color-mix(in_srgb,var(--color-background)_85%,transparent)]"
+              ></span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </PanelSection>
 
-  <!-- Region editor -->
+  <!-- Region editor (master-detail). Shows a small orientation header so the
+       user always knows which region these controls are editing. -->
   {#if selected}
     {@const region = selected}
     {@const maxRamp = regionMaxRamp(region)}
-    <div class="flex flex-col gap-3 border-t border-border pt-3">
-      <PanelSection title="Settings">
-        {#snippet action()}
-          <Button
-            variant="destructive_soft"
-            size="xs"
-            class="gap-1.5"
-            onclick={removeSelected}
-          >
-            <Trash2 size={11} />
-            Delete
-          </Button>
-        {/snippet}
+    <div class="flex flex-col gap-3 border-t border-border/50 pt-3">
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <p class="text-[11px] font-semibold tracking-tight text-foreground">
+            Selected region
+          </p>
+          <p class="truncate text-[10px] tabular-nums text-muted-foreground">
+            {region.scale.toFixed(2)}× · {fmtTime(region.start)}–{fmtTime(
+              region.end,
+            )}
+          </p>
+        </div>
+        <Button
+          variant="destructive_soft"
+          size="xs"
+          class="shrink-0 gap-1.5"
+          onclick={removeSelected}
+        >
+          <Trash2 size={11} />
+          Delete
+        </Button>
+      </div>
+
+      <PanelSection title="Zoom">
         <SliderControl
           label="Scale"
           value={region.scale}
@@ -288,7 +377,26 @@
           formatValue={(v) => `${v.toFixed(2)}×`}
           onstart={() => store.pushUndoState()}
           onchange={(v) => updateSelected({ scale: v })}
-        />
+        >
+          {#snippet icon()}
+            <ZoomIn size={11} />
+          {/snippet}
+        </SliderControl>
+        <SliderControl
+          label="Motion blur"
+          value={Math.round(region.motionBlur * 100)}
+          min={0}
+          max={100}
+          step={1}
+          unit="%"
+          formatValue={(v) => `${v.toFixed(0)}%`}
+          onstart={() => store.pushUndoState()}
+          onchange={(v) => updateSelected({ motionBlur: v / 100 })}
+        >
+          {#snippet icon()}
+            <Sparkles size={11} />
+          {/snippet}
+        </SliderControl>
       </PanelSection>
 
       <PanelSection
@@ -299,12 +407,13 @@
           <Button
             variant="ghost"
             size="xs"
+            class="gap-1.5"
             onclick={recenterFocus}
             disabled={region.centerX === 0.5 &&
               region.centerY === 0.5 &&
               region.motionBlur === DEFAULT_ZOOM_MOTION_BLUR}
           >
-            <Crosshair size={11} class="mr-1" />
+            <Crosshair size={11} />
             Recenter
           </Button>
         {/snippet}
@@ -317,7 +426,11 @@
           formatValue={(v) => v.toFixed(2)}
           onstart={() => store.pushUndoState()}
           onchange={(v) => updateSelected({ centerX: v })}
-        />
+        >
+          {#snippet icon()}
+            <MoveHorizontal size={11} />
+          {/snippet}
+        </SliderControl>
         <SliderControl
           label="Focus Y"
           value={region.centerY}
@@ -327,21 +440,17 @@
           formatValue={(v) => v.toFixed(2)}
           onstart={() => store.pushUndoState()}
           onchange={(v) => updateSelected({ centerY: v })}
-        />
-        <SliderControl
-          label="Motion blur"
-          value={Math.round(region.motionBlur * 100)}
-          min={0}
-          max={100}
-          step={1}
-          unit="%"
-          formatValue={(v) => `${v.toFixed(0)}%`}
-          onstart={() => store.pushUndoState()}
-          onchange={(v) => updateSelected({ motionBlur: v / 100 })}
-        />
+        >
+          {#snippet icon()}
+            <MoveVertical size={11} />
+          {/snippet}
+        </SliderControl>
       </PanelSection>
 
-      <PanelSection title="Timing">
+      <PanelSection
+        title="Timing"
+        hint="When the region runs and how long it ramps in and out. Use split ramps to hold at full zoom before releasing."
+      >
         <SliderControl
           label="Start"
           value={region.start}
@@ -352,7 +461,11 @@
           formatValue={(v) => `${v.toFixed(2)}s`}
           onstart={() => store.pushUndoState()}
           onchange={(v) => updateSelected({ start: v })}
-        />
+        >
+          {#snippet icon()}
+            <Clock size={11} />
+          {/snippet}
+        </SliderControl>
         <SliderControl
           label="End"
           value={region.end}
@@ -363,7 +476,11 @@
           formatValue={(v) => `${v.toFixed(2)}s`}
           onstart={() => store.pushUndoState()}
           onchange={(v) => updateSelected({ end: v })}
-        />
+        >
+          {#snippet icon()}
+            <Clock size={11} />
+          {/snippet}
+        </SliderControl>
         <SliderControl
           label="Ramp in"
           value={region.rampIn}
@@ -374,7 +491,11 @@
           formatValue={(v) => `${v.toFixed(2)}s`}
           onstart={() => store.pushUndoState()}
           onchange={(v) => updateSelected({ rampIn: v })}
-        />
+        >
+          {#snippet icon()}
+            <TrendingUp size={11} />
+          {/snippet}
+        </SliderControl>
         <SliderControl
           label="Ramp out"
           value={region.rampOut}
@@ -385,56 +506,71 @@
           formatValue={(v) => `${v.toFixed(2)}s`}
           onstart={() => store.pushUndoState()}
           onchange={(v) => updateSelected({ rampOut: v })}
-        />
+        >
+          {#snippet icon()}
+            <TrendingDown size={11} />
+          {/snippet}
+        </SliderControl>
       </PanelSection>
 
-      <PanelSection title="Easing" flush collapsible defaultOpen={false}>
+      <!-- Easing: lead with intent-named presets (the common path); the raw
+           bezier curves live behind a "Custom curves" disclosure. -->
+      <PanelSection title="Easing" hint="How the zoom accelerates in and decelerates out.">
         {#snippet action()}
           <Button variant="ghost" size="xs" onclick={resetCurves}>Reset</Button>
         {/snippet}
-        <div class="flex flex-col gap-2">
-          <div class="grid grid-cols-2 gap-3">
-            <BezierEditor
-              label="Ease in"
-              value={region.easeIn}
-              onchange={(v) => updateSelected({ easeIn: v }, true)}
-              showPresets={false}
-              size={140}
-            />
-            <BezierEditor
-              label="Ease out"
-              value={region.easeOut}
-              onchange={(v) => updateSelected({ easeOut: v }, true)}
-              showPresets={false}
-              size={140}
-            />
-          </div>
-          <div class="flex flex-col gap-1">
-            <span class="text-[10px] font-medium text-muted-foreground/70">
-              Quick presets — both ramps
-            </span>
-            <div class="flex flex-wrap gap-1">
-              {#each EASING_PRESETS as preset (preset.id)}
-                {@const active =
-                  easingEquals(region.easeIn, preset.value) &&
-                  easingEquals(region.easeOut, preset.value)}
-                <button
-                  type="button"
-                  onclick={() => applyPresetToBoth(preset.value)}
-                  class={cn(
-                    "h-6 rounded-sm border px-2 text-[10px] font-medium transition-colors",
-                    "focus:outline-none focus:ring-1 focus:ring-ring",
-                    active
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {preset.label}
-                </button>
-              {/each}
-            </div>
-          </div>
+        <div class="flex flex-wrap gap-1">
+          {#each EASING_PRESETS as preset (preset.id)}
+            {@const active =
+              easingEquals(region.easeIn, preset.value) &&
+              easingEquals(region.easeOut, preset.value)}
+            <Button
+              type="button"
+              size="xs"
+              aria-pressed={active}
+              variant={active ? "default_soft" : "outline"}
+              onclick={() => applyPresetToBoth(preset.value)}
+            >
+              {preset.label}
+            </Button>
+          {/each}
         </div>
+
+        <PanelSection title="Custom curves" flush collapsible defaultOpen={false}>
+          <div class="flex flex-col gap-2 pt-1">
+            <!-- One large editor at a time, switched in/out — far more usable
+                 than two cramped graphs squeezed side-by-side in the inspector.
+                 The region card's sparkline previews the combined result. -->
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5">
+                <span class="text-[10px] font-medium text-muted-foreground">
+                  Editing the {customCurve === "in" ? "ease-in" : "ease-out"} ramp
+                </span>
+                <InspectorHint
+                  content="Drag the two handles to shape this ramp. Switch between the ease-in and ease-out curves with the toggle."
+                />
+              </div>
+              <SegmentedToggle
+                checked={customCurve === "out"}
+                offLabel="In"
+                onLabel="Out"
+                size="xs"
+                aria-label="Edit ease-in or ease-out curve"
+                onCheckedChange={(next) => (customCurve = next ? "out" : "in")}
+              />
+            </div>
+            <BezierEditor
+              value={customCurve === "in" ? region.easeIn : region.easeOut}
+              onchange={(v) =>
+                updateSelected(
+                  customCurve === "in" ? { easeIn: v } : { easeOut: v },
+                  true,
+                )}
+              showPresets={false}
+              size={220}
+            />
+          </div>
+        </PanelSection>
       </PanelSection>
     </div>
   {/if}

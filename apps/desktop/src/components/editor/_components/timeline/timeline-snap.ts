@@ -21,6 +21,33 @@ export interface SnapTarget {
 	kind: SnapKind;
 }
 
+// User-facing label for the snap guide badge. Shared by every lane so the
+// wording stays identical no matter which lane reports the active snap.
+export function snapLabel(kind: SnapKind): string {
+	switch (kind) {
+		case "playhead":
+			return "Playhead";
+		case "in-point":
+			return "In";
+		case "out-point":
+			return "Out";
+		case "origin":
+			return "Start";
+		case "duration":
+			return "End";
+		case "region-start":
+			return "Region start";
+		case "region-end":
+			return "Region end";
+		case "annotation-start":
+			return "Annotation start";
+		case "annotation-end":
+			return "Annotation end";
+		case "frame":
+			return "Frame";
+	}
+}
+
 export interface SnapResult {
 	time: number;
 	target: SnapTarget | null;

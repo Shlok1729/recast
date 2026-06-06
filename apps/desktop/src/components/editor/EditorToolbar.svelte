@@ -3,6 +3,8 @@
   import {
     ArrowLeft,
     LoaderCircle,
+    PanelBottom,
+    PanelRight,
     Redo2,
     RotateCcw,
     Save,
@@ -15,8 +17,11 @@
   import { Kbd } from "@recast/ui/kbd";
   import { Separator } from "@recast/ui/separator";
   import * as Tooltip from "@recast/ui/tooltip";
+  import { cn } from "@recast/ui/utils";
   import ConfirmDialog from "../recast/ConfirmDialog.svelte";
   import PresetPicker, { PRESETS, type Preset } from "./PresetPicker.svelte";
+  import { onMount } from "svelte";
+  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
 
   interface Props {
     store: EditorStore;
@@ -24,6 +29,10 @@
     onexport?: () => void;
     onsave?: () => void | Promise<void>;
     isSaving?: boolean;
+    showSidebar?: boolean;
+    showTimeline?: boolean;
+    onToggleSidebar?: () => void;
+    onToggleTimeline?: () => void;
   }
 
   let {
@@ -32,9 +41,34 @@
     onexport,
     onsave,
     isSaving = false,
+    showSidebar = true,
+    showTimeline = true,
+    onToggleSidebar,
+    onToggleTimeline,
   }: Props = $props();
+
+  // Segmented panel-toggle button styling, mirroring the undo/redo group:
+  // an "on" toggle reads as a pressed key (raised card surface), "off" sits
+  // flush and muted. Kept as one helper so both toggles stay identical.
+  const toggleClass = (active: boolean) =>
+    cn(
+      "cursor-pointer flex size-6 items-center justify-center rounded-md transition-colors duration-150",
+      active
+        ? "text-foreground shadow-(--shadow-craft-inset)"
+        : "text-muted-foreground hover:bg-card/60 hover:text-foreground",
+    );
   let showPresetsPicker = $state(false);
   let showRevertConfirm = $state(false);
+
+  // Mod+P (export presets) is dispatched by the central shortcut registry —
+  // no per-component `window` listener to leak under HMR.
+  onMount(() =>
+    registerShortcutHandlers({
+      "editor.presets": () => {
+        showPresetsPicker = true;
+      },
+    }),
+  );
 
   function applyPreset(preset: Preset) {
     store.pushUndoState();
@@ -242,8 +276,14 @@
     </div>
   </div>
 
-  <!-- Right: revert + save + export -->
+  <!-- Right: layout toggles + revert + save + export -->
   <div class="ml-auto flex items-center gap-1">
+    <!-- Panel toggles (VS Code / Cursor style): show/hide the timeline and
+         the right properties panel. Grouped as a segmented control so they
+         read as a pair of view switches, distinct from the action buttons. -->
+    <div
+      class="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-inset ring-border/40"
+    >
     {#if store.canRevert}
       <Tooltip.Root>
         <Tooltip.Trigger>
@@ -309,6 +349,50 @@
         Export
       {/if}
     </Button>
+        <Separator orientation="vertical" class="mx-0.5 h-3.5" />
+
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          <button
+            type="button"
+            onclick={() => onToggleTimeline?.()}
+            aria-label="Toggle timeline"
+            aria-pressed={showTimeline}
+            class={toggleClass(showTimeline)}
+          >
+            <PanelBottom size={12} />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Content>
+          <span class="inline-flex items-center gap-1.5">
+            {showTimeline ? "Hide timeline" : "Show timeline"}
+            <Kbd>⌘J</Kbd>
+          </span>
+        </Tooltip.Content>
+      </Tooltip.Root>
+
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          <button
+            type="button"
+            onclick={() => onToggleSidebar?.()}
+            aria-label="Toggle properties panel"
+            aria-pressed={showSidebar}
+            class={toggleClass(showSidebar)}
+          >
+            <PanelRight size={12} />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Content>
+          <span class="inline-flex items-center gap-1.5">
+            {showSidebar ? "Hide properties" : "Show properties"}
+            <Kbd>⌘B</Kbd>
+          </span>
+        </Tooltip.Content>
+      </Tooltip.Root>
+    </div>
+
+
   </div>
 </div>
 
@@ -316,6 +400,7 @@
   open={showPresetsPicker}
   onOpenChange={(v) => (showPresetsPicker = v)}
   onapply={applyPreset}
+  currentId={store.lastAppliedPresetId}
 />
 
 <ConfirmDialog
@@ -327,13 +412,4 @@
   cancelLabel="Keep editing"
   variant="destructive"
   onConfirm={() => store.revertToSaved()}
-/>
-
-<svelte:window
-  onkeydown={(e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "p") {
-      e.preventDefault();
-      showPresetsPicker = true;
-    }
-  }}
 />

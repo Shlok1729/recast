@@ -157,6 +157,75 @@ pub fn set_last_source(
     Ok(())
 }
 
+/// Apply the runtime log-level filter for the current diagnostic-logging
+/// setting. The tauri-plugin-log dispatch is built permissively (Trace), so
+/// this `log::set_max_level` is the single gate that decides what actually
+/// reaches the rotating file — for the Rust backend AND the webview logs the
+/// frontend forwards through the same plugin.
+///
+///   - off (default) → release builds stay quiet (Warn); debug builds keep Info
+///   - on            → Debug everywhere, capturing backend processing +
+///                     editor-interaction traces for a support bundle
+pub(crate) fn apply_log_level(diagnostic: bool) {
+    let level = if diagnostic {
+        log::LevelFilter::Debug
+    } else if cfg!(debug_assertions) {
+        log::LevelFilter::Info
+    } else {
+        log::LevelFilter::Warn
+    };
+    log::set_max_level(level);
+}
+
+#[tauri::command]
+pub fn get_diagnostic_logging(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.config.lock().diagnostic_logging)
+}
+
+/// Toggle verbose diagnostic logging. Persists the choice and re-applies the
+/// runtime log level immediately, so a user can enable it, reproduce a bug, and
+/// grab the log folder — no restart needed.
+#[tauri::command]
+pub fn set_diagnostic_logging(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    {
+        let mut config = state.config.lock();
+        config.diagnostic_logging = enabled;
+        save_config(&app, &config);
+    }
+    apply_log_level(enabled);
+    // Logged AFTER raising the level so the "enabled" transition is the first
+    // line in a fresh diagnostic session.
+    log::info!(
+        "diagnostic logging {}",
+        if enabled { "enabled" } else { "disabled" }
+    );
+    Ok(())
+}
+
+/// Reveal the rotating-log directory in the OS file manager so the user can
+/// attach it to a support request. Same dir `tauri_plugin_log` writes to
+/// (`app_log_dir`); created if a session hasn't written there yet.
+#[tauri::command]
+pub fn open_log_dir(app: AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    use tauri_plugin_opener::OpenerExt;
+
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("could not resolve log directory: {e}"))?;
+    let _ = std::fs::create_dir_all(&dir);
+    let display = dir.to_string_lossy().to_string();
+    app.opener()
+        .open_path(display.clone(), None::<&str>)
+        .map_err(|e| format!("failed to open log folder: {e}"))?;
+    Ok(display)
+}
+
 // `get_displays` and `get_windows` are async + spawn_blocking because xcap's
 // underlying calls (`Monitor::all`, `Window::all`, `capture_image`) can stall
 // for hundreds of ms or longer on Linux/Wayland (portal handshake, compositor

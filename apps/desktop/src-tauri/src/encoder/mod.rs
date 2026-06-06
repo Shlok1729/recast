@@ -226,3 +226,45 @@ pub fn spawn_encoder_loop(
         })
         .map_err(Into::into)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::build_video_filter;
+    use crate::recording::CaptureArea;
+
+    #[test]
+    fn no_crop_yields_no_filter() {
+        assert_eq!(build_video_filter(None), None);
+    }
+
+    #[test]
+    fn crop_renders_ffmpeg_crop_filter() {
+        let area = CaptureArea {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+        };
+        // Order is width:height:x:y — the FFmpeg `crop` argument order.
+        assert_eq!(
+            build_video_filter(Some(area)).as_deref(),
+            Some("crop=100:50:10:20")
+        );
+    }
+
+    #[test]
+    fn negative_offsets_clamp_to_zero() {
+        // A crop origin can go negative after coordinate math; FFmpeg rejects
+        // negative offsets, so they must clamp.
+        let area = CaptureArea {
+            x: -5,
+            y: -3,
+            width: 40,
+            height: 30,
+        };
+        assert_eq!(
+            build_video_filter(Some(area)).as_deref(),
+            Some("crop=40:30:0:0")
+        );
+    }
+}

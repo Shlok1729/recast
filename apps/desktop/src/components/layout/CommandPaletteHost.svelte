@@ -18,26 +18,13 @@
   let contentHeight = $state(0);
 
   // Global registration. Safe to call on every mount because
-  // `registerMany` deduplicates by id.
+  // `registerMany` deduplicates by id. The Mod+K open shortcut itself lives in
+  // the central shortcut registry (`general.palette`), dispatched once from the
+  // root layout — so there is no per-component `window` listener here to leak
+  // under HMR (the "bare Ctrl toggles the palette" ghost is gone for good).
   onMount(() => {
     commandPalette.registerMany(buildGlobalCommands());
-    window.addEventListener("keydown", handleGlobalKeydown);
-    return () => window.removeEventListener("keydown", handleGlobalKeydown);
   });
-
-  // Bound to the OS shortcut: Cmd/Ctrl+K. Suppressed when the user is mid-edit
-  // in a contenteditable so it doesn't fire while typing in a text annotation.
-  function handleGlobalKeydown(e: KeyboardEvent) {
-    if (
-      (e.ctrlKey || e.metaKey) &&
-      !e.shiftKey &&
-      !e.altKey &&
-      e.key.toLowerCase() === "k"
-    ) {
-      e.preventDefault();
-      commandPalette.toggle();
-    }
-  }
 
   function close() {
     commandPalette.hide();

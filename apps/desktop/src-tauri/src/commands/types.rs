@@ -142,6 +142,13 @@ pub struct AppConfig {
     /// default if it's ever absent or malformed.
     #[serde(default)]
     pub cloud_api_url: Option<String>,
+    /// Opt-in verbose diagnostic logging. Off by default: release builds log
+    /// only warnings/errors. When the user flips this on in Settings →
+    /// Diagnostics, the runtime log level drops to Debug so backend processing
+    /// and editor-interaction logs (forwarded from the webview) are captured in
+    /// the rotating log file for a support bundle. See `apply_log_level`.
+    #[serde(default)]
+    pub diagnostic_logging: bool,
 }
 
 fn default_close_to_tray() -> bool {
@@ -162,6 +169,7 @@ impl Default for AppConfig {
             telemetry_errors: true,
             install_id: None,
             cloud_api_url: None,
+            diagnostic_logging: false,
         }
     }
 }

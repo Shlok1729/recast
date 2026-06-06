@@ -112,14 +112,17 @@ fn enable_webview_media(webview: &tauri::Webview) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Load `src-tauri/.env` (the canonical source for Rust-side dev config:
-    // TAURI_SIGNING_PRIVATE_KEY, GOOGLE_OAUTH_CLIENT_ID/_SECRET, …). It sits in
-    // the cargo CWD, so `dotenvy::dotenv()`'s walk-up finds it first. Keep all
-    // Rust env here — a second `.env` one level up (apps/desktop/.env, the Vite
-    // frontend's file) would be shadowed by this one and never load. Silent on
-    // missing/invalid file — release installs have no .env and that's fine.
+    // Load the desktop app's single `.env` at `apps/desktop/.env` (the same
+    // file Vite reads), so dev config lives in ONE place for both the Svelte
+    // frontend and this Rust backend: PUBLIC_POSTHOG_*, GOOGLE_OAUTH_*,
+    // CLOUD_API_URL, TAURI_SIGNING_PRIVATE_KEY, … We load it by an EXPLICIT
+    // path rather than `dotenvy::dotenv()`'s walk-up: the cargo CWD is
+    // `src-tauri/`, and a stray `.env` there would otherwise shadow the app
+    // file. `CARGO_MANIFEST_DIR` is `…/apps/desktop/src-tauri`, so `../.env` is
+    // the app root .env. Silent on missing/invalid file — release installs have
+    // no .env (and release reads creds via `option_env!` at build time anyway).
     #[cfg(debug_assertions)]
-    let _ = dotenvy::dotenv();
+    let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../.env"));
 
     let mut builder = tauri::Builder::default()
         // Single-instance MUST be the first plugin registered. The handler
@@ -167,17 +170,18 @@ pub fn run() {
     // `tauri_plugin_log`'s defaults write to both stdout AND a rotating
     // file under the OS log dir (Windows: `%LOCALAPPDATA%\com.nexonauts.recast\logs\`,
     // macOS: `~/Library/Logs/com.nexonauts.recast/`, Linux:
-    // `~/.local/share/com.nexonauts.recast/logs/`). Release builds get
-    // Warn level so we don't bloat user disks with per-frame info noise;
-    // debug builds stay at Info for active dev work.
-    let log_level = if cfg!(debug_assertions) {
-        log::LevelFilter::Info
-    } else {
-        log::LevelFilter::Warn
-    };
+    // `~/.local/share/com.nexonauts.recast/logs/`).
+    //
+    // The dispatch is built permissively (Trace); the EFFECTIVE level is set at
+    // runtime by `commands::system::apply_log_level` from the persisted
+    // `diagnostic_logging` flag (see below in `setup`). That single
+    // `log::set_max_level` gate covers both the Rust backend and the webview
+    // logs the frontend forwards through this same plugin — so a user can flip
+    // verbose diagnostics on without a restart. Default stays quiet: Warn in
+    // release (no per-frame info noise on user disks), Info in debug builds.
     builder = builder.plugin(
         tauri_plugin_log::Builder::default()
-            .level(log_level)
+            .level(log::LevelFilter::Trace)
             .build(),
     );
 
@@ -192,6 +196,11 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             let config = load_config(handle);
+
+            // Apply the saved log verbosity now (the plugin was built at Trace).
+            // Off by default → release stays at Warn; on → Debug captures
+            // backend + forwarded webview diagnostics for support bundles.
+            commands::system::apply_log_level(config.diagnostic_logging);
 
             // Seed the self-host cloud-endpoint override from persisted config
             // so the no-arg `cloud_api_url()` resolver reflects the user's
@@ -337,6 +346,9 @@ pub fn run() {
             commands::auth_cancel,
             commands::get_cloud_api_config,
             commands::set_cloud_api_url,
+            commands::get_diagnostic_logging,
+            commands::set_diagnostic_logging,
+            commands::open_log_dir,
             commands::get_close_to_tray,
             commands::set_close_to_tray,
             commands::set_telemetry_consent,

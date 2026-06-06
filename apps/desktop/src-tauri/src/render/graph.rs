@@ -327,6 +327,7 @@ impl RenderGraph {
         asset_cache_dir: Option<&Path>,
         border_radius_mask: Option<PathBuf>,
         drop_shadow_mask: Option<PathBuf>,
+        gradient_image: Option<PathBuf>,
         canvas: CanvasGeometry,
     ) -> Result<ExportPlan> {
         let background = self.nodes.iter().find_map(|node| match node {
@@ -415,6 +416,10 @@ impl RenderGraph {
             Some(bg) if matches!(bg.background_type.as_str(), "wallpaper" | "image") => {
                 resolve_background_path(&bg.value, static_root, asset_cache_dir)
             }
+            // Gradients are pre-rasterised to a PNG by the caller and composited
+            // exactly like an image — so the export matches the WebGL preview
+            // instead of collapsing to a flat fallback color.
+            Some(bg) if bg.background_type == "gradient" => gradient_image.clone(),
             _ => None,
         };
         let will_push_bg_image = resolved_bg_image.is_some();
@@ -425,11 +430,21 @@ impl RenderGraph {
 
         let filter_complex = match background {
             Some(background)
-                if matches!(background.background_type.as_str(), "wallpaper" | "image") =>
+                if matches!(
+                    background.background_type.as_str(),
+                    "wallpaper" | "image" | "gradient"
+                ) =>
             {
                 if resolved_bg_image.is_some() {
                     let mut segments = prelude_segments.clone();
-                    let blur_sigma = (background.blur / 8.0).max(0.0);
+                    // Gradients render edge-to-edge and must NOT be blurred (the
+                    // preview shader doesn't blur them); blur is an image-only
+                    // finishing control.
+                    let blur_sigma = if background.background_type == "gradient" {
+                        0.0
+                    } else {
+                        (background.blur / 8.0).max(0.0)
+                    };
                     segments.push(format!(
                         "[{bg_image_input_index}:v]scale={canvas_width}:{canvas_height}:force_original_aspect_ratio=increase,crop={canvas_width}:{canvas_height},boxblur={blur_sigma}[bg0]"
                     ));
@@ -622,9 +637,13 @@ fn build_zoom_filter(node: &ZoomNode, source: SourceVideoMetadata, time_offset: 
     // ih == H when Z = 1.0). Inside `crop`'s expressions, `iw` is the input
     // (post-scale) width — so even though we name the constant default `0`,
     // it remains correct because at Z=1 the post-scale dims equal source.
-    let z_expr = build_piecewise_expr(&samples_per_region, "1", |s| s.scale_factor);
-    let x_expr = build_piecewise_expr(&samples_per_region, "0", |s| s.crop_x);
-    let y_expr = build_piecewise_expr(&samples_per_region, "0", |s| s.crop_y);
+    // Tolerances are in each field's own units: ~0.4% of a typical zoom delta
+    // for the scale factor, and sub-pixel for the crop origin. Both are well
+    // below visible thresholds, so the collinear merge only drops redundant
+    // breakpoints — it doesn't change how the zoom looks.
+    let z_expr = build_piecewise_expr(&samples_per_region, "1", 0.0035, |s| s.scale_factor);
+    let x_expr = build_piecewise_expr(&samples_per_region, "0", 1.0, |s| s.crop_x);
+    let y_expr = build_piecewise_expr(&samples_per_region, "0", 1.0, |s| s.crop_y);
 
     format!(
         "scale=w='iw*({z_expr})':h='ih*({z_expr})':eval=frame,crop={}:{}:x='{x_expr}':y='{y_expr}'",
@@ -721,18 +740,26 @@ fn sample_region(
 ///
 /// Why flat instead of nested: FFmpeg's expression evaluator has a recursion
 /// depth limit and silently fails to parse deeply nested `if(..., if(..., ...))`
-/// chains beyond ~100 levels. With dense per-region sampling (up to 200 samples
-/// each, multiple regions) the right-fold form blew past the limit and the
-/// whole filter graph errored out at export time. Flat addition has effectively
-/// no depth — only string length.
+/// chains beyond ~100 levels. Flat addition has no depth — but `av_expr_parse`
+/// still fails ("Cannot allocate memory") on an over-LONG expression. A
+/// recording with many auto-zoom regions (one per click) produced ~120 terms
+/// and broke export at filter-init time.
 ///
-/// We also merge consecutive segments whose values are both constant and
-/// equal (the "hold" phase between ramp-in/ramp-out, where ~150 samples in a
-/// row carry the same z=1.8 value): a single wider `between(t,t_first,t_last)`
-/// term replaces the run, keeping the expression short.
+/// So we keep the expression small two ways:
+///   1. **Collinear merge** — the dense per-sample polyline is reduced to the
+///      fewest linear segments that stay within `base_tol` of the curve. A
+///      smooth ease ramp collapses from ~8 samples to a few, and the constant
+///      "hold" phase between ramp-in/out collapses to a single term for free.
+///   2. **Adaptive coarsening** — if a curve still exceeds `MAX_TERMS_PER_EXPR`
+///      (lots of regions), the tolerance is doubled and it's re-merged until it
+///      fits. Easing precision degrades only when there are many regions, and
+///      always stays under the parser's limit.
+const MAX_TERMS_PER_EXPR: usize = 48;
+
 fn build_piecewise_expr<F>(
     samples_per_region: &[Vec<ZoomSample>],
     default: &str,
+    base_tol: f64,
     field: F,
 ) -> String
 where
@@ -740,10 +767,39 @@ where
 {
     let default_val: f64 = default.parse().unwrap_or(0.0);
 
-    // Collect (t_a, v_a, t_b, v_b) segments per region, then merge runs of
-    // consecutive constant-and-equal segments into a single wider one.
+    let mut tol = base_tol.max(1e-9);
+    let mut terms = emit_piecewise_terms(samples_per_region, &field, default_val, tol);
+    // Coarsen until the term count fits the parser budget (bounded loop — the
+    // tolerance ceiling guarantees termination even pathologically).
+    while terms.len() > MAX_TERMS_PER_EXPR && tol < base_tol * 256.0 {
+        tol *= 2.0;
+        terms = emit_piecewise_terms(samples_per_region, &field, default_val, tol);
+    }
+
+    if terms.is_empty() {
+        return default.to_string();
+    }
+    format!("({}+{})", default, terms.join("+"))
+}
+
+/// Collinear-merge each region's samples at tolerance `tol`, then format the
+/// surviving segments as flat-sum `if(gte(t,a)*lt(t,b), contribution, 0)` terms.
+fn emit_piecewise_terms<F>(
+    samples_per_region: &[Vec<ZoomSample>],
+    field: &F,
+    default_val: f64,
+    tol: f64,
+) -> Vec<String>
+where
+    F: Fn(&ZoomSample) -> f64,
+{
+    // Collect merged (t_a, v_a, t_b, v_b) line segments per region.
     let mut segments: Vec<(f64, f64, f64, f64)> = Vec::new();
     for samples in samples_per_region {
+        // Greedy collinear merge: keep extending the current line to the next
+        // sample as long as dropping the intermediate breakpoint keeps it within
+        // `tol` of the extended line. A flat "hold" run is the degenerate case
+        // (slope 0) and collapses to one segment automatically.
         let mut run: Option<(f64, f64, f64, f64)> = None;
         for pair in samples.windows(2) {
             let (a, b) = (&pair[0], &pair[1]);
@@ -751,32 +807,27 @@ where
                 continue;
             }
             let (va, vb) = (field(a), field(b));
-            let is_const = (va - vb).abs() < 1e-6;
             match run {
-                Some((ra, rva, rb, rvb))
-                    if is_const
-                        && (rva - rvb).abs() < 1e-6
-                        && (rvb - va).abs() < 1e-6
-                        && (rb - a.t).abs() < 1e-6 =>
-                {
-                    run = Some((ra, rva, b.t, vb));
+                Some((ra, rva, _rb, _rvb)) => {
+                    let span = b.t - ra;
+                    let pred_at_a = if span > 1e-9 {
+                        rva + (vb - rva) * (a.t - ra) / span
+                    } else {
+                        va
+                    };
+                    if (pred_at_a - va).abs() <= tol {
+                        run = Some((ra, rva, b.t, vb)); // extend the line through b
+                    } else {
+                        segments.push((ra, rva, a.t, va)); // flush up to a
+                        run = Some((a.t, va, b.t, vb));
+                    }
                 }
-                Some(prev) => {
-                    segments.push(prev);
-                    run = Some((a.t, va, b.t, vb));
-                }
-                None => {
-                    run = Some((a.t, va, b.t, vb));
-                }
+                None => run = Some((a.t, va, b.t, vb)),
             }
         }
-        if let Some(prev) = run {
-            segments.push(prev);
+        if let Some(r) = run {
+            segments.push(r);
         }
-    }
-
-    if segments.is_empty() {
-        return default.to_string();
     }
 
     let mut terms: Vec<String> = Vec::with_capacity(segments.len());
@@ -788,9 +839,8 @@ where
                 continue;
             }
             // Half-open window [ta, tb) — `gte(t,ta)*lt(t,tb)` is 1 inside,
-            // 0 outside. Using `between` here would double-count at shared
-            // endpoints between adjacent segments because the flat sum can't
-            // short-circuit the way the old nested-if form did.
+            // 0 outside. Avoids double-counting at endpoints shared between
+            // adjacent segments (the flat sum can't short-circuit).
             format!("if(gte(t,{ta:.4})*lt(t,{tb:.4}),{offset:.4},0)")
         } else {
             let dt = tb - ta;
@@ -802,11 +852,7 @@ where
         };
         terms.push(term);
     }
-
-    if terms.is_empty() {
-        return default.to_string();
-    }
-    format!("({}+{})", default, terms.join("+"))
+    terms
 }
 
 fn resolve_background_path(
@@ -999,6 +1045,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 test_canvas(),
             )
             .expect("plan")
@@ -1016,6 +1063,7 @@ mod tests {
                 None,
                 None,
                 Some(shadow_path),
+                None,
                 test_canvas(),
             )
             .expect("plan")
@@ -1130,6 +1178,193 @@ mod tests {
         assert!(fc.contains("gte(t,1.0000)"), "first region missing: {fc}");
         assert!(fc.contains("gte(t,3.0000)"), "second region missing: {fc}");
         assert!(fc.contains("gte(t,6.0000)"), "third region missing: {fc}");
+    }
+
+    /// One region's worth of samples: ease-in (1.0→peak), hold, ease-out, at
+    /// 20 Hz — the shape auto-zoom produces. Used to stress the expression cap.
+    fn smooth_region_samples(t0: f64, peak: f64) -> Vec<ZoomSample> {
+        let mut v = Vec::new();
+        let mut push = |t: f64, z: f64| {
+            v.push(ZoomSample {
+                t,
+                scale_factor: z,
+                crop_x: 0.0,
+                crop_y: 0.0,
+            });
+        };
+        let smoothstep = |f: f64| f * f * (3.0 - 2.0 * f);
+        for i in 0..=8 {
+            let f = i as f64 / 8.0;
+            push(t0 + 0.05 * i as f64, 1.0 + (peak - 1.0) * smoothstep(f));
+        }
+        for i in 0..=20 {
+            push(t0 + 0.4 + 0.1 * i as f64, peak);
+        }
+        for i in 0..=8 {
+            let f = i as f64 / 8.0;
+            push(
+                t0 + 2.4 + 0.05 * i as f64,
+                peak - (peak - 1.0) * smoothstep(f),
+            );
+        }
+        v
+    }
+
+    /// Regression for the "Cannot allocate memory" export failure: many
+    /// auto-zoom regions must NOT blow past FFmpeg's expression parser limit.
+    #[test]
+    fn zoom_expression_stays_under_parser_budget_with_many_regions() {
+        let regions: Vec<Vec<ZoomSample>> = (0..16)
+            .map(|k| smooth_region_samples(k as f64 * 3.0, 1.6))
+            .collect();
+        let expr = build_piecewise_expr(&regions, "1", 0.0035, |s| s.scale_factor);
+        let term_count = expr.matches("if(").count();
+        assert!(
+            term_count <= MAX_TERMS_PER_EXPR,
+            "expression must stay under the {MAX_TERMS_PER_EXPR}-term budget, got {term_count}"
+        );
+    }
+
+    /// Collinear merge compacts a dense ramp but keeps its start anchor and the
+    /// flat-sum-over-default shape.
+    #[test]
+    fn collinear_merge_compacts_ramp_but_keeps_anchor() {
+        let region = smooth_region_samples(1.0, 1.5);
+        let expr = build_piecewise_expr(&[region], "1", 0.0035, |s| s.scale_factor);
+        assert!(expr.starts_with("(1+"), "flat sum over default: {expr}");
+        assert!(
+            expr.contains("gte(t,1.0000)"),
+            "ramp must start at t0: {expr}"
+        );
+        // The 21-sample hold (offset = peak − default = 0.5) collapses to one term.
+        assert_eq!(
+            expr.matches(",0.5000,0)").count(),
+            1,
+            "hold phase must collapse to a single term: {expr}"
+        );
+        // ...and the whole thing is well under the 36 raw sample windows.
+        assert!(
+            expr.matches("if(").count() < 20,
+            "merge should compact the curve: {expr}"
+        );
+    }
+
+    fn plan_with(
+        state: &RenderState,
+        border_mask: Option<PathBuf>,
+        shadow_mask: Option<PathBuf>,
+    ) -> ExportPlan {
+        RenderGraph::from_state(state)
+            .build_export_plan_with(
+                SourceVideoMetadata {
+                    width: 1920,
+                    height: 1080,
+                },
+                Path::new("."),
+                1,
+                None,
+                border_mask,
+                shadow_mask,
+                None,
+                test_canvas(),
+            )
+            .expect("plan")
+    }
+
+    /// Pull out the single-quoted FFmpeg expressions (`w='…'`, `x='…'`, …).
+    fn quoted_exprs(fc: &str) -> Vec<&str> {
+        let mut out = Vec::new();
+        let mut rest = fc;
+        while let Some(i) = rest.find('\'') {
+            let after = &rest[i + 1..];
+            match after.find('\'') {
+                Some(j) => {
+                    out.push(&after[..j]);
+                    rest = &after[j + 1..];
+                }
+                None => break,
+            }
+        }
+        out
+    }
+
+    fn assert_graph_valid(fc: &str, ctx: &str) {
+        assert_eq!(
+            fc.matches('(').count(),
+            fc.matches(')').count(),
+            "unbalanced parens [{ctx}]: {fc}"
+        );
+        assert_eq!(
+            fc.matches('[').count(),
+            fc.matches(']').count(),
+            "unbalanced brackets [{ctx}]: {fc}"
+        );
+        for expr in quoted_exprs(fc) {
+            assert!(
+                !expr.contains("NaN") && !expr.contains("inf"),
+                "non-finite value in expression [{ctx}]: {expr}"
+            );
+            assert!(
+                expr.matches("if(").count() <= MAX_TERMS_PER_EXPR,
+                "expression over parser budget [{ctx}]: {expr}"
+            );
+        }
+    }
+
+    /// Combinatorial guard over the render-side export options — background
+    /// type, padding, border-radius + drop-shadow masks, and zoom-region count
+    /// (incl. the many-region case that broke FFmpeg's parser). EVERY
+    /// combination must yield a structurally valid filter graph.
+    #[test]
+    fn export_filter_graph_valid_across_render_option_matrix() {
+        let bg_types = ["color", "gradient", "image", "wallpaper"];
+        let paddings = [0.0_f64, 8.0];
+        let zoom_counts = [0usize, 1, 8];
+        let mask_opts = [false, true];
+        let mut cases = 0;
+
+        for bg in bg_types {
+            for &pad in &paddings {
+                for &zc in &zoom_counts {
+                    for &masks in &mask_opts {
+                        let regions = (0..zc)
+                            .map(|i| region(1.0 + i as f64 * 3.0, 2.5 + i as f64 * 3.0, 1.6))
+                            .collect();
+                        let state = RenderState {
+                            background_type: bg.to_string(),
+                            background_value: if bg == "color" {
+                                "#202020".into()
+                            } else {
+                                "linear-gradient(180deg,#ffffff,#000000)".into()
+                            },
+                            padding: pad,
+                            border_radius: if masks { 25.0 } else { 0.0 },
+                            zoom_regions: regions,
+                            ..RenderState::default()
+                        };
+                        let (bm, sm) = if masks {
+                            (
+                                Some(PathBuf::from("border.png")),
+                                Some(PathBuf::from("shadow.png")),
+                            )
+                        } else {
+                            (None, None)
+                        };
+                        let plan = plan_with(&state, bm, sm);
+                        if let Some(fc) = plan.filter_complex.as_deref() {
+                            let ctx = format!("bg={bg} pad={pad} zoom={zc} masks={masks}");
+                            assert_graph_valid(fc, &ctx);
+                            assert!(!plan.video_map.is_empty(), "empty video_map [{ctx}]");
+                        }
+                        cases += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            cases,
+            bg_types.len() * paddings.len() * zoom_counts.len() * mask_opts.len()
+        );
     }
 
     /// Region partially overlapping `trim_start` (e.g. region [1, 4],

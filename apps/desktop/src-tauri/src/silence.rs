@@ -472,3 +472,49 @@ fn waveform_blocking(
     crate::cache::put("waveform", &input_paths, buckets as u64, &out);
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{frame_rms_db, intersect, round3, score};
+
+    #[test]
+    fn frame_rms_db_handles_silence_and_levels() {
+        // No samples and digital silence both read as the floor.
+        assert_eq!(frame_rms_db(&[]), -120.0);
+        assert_eq!(frame_rms_db(&[0, 0, 0, 0]), -120.0);
+        // Full-scale sits at ~0 dBFS, half-amplitude at ~ -6 dBFS.
+        assert!((frame_rms_db(&[i16::MAX; 64]) - 0.0).abs() < 0.01);
+        assert!((frame_rms_db(&[16384i16; 64]) - (-6.02)).abs() < 0.05);
+    }
+
+    #[test]
+    fn intersect_overlapping_disjoint_and_nested() {
+        assert_eq!(intersect(&[(0.0, 5.0)], &[(3.0, 8.0)]), vec![(3.0, 5.0)]);
+        assert!(intersect(&[(0.0, 1.0)], &[(2.0, 3.0)]).is_empty());
+        assert_eq!(
+            intersect(&[(0.0, 2.0), (5.0, 9.0)], &[(1.0, 6.0)]),
+            vec![(1.0, 2.0), (5.0, 6.0)]
+        );
+        assert_eq!(intersect(&[(0.0, 10.0)], &[(2.0, 4.0)]), vec![(2.0, 4.0)]);
+    }
+
+    #[test]
+    fn score_scales_with_length_and_cursor_confirmation() {
+        // A 4 s segment saturates the length term (0.45 + 0.40).
+        assert!((score((0.0, 4.0), false) - 0.85_f32).abs() < 1e-4);
+        // Cursor confirmation adds 0.15 and clamps at 1.0.
+        assert!((score((0.0, 4.0), true) - 1.0_f32).abs() < 1e-4);
+        // A 2 s segment → half the length term.
+        assert!((score((0.0, 2.0), false) - 0.65_f32).abs() < 1e-4);
+        // Always within [0, 1].
+        let long = score((0.0, 100.0), true);
+        assert!((0.0..=1.0).contains(&long));
+    }
+
+    #[test]
+    fn round3_rounds_to_milliseconds() {
+        assert_eq!(round3(1.234_56), 1.235);
+        assert_eq!(round3(0.0), 0.0);
+        assert_eq!(round3(2.0 / 3.0), 0.667);
+    }
+}

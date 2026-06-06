@@ -43,13 +43,63 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [Unreleased]
 
 ### Highlights
-- **macOS is now in public beta** — downloadable from the website and GitHub Releases, and installable in one line with Homebrew.
+- **Desktop diagnostics are getting first-class tooling** — a user-facing logging toggle, log management controls, and extra key-event tracing for chasing down phantom shortcut reports.
+- **Editor polishing pass in progress** — the preset picker is being upgraded with richer visual previews and better keyboard navigation, while the Info and Audio panels are being reshaped into more actionable summaries.
 
 ### Added
-- Homebrew install for macOS through a custom tap. `brew install --cask kanakkholwal/recast/recast` fetches the right build for your chip (Apple Silicon or Intel), and Homebrew strips the Gatekeeper quarantine automatically — so the `xattr` "is damaged" workaround isn't needed on this path. Tap once with `brew tap kanakkholwal/recast` to install and upgrade by the short `recast` name. (The publishing workflow landed earlier; this is the install path going live for the macOS beta.)
+- Diagnostic logging controls in the desktop app: a feature flag / UI toggle for verbose logs, plus log management plumbing so debugging information can be turned on when needed instead of asking users to reproduce issues blind.
+- Extra keyboard-event diagnostics in the desktop shell so modifier-key and stale-listener bugs can be traced from real `keydown` payloads when debugging editor shortcuts.
 
 ### Changed
-- Download page and GitHub release notes now lead the macOS section with the Homebrew one-liner alongside the direct `.dmg` downloads, and label macOS as beta so the expectation is set up-front.
+- Desktop environment variables are being consolidated so configuration reads from one clearer source of truth instead of drifting across multiple names and code paths.
+- Preset picker refresh in progress: the current preset is pinned and visibly marked, categories gain icons, wallpaper presets render real thumbnail previews, and arrow-key navigation now moves across the 2-column grid predictably instead of walking raw DOM order.
+- Info panel redesign in progress: source, project, and edit stats are being reorganized into clearer cards with direct jump actions into the related editor tabs.
+- Audio panel redesign in progress: fade presets move into a segmented control, output/fade controls get a clearer hierarchy, and the panel now states the current shared system-audio + microphone mixing model more honestly.
+
+### Fixed
+- Tooltip positioning in the properties panel now avoids the previous clipping / overlap cases, making the labels readable around tighter panel layouts.
+
+## [0.2.2] — 2026-06-05
+
+### Highlights
+- **Recast Cloud management got broader and sharper** — uploads, shares, poster replacement, engagement tracking, and dashboard-side performance views all moved forward together.
+- **Desktop playback and editing feel faster on real projects** — thumbnail and waveform data can now be cached on disk instead of being recomputed every session.
+- **Capture setup is more defensive** — camera capability gating and browser-side device enumeration reduce bad hardware choices before recording starts.
+
+### Added
+- Poster replacement for recasts, plus engagement tracking and supporting shares / performance surfaces on the dashboard so cloud-hosted recordings are easier to manage after upload.
+- Browser-side device enumeration and capability checks for cameras, helping the recorder present more reliable hardware choices before capture begins.
+- New SVG cursor sprites and the supporting cursor-style management refactor, laying cleaner groundwork for richer cursor overlays in the editor and exports.
+
+### Changed
+- Dashboard upload and recast-management flows were expanded, giving Recast Cloud a more complete post-upload management surface instead of treating upload as the end of the workflow.
+- Legacy share-visibility values are normalized more consistently, and share access management is clearer across older and newer recast records.
+- Desktop environment configuration was reorganized, and the macOS capture path received follow-up handling improvements as the beta setup hardened.
+- macOS installation guidance was tightened up so download and setup steps are clearer for beta users.
+
+### Fixed
+- Thumbnails and waveform data can now be cached to disk, cutting down repeated processing and improving responsiveness when reopening projects.
+
+## [0.2.1] — 2026-06-03
+
+### Highlights
+- **Recast Cloud arrived in earnest** — uploads, share links, password protection, expiry, workspace-aware routing, and self-host configuration all landed across web and desktop.
+- **Library organization got real tools** — tags, archives, and tag-management UI make larger recast collections manageable instead of flat lists.
+- **Recording startup became more controllable** — countdown support, per-profile delay overrides, and Windows aspect-ratio locking smooth out capture setup.
+
+### Added
+- Recast Cloud upload and share flows across the app, including workspace-aware upload routing and broader share-management plumbing for cloud-hosted recasts.
+- Password-protected and expiring share links, plus account-less access for selected shares so private distribution has more than one mode.
+- Tags and archives for recasts: API support, archived recast management, and a tag-management dialog for renaming, recoloring, and deleting tags.
+- Self-hosting endpoint configuration in desktop settings through the `CloudEndpoint` settings surface.
+- Recording countdown support with customizable duration and per-profile overrides, so different recording setups can start with different delays.
+- Analytics groundwork across web and desktop for measuring product and sharing behavior as Recast Cloud rolls out.
+
+### Changed
+- Local desktop persistence moved from raw `localStorage` usage to `safeStorage`-backed handling where appropriate, improving resilience and synchronization for saved state.
+- Azure storage configuration validation was hardened with constant-time comparison, reducing opportunities for subtle auth and config mistakes.
+- Shared recast pages picked up release-process and SEO improvements, and the pricing table layout was adjusted to hold up better at narrower widths.
+- The Windows recording window now respects aspect-ratio locking while resizing, making capture setup less fussy.
 
 ## [0.2.0] — 2026-05-30
 

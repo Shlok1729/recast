@@ -672,12 +672,90 @@ mod blur_tests {
 
     #[test]
     fn radius_huge_clamps_to_127() {
+        // Large region so boxblur's hard ceiling (127) — not the region size —
+        // is the binding limit.
         let regs = [BlurRegion {
             radius: 9999,
+            w: 1024,
+            h: 720,
             ..region_with("glass", 0.0, 1.0)
         }];
         let (chain, _) = build_annotation_blur_complex(None, "vout", &regs);
         assert!(chain.contains("boxblur=luma_radius=127"));
+    }
+
+    /// Regression for the "Invalid luma_param radius value 84 ... must be <= 81"
+    /// export crash: a radius larger than the (small) region's plane must clamp
+    /// down, per-plane — chroma is half-size under 4:2:0 so it caps even lower.
+    #[test]
+    fn radius_clamps_to_region_plane_size() {
+        let regs = [BlurRegion {
+            radius: 84,
+            w: 164,
+            h: 164,
+            ..region_with("glass", 0.0, 1.0)
+        }];
+        let (chain, _) = build_annotation_blur_complex(None, "vout", &regs);
+        // luma plane 164 → max (164-1)/2 = 81; chroma plane 82 → (82-1)/2 = 40.
+        assert!(chain.contains("boxblur=luma_radius=81:"), "chain: {chain}");
+        assert!(chain.contains("chroma_radius=40:"), "chain: {chain}");
+    }
+
+    /// First integer following `key` in `chain` (e.g. "luma_radius=").
+    fn radius_after(chain: &str, key: &str) -> i32 {
+        let start = chain
+            .find(key)
+            .unwrap_or_else(|| panic!("{key} missing: {chain}"))
+            + key.len();
+        let rest = &chain[start..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        rest[..end].parse().expect("digits")
+    }
+
+    /// Combinatorial guard (the dynamic version of the regression above): across
+    /// region sizes × requested radii × variants, EVERY emitted boxblur radius
+    /// must satisfy FFmpeg's per-plane constraint `2*r + 1 <= plane_dim` — chroma
+    /// is half-size under 4:2:0. No combination may produce an invalid filter.
+    #[test]
+    fn blur_radius_valid_for_every_region_size_and_strength() {
+        let sizes = [
+            (4, 4),
+            (8, 8),
+            (64, 40),
+            (164, 164),
+            (320, 180),
+            (1920, 1080),
+        ];
+        let radii = [0u32, 1, 12, 40, 84, 127, 9999];
+        let variants = ["glass", "white", "black", "color", "unknown"];
+        let mut cases = 0;
+        for &(w, h) in &sizes {
+            for &r in &radii {
+                for v in variants {
+                    let regs = [BlurRegion {
+                        w,
+                        h,
+                        radius: r,
+                        ..region_with(v, 0.0, 1.0)
+                    }];
+                    let (chain, _) = build_annotation_blur_complex(None, "vout", &regs);
+                    let lr = radius_after(&chain, "luma_radius=");
+                    let cr = radius_after(&chain, "chroma_radius=");
+                    assert!(
+                        2 * lr + 1 <= w.min(h),
+                        "luma radius {lr} invalid for {w}x{h} (r={r}, {v}): {chain}"
+                    );
+                    assert!(
+                        2 * cr + 1 <= (w / 2).min(h / 2),
+                        "chroma radius {cr} invalid for {w}x{h} (r={r}, {v}): {chain}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+        assert_eq!(cases, sizes.len() * radii.len() * variants.len());
     }
 
     #[test]
@@ -735,6 +813,111 @@ mod blur_tests {
         let (chain, _) = build_annotation_blur_complex(None, "vout", &regs);
         assert!(chain.contains("crop=320:180:0:0"));
         assert!(chain.contains("overlay=x=0:y=0"));
+    }
+}
+
+#[cfg(test)]
+mod export_profile_tests {
+    //! Combinatorial coverage of the export-option axes that drive codec
+    //! settings: `quality` (resolution/CRF profile) and `speed` (encoder
+    //! effort). Each value — including unknown ones, which must fall back —
+    //! produces a sane, in-range config and a well-formed scale filter.
+    use super::*;
+
+    const QUALITIES: &[&str] = &["small", "hd", "4k", "source", "weird-unknown"];
+    const SPEEDS: &[&str] = &["fast", "balanced", "quality", "nonsense"];
+
+    #[test]
+    fn every_quality_profile_is_sane() {
+        for &quality in QUALITIES {
+            let p = resolve_export_profile(quality);
+            // CRF/CQ within each codec's accepted range.
+            assert!(
+                (1..=51).contains(&p.mp4_crf),
+                "{quality} mp4_crf={}",
+                p.mp4_crf
+            );
+            assert!(
+                (1..=51).contains(&p.mp4_nvenc_cq),
+                "{quality} cq={}",
+                p.mp4_nvenc_cq
+            );
+            assert!(
+                (1..=63).contains(&p.webm_crf),
+                "{quality} webm_crf={}",
+                p.webm_crf
+            );
+            assert!(
+                p.gif_fps > 0 && p.gif_fps <= 50,
+                "{quality} gif_fps={}",
+                p.gif_fps
+            );
+            // Resolution bounds are present-or-absent together; if present, sane.
+            assert_eq!(
+                p.max_width.is_some(),
+                p.max_height.is_some(),
+                "{quality}: width/height bound parity"
+            );
+            if let (Some(w), Some(h)) = (p.max_width, p.max_height) {
+                assert!(w >= 320 && h >= 240, "{quality}: bounds {w}x{h} too small");
+            }
+            assert!(!p.mp4_preset.is_empty(), "{quality}: empty x264 preset");
+            // The output scale filter always ends with the even-dimension snap
+            // (libx264 + yuv420p needs even w/h); bounded profiles additionally
+            // fit-within their max box. The unbounded "source" profile omits the
+            // fit step — that's correct, not a bug.
+            let bounded = p.max_width.is_some();
+            if let Some(f) = build_output_scale_filter(p) {
+                assert!(
+                    f.contains("trunc(iw/2)*2"),
+                    "{quality}: missing even snap: {f}"
+                );
+                if bounded {
+                    assert!(
+                        f.contains("force_original_aspect_ratio"),
+                        "{quality}: bounded profile missing fit step: {f}"
+                    );
+                }
+                assert_eq!(
+                    f.matches('(').count(),
+                    f.matches(')').count(),
+                    "{quality}: {f}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_speed_maps_to_valid_codec_presets() {
+        for &speed in SPEEDS {
+            let s = ExportSpeed::from_request(speed);
+            // NVENC preset is p1..p7.
+            let nv = s.nvenc_preset();
+            let level = nv.strip_prefix('p').and_then(|n| n.parse::<u8>().ok());
+            assert!(
+                matches!(level, Some(1..=7)),
+                "{speed}: bad nvenc preset {nv}"
+            );
+            // VP9 cpu-used is 0..8.
+            let vp9 = s.vp9_cpu_used().parse::<u8>().ok();
+            assert!(matches!(vp9, Some(0..=8)), "{speed}: bad vp9 cpu-used");
+            assert!(!s.amf_quality().is_empty() && !s.qsv_preset().is_empty());
+            // x264: Balanced defers to the profile preset (None); others override.
+            match s {
+                ExportSpeed::Balanced => assert!(s.x264_preset().is_none()),
+                _ => assert!(s.x264_preset().is_some()),
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_values_fall_back_to_balanced_and_hd() {
+        assert_eq!(ExportSpeed::from_request("???"), ExportSpeed::Balanced);
+        let hd = resolve_export_profile("hd");
+        let unknown = resolve_export_profile("???");
+        assert_eq!(hd.mp4_crf, unknown.mp4_crf);
+        assert_eq!(hd.max_width, unknown.max_width);
+        assert_eq!(hd.gif_fps, unknown.gif_fps);
     }
 }
 
@@ -1220,20 +1403,31 @@ pub fn build_annotation_blur_complex(
         // no `=` between filter name and outputs.
         lines.push(format!("{current_in}split{main_label}{src_label}"));
 
-        // Crop + box-blur the source copy. Clamp radius into FFmpeg's
-        // accepted range (1..127) and ensure at least 1 to keep the
-        // filter literal.
-        // boxblur's true max is 127; clamping to 64 was leaving redaction
-        // visibly readable at 1080p+. luma_power=3 stacks three passes →
-        // effective σ ≈ radius, so at radius=127 a region is fully obliterated.
-        let radius = region.radius.clamp(1, 127);
+        // Crop + box-blur the source copy.
+        //
+        // boxblur rejects a radius larger than `(min(plane_w, plane_h) - 1) / 2`
+        // for EACH plane, and under 4:2:0 the chroma plane is half-size, so it
+        // caps lower than luma. We therefore clamp each radius to its OWN plane:
+        // a small blur region can't request a radius bigger than itself. This
+        // was the "Invalid luma_param radius value 84 ... must be <= 81" export
+        // crash — a heavy blur on a small region. (127 is boxblur's hard ceiling;
+        // luma_power=3 stacks three passes so even a region-limited radius still
+        // obliterates detail for redaction. Luma stays as strong as the region
+        // allows; chroma may be softer without weakening the redaction.)
+        let w = region.w.max(2);
+        let h = region.h.max(2);
+        let x = region.x.max(0);
+        let y = region.y.max(0);
+        // FFmpeg requires `2*radius + 1 <= plane_dim`, i.e. radius <=
+        // (dim-1)/2 per plane. A region too small to support even radius 1
+        // resolves to 0 (a valid boxblur no-op) rather than an invalid literal.
+        let requested = region.radius.clamp(1, 127) as i32;
+        let luma_max = (w.min(h) - 1) / 2;
+        let chroma_max = ((w / 2).min(h / 2) - 1) / 2;
+        let luma_r = requested.min(luma_max);
+        let chroma_r = requested.min(chroma_max);
         let mut tail = format!(
-            "{src_label}crop={w}:{h}:{x}:{y},boxblur=luma_radius={r}:luma_power=3:chroma_radius={r}:chroma_power=3",
-            w = region.w.max(2),
-            h = region.h.max(2),
-            x = region.x.max(0),
-            y = region.y.max(0),
-            r = radius,
+            "{src_label}crop={w}:{h}:{x}:{y},boxblur=luma_radius={luma_r}:luma_power=3:chroma_radius={chroma_r}:chroma_power=3"
         );
 
         // Tint variants overlay a translucent solid colour over the

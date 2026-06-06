@@ -268,59 +268,16 @@ fn screen_ordinal_for_display(display_id: u32) -> u32 {
         .unwrap_or(0)
 }
 
-/// Parse the cached AVFoundation device listing into `(screen_ordinal,
-/// avfoundation_input_index)` pairs. The input index is the global `[N]` FFmpeg
-/// assigns across all video devices (cameras come first, then screens), which
-/// is what `-i "N:"` expects; the screen ordinal is the number in the
-/// "Capture screen K" label. Cached for the process lifetime — the listing is
-/// shared with the camera/audio probes via `ffmpeg::cached_avfoundation_devices`.
+/// Cached `(screen_ordinal, avfoundation_input_index)` pairs for this process.
+/// The parsing lives in `super::parse_capture_screen_listing` (pure +
+/// unit-tested on every host); here we just feed it the cached device listing,
+/// shared with the camera/audio probes via `ffmpeg::cached_avfoundation_devices`
+/// so the FFmpeg listing spawn runs at most once per launch.
 fn capture_screen_indices() -> &'static [(u32, u32)] {
     static CACHED: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
     CACHED.get_or_init(|| {
         let stderr = crate::ffmpeg::cached_avfoundation_devices();
-        let mut out = Vec::new();
-        let mut in_video = false;
-        for line in stderr.lines() {
-            if line.contains("video devices:") {
-                in_video = true;
-                continue;
-            }
-            if line.contains("audio devices:") {
-                in_video = false;
-                continue;
-            }
-            if !in_video {
-                continue;
-            }
-            let lower = line.to_ascii_lowercase();
-            let Some(pos) = lower.find("capture screen") else {
-                continue;
-            };
-            // Screen ordinal: the first integer after "capture screen".
-            let after = lower[pos + "capture screen".len()..].trim_start();
-            let ordinal: u32 = match after
-                .split(|c: char| !c.is_ascii_digit())
-                .find(|t| !t.is_empty())
-                .and_then(|t| t.parse().ok())
-            {
-                Some(n) => n,
-                None => continue,
-            };
-            // Global input index: the last `[N]` bracket pair BEFORE the
-            // "Capture screen" text (skips the `[AVFoundation indev @ 0x..]`
-            // log prefix and never reads into the label itself).
-            let prefix = &line[..pos];
-            let Some(close) = prefix.rfind(']') else {
-                continue;
-            };
-            let Some(open) = prefix[..close].rfind('[') else {
-                continue;
-            };
-            if let Ok(global) = prefix[open + 1..close].trim().parse::<u32>() {
-                out.push((ordinal, global));
-            }
-        }
-        out
+        super::parse_capture_screen_listing(&stderr)
     })
 }
 

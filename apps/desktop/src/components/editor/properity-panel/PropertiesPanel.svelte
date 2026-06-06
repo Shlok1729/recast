@@ -107,7 +107,7 @@
                 <span class="sr-only">{tab.label}</span>
               </Tabs.Trigger>
             </Tooltip.Trigger>
-            <Tooltip.Content>{tab.label}</Tooltip.Content>
+            <Tooltip.Content side="bottom">{tab.label}</Tooltip.Content>
           </Tooltip.Root>
         {/each}
       </Tabs.List>

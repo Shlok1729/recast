@@ -19,6 +19,9 @@
 		"fmt:check": "cargo fmt --manifest-path src-tauri/Cargo.toml --all --check",
 		"lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings",
 		"lint:fix": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --fix --allow-dirty --allow-staged -- -D warnings",
+		"test": "pnpm test:rust",
+		"test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+		"test:rust:watch": "cargo watch -x \"test --manifest-path src-tauri/Cargo.toml --lib\"",
 		"clean:cargo": "cd src-tauri && cargo clean"
 	},
 	"devDependencies": {
@@ -52,6 +55,7 @@
 		"@lucide/svelte": "^0.577.0",
 		"@recast/player": "workspace:*",
 		"@tauri-apps/plugin-dialog": "2.6.0",
+		"@tauri-apps/plugin-log": "~2.8.0",
 		"@tauri-apps/plugin-opener": "~2.5.4",
 		"@tauri-apps/plugin-os": "^2.3.2",
 		"@tauri-apps/plugin-process": "~2.3.0",

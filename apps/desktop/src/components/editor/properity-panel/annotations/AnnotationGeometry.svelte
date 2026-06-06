@@ -8,12 +8,13 @@
     AlignCenter as AlignCenterX,
     AlignEndHorizontal,
     AlignEndVertical,
-    AlignHorizontalSpaceAround,
     AlignStartHorizontal,
     AlignStartVertical,
     AlignVerticalSpaceAround,
   } from "@lucide/svelte";
+  import { Input } from "@recast/ui/input";
   import { cn } from "@recast/ui/utils";
+  import PanelSection from "../PanelSection.svelte";
 
   interface Props {
     store: EditorStore;
@@ -105,144 +106,139 @@
     });
   }
 
-  // Render geometry inputs depending on the kind. Arrows use endpoint pairs.
   const isArrow = $derived(annotation.kind.kind === "arrow");
 
+  const INPUT_CLASS = "h-7 px-2 text-[11px] tabular-nums";
   const ALIGN_BTN =
-    "grid size-7 place-items-center rounded border border-border bg-background text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground";
+    "grid size-7 place-items-center rounded-md border border-border/60 bg-card/60 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40";
+
+  const FIELD_LABEL = "flex flex-col gap-0.5 text-[10px] text-muted-foreground";
 </script>
 
-<section class="flex flex-col gap-2 border-t border-border pt-3">
-  <h3 class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70">
-    Geometry
-  </h3>
+<PanelSection title="Geometry" flush collapsible defaultOpen={false}>
+  <div class="flex flex-col gap-2.5">
+    {#if isArrow && annotation.kind.kind === "arrow"}
+      {@const k = annotation.kind}
+      <div class="grid grid-cols-2 gap-2">
+        <label class={FIELD_LABEL}>
+          <span>x1</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.x1)}
+            onchange={(e) =>
+              setArrow({ x1: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.x1) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+        <label class={FIELD_LABEL}>
+          <span>y1</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.y1)}
+            onchange={(e) =>
+              setArrow({ y1: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.y1) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+        <label class={FIELD_LABEL}>
+          <span>x2</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.x2)}
+            onchange={(e) =>
+              setArrow({ x2: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.x2) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+        <label class={FIELD_LABEL}>
+          <span>y2</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.y2)}
+            onchange={(e) =>
+              setArrow({ y2: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.y2) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+      </div>
+    {:else if annotation.kind.kind === "rect" || annotation.kind.kind === "ellipse" || annotation.kind.kind === "text" || annotation.kind.kind === "image" || annotation.kind.kind === "blur"}
+      {@const k = annotation.kind}
+      <div class="grid grid-cols-2 gap-2">
+        <label class={FIELD_LABEL}>
+          <span>X</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.x)}
+            onchange={(e) =>
+              setBox({ x: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.x) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+        <label class={FIELD_LABEL}>
+          <span>Y</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.y)}
+            onchange={(e) =>
+              setBox({ y: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.y) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+        <label class={FIELD_LABEL}>
+          <span>W</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.w)}
+            onchange={(e) =>
+              setBox({ w: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.w) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+        <label class={FIELD_LABEL}>
+          <span>H</span>
+          <Input
+            type="number"
+            step="0.5"
+            value={fmt(k.h)}
+            onchange={(e) =>
+              setBox({ h: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.h) })}
+            class={INPUT_CLASS}
+          />
+        </label>
+      </div>
+    {/if}
 
-  {#if isArrow && annotation.kind.kind === "arrow"}
-    {@const k = annotation.kind}
-    <div class="grid grid-cols-2 gap-2">
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>x1</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.x1)}
-          onchange={(e) =>
-            setArrow({ x1: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.x1) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>y1</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.y1)}
-          onchange={(e) =>
-            setArrow({ y1: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.y1) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>x2</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.x2)}
-          onchange={(e) =>
-            setArrow({ x2: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.x2) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>y2</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.y2)}
-          onchange={(e) =>
-            setArrow({ y2: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.y2) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-    </div>
-  {:else if annotation.kind.kind === "rect" || annotation.kind.kind === "ellipse" || annotation.kind.kind === "text" || annotation.kind.kind === "image" || annotation.kind.kind === "blur"}
-    {@const k = annotation.kind}
-    <div class="grid grid-cols-2 gap-2">
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>X</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.x)}
-          onchange={(e) =>
-            setBox({ x: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.x) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>Y</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.y)}
-          onchange={(e) =>
-            setBox({ y: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.y) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>W</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.w)}
-          onchange={(e) =>
-            setBox({ w: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.w) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-      <label class="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-        <span>H</span>
-        <input
-          type="number"
-          step="0.5"
-          value={fmt(k.h)}
-          onchange={(e) =>
-            setBox({ h: parseAndCommit((e.currentTarget as HTMLInputElement).value, k.h) })}
-          class="h-7 rounded border border-border bg-background px-2 text-[11px] tabular-nums text-foreground outline-none focus:border-primary/60"
-        />
-      </label>
-    </div>
-  {/if}
-
-  <!-- Frame-relative alignment -->
-  <div class="space-y-1">
-    <p class="text-[10px] text-muted-foreground">Align to frame</p>
-    <div class="flex items-center gap-1">
-      <button type="button" onclick={() => alignFrame("x", "start")} class={cn(ALIGN_BTN)} title="Align left">
-        <AlignStartVertical size={12} />
-      </button>
-      <button type="button" onclick={() => alignFrame("x", "center")} class={cn(ALIGN_BTN)} title="Center horizontally">
-        <AlignCenterX size={12} />
-      </button>
-      <button type="button" onclick={() => alignFrame("x", "end")} class={cn(ALIGN_BTN)} title="Align right">
-        <AlignEndVertical size={12} />
-      </button>
-      <span class="mx-1 h-4 w-px bg-border"></span>
-      <button type="button" onclick={() => alignFrame("y", "start")} class={cn(ALIGN_BTN)} title="Align top">
-        <AlignStartHorizontal size={12} />
-      </button>
-      <button type="button" onclick={() => alignFrame("y", "center")} class={cn(ALIGN_BTN)} title="Center vertically">
-        <AlignVerticalSpaceAround size={12} />
-      </button>
-      <button type="button" onclick={() => alignFrame("y", "end")} class={cn(ALIGN_BTN)} title="Align bottom">
-        <AlignEndHorizontal size={12} />
-      </button>
-      <!-- Reserve a spot for distribute helpers (multi-select) in v2.1 — keeps
-           the UI stable as we expand. -->
-      <span class="ml-auto text-[10px] text-muted-foreground/60" title="Distribute coming with multi-select">
-        <AlignHorizontalSpaceAround size={12} class="opacity-30" />
-      </span>
+    <!-- Frame-relative alignment -->
+    <div class="flex flex-col gap-1">
+      <span class="text-[10px] text-muted-foreground">Align to frame</span>
+      <div class="flex items-center gap-1">
+        <button type="button" onclick={() => alignFrame("x", "start")} class={cn(ALIGN_BTN)} title="Align left">
+          <AlignStartVertical size={12} />
+        </button>
+        <button type="button" onclick={() => alignFrame("x", "center")} class={cn(ALIGN_BTN)} title="Center horizontally">
+          <AlignCenterX size={12} />
+        </button>
+        <button type="button" onclick={() => alignFrame("x", "end")} class={cn(ALIGN_BTN)} title="Align right">
+          <AlignEndVertical size={12} />
+        </button>
+        <span class="mx-1 h-4 w-px bg-border/60"></span>
+        <button type="button" onclick={() => alignFrame("y", "start")} class={cn(ALIGN_BTN)} title="Align top">
+          <AlignStartHorizontal size={12} />
+        </button>
+        <button type="button" onclick={() => alignFrame("y", "center")} class={cn(ALIGN_BTN)} title="Center vertically">
+          <AlignVerticalSpaceAround size={12} />
+        </button>
+        <button type="button" onclick={() => alignFrame("y", "end")} class={cn(ALIGN_BTN)} title="Align bottom">
+          <AlignEndHorizontal size={12} />
+        </button>
+      </div>
     </div>
   </div>
-</section>
+</PanelSection>

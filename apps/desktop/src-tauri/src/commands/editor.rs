@@ -889,6 +889,23 @@ pub async fn export_video(
         .unwrap_or_else(|| "Recast_export".to_string());
     let output_path = super::unique_path(&output_dir, &source_stem, extension);
 
+    // Backend processing trace, correlated with the frontend's `export_started`
+    // line by `export_id`. Info level → captured in dev and in diagnostic mode.
+    log::info!(
+        "export[{}] start: {}x{} dur={:.1}s format={} quality={} speed={} -> {}",
+        export_id,
+        metadata.width,
+        metadata.height,
+        duration,
+        request.format,
+        request.quality,
+        request.speed.as_deref().unwrap_or("balanced"),
+        output_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default(),
+    );
+
     let asset_cache_dir = app
         .path()
         .app_data_dir()
@@ -958,6 +975,22 @@ pub async fn export_video(
         };
     let drop_shadow_mask_path = drop_shadow_mask.as_ref().map(|m| m.path.clone());
 
+    // Gradient backgrounds are rasterised to a canvas-sized PNG so the export
+    // composites the exact multi-stop, angled gradient the WebGL preview shows.
+    // Without this the FFmpeg planner falls back to a single flat color. Held
+    // alive until the export finishes (the temp dir auto-cleans on drop).
+    let gradient_bg: Option<MaskResult> = if request.render_state.background_type == "gradient" {
+        crate::render::mask_export::render_gradient_background(
+            &request.render_state.background_value,
+            canvas_width,
+            canvas_height,
+        )
+        .map_err(|e| format!("gradient background render failed: {e}"))?
+    } else {
+        None
+    };
+    let gradient_bg_path = gradient_bg.as_ref().map(|m| m.path.clone());
+
     let export_plan = graph
         .build_export_plan_with(
             SourceVideoMetadata {
@@ -969,6 +1002,7 @@ pub async fn export_video(
             asset_cache_dir.as_deref(),
             border_radius_mask_path,
             drop_shadow_mask_path,
+            gradient_bg_path,
             canvas_geom,
         )
         .map_err(|e| e.to_string())?;
