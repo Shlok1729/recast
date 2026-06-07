@@ -15,11 +15,14 @@ name: CI Desktop App
 # macOS hardware — that is deliberately out of scope here.
 
 on:
+  # Push is scoped to the default branch only; `pull_request` covers every other
+  # branch. Running push on "**" as well caused a duplicate run whenever a commit
+  # landed on a branch that also had an open PR (both `push` and `pull_request`
+  # fired for the same SHA). Tag pushes (`v*`, handled by release-desktop.yml)
+  # don't match a `branches` filter, so no `tags-ignore` is needed.
   push:
     branches:
-      - "**"
-    tags-ignore:
-      - "v*" # tag pushes are handled by release-desktop.yml
+      - main
     paths:
       - "apps/desktop/**"
       - "packages/**"

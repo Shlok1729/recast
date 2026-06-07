@@ -7,11 +7,13 @@ name: Verify Extensions
 # dependency install step, so it's fast.
 
 on:
+  # Push scoped to the default branch only; `pull_request` covers every other
+  # branch. Running push on "**" too double-fired CI on branches with an open PR
+  # (both `push` and `pull_request` triggered for the same SHA). Tag pushes don't
+  # match a `branches` filter, so `tags-ignore` is unnecessary.
   push:
     branches:
-      - "**"
-    tags-ignore:
-      - "v*"
+      - main
     paths:
       - "extensions/**"
       - ".github/workflows/verify-extensions.yml"
