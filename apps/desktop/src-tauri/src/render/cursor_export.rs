@@ -292,14 +292,30 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
     // same blend_pixel path serves every overlay sprite.
     const CURSOR_SPRITE_KEY_REST: &str = "__recast_cursor_rest__";
     const CURSOR_SPRITE_KEY_PRESS: &str = "__recast_cursor_press__";
-    if let Some(url) = &request.render_state.cursor_sprite_rest {
-        if let Some(img) = decode_data_url(url) {
-            image_cache.insert(CURSOR_SPRITE_KEY_REST.into(), img);
-        }
-    }
-    if let Some(url) = &request.render_state.cursor_sprite_press {
-        if let Some(img) = decode_data_url(url) {
-            image_cache.insert(CURSOR_SPRITE_KEY_PRESS.into(), img);
+    const CURSOR_SPRITE_KEY_RIGHT_PRESS: &str = "__recast_cursor_right_press__";
+    const CURSOR_SPRITE_KEY_DRAG: &str = "__recast_cursor_drag__";
+    for (url, key) in [
+        (
+            &request.render_state.cursor_sprite_rest,
+            CURSOR_SPRITE_KEY_REST,
+        ),
+        (
+            &request.render_state.cursor_sprite_press,
+            CURSOR_SPRITE_KEY_PRESS,
+        ),
+        (
+            &request.render_state.cursor_sprite_right_press,
+            CURSOR_SPRITE_KEY_RIGHT_PRESS,
+        ),
+        (
+            &request.render_state.cursor_sprite_drag,
+            CURSOR_SPRITE_KEY_DRAG,
+        ),
+    ] {
+        if let Some(url) = url {
+            if let Some(img) = decode_data_url(url) {
+                image_cache.insert(key.into(), img);
+            }
         }
     }
     let cursor_sprite_active = image_cache.contains_key(CURSOR_SPRITE_KEY_REST);
@@ -570,24 +586,30 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
             // click halo (below) still keys on the literal sample state
             // so the ring fires on the audio-sync frame.
             let pressed = press.pressed_sprite;
-            let key = if pressed && image_cache.contains_key(CURSOR_SPRITE_KEY_PRESS) {
-                CURSOR_SPRITE_KEY_PRESS
+            // Preferred slot for this frame, falling back to whatever art the
+            // style actually shipped: drag → press → rest, rightPress → press
+            // → rest. The rest sprite is guaranteed present here.
+            let rs = &request.render_state;
+            let (key, slot_hotspot) = if pressed {
+                if press.dragged && image_cache.contains_key(CURSOR_SPRITE_KEY_DRAG) {
+                    (CURSOR_SPRITE_KEY_DRAG, rs.cursor_sprite_hotspot_drag)
+                } else if press.right && image_cache.contains_key(CURSOR_SPRITE_KEY_RIGHT_PRESS) {
+                    (
+                        CURSOR_SPRITE_KEY_RIGHT_PRESS,
+                        rs.cursor_sprite_hotspot_right_press,
+                    )
+                } else if image_cache.contains_key(CURSOR_SPRITE_KEY_PRESS) {
+                    (CURSOR_SPRITE_KEY_PRESS, rs.cursor_sprite_hotspot_press)
+                } else {
+                    (CURSOR_SPRITE_KEY_REST, rs.cursor_sprite_hotspot_rest)
+                }
             } else {
-                CURSOR_SPRITE_KEY_REST
+                (CURSOR_SPRITE_KEY_REST, rs.cursor_sprite_hotspot_rest)
             };
             if let Some(img) = image_cache.get(key) {
-                let hotspot = if pressed {
-                    request
-                        .render_state
-                        .cursor_sprite_hotspot_press
-                        .or(request.render_state.cursor_sprite_hotspot_rest)
-                        .unwrap_or([0.5, 0.5])
-                } else {
-                    request
-                        .render_state
-                        .cursor_sprite_hotspot_rest
-                        .unwrap_or([0.5, 0.5])
-                };
+                let hotspot = slot_hotspot
+                    .or(rs.cursor_sprite_hotspot_rest)
+                    .unwrap_or([0.5, 0.5]);
                 // Sprite size: source-pixel design size from JS, mapped to
                 // canvas pixels with the same `scale_canvas` factor used
                 // for the cursor position above. Bounce scale modulates
@@ -811,7 +833,9 @@ fn active_zoom_at(
     time_offset: f64,
 ) -> Option<(f64, f64, f64)> {
     for region in regions {
-        if t_secs < region.start || t_secs > region.end {
+        // Hidden regions are muted in the video filter too — keep the cursor's
+        // affine in lockstep so it isn't transformed by a zoom that never renders.
+        if region.hidden || t_secs < region.start || t_secs > region.end {
             continue;
         }
         // Rebuild the exact sample grid `sample_region` emits, then linearly

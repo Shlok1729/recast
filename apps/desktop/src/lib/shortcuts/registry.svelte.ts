@@ -153,7 +153,7 @@ export const shortcutDefs: ShortcutDef[] = [
 	},
 	{
 		id: "general.record",
-		keys: "Mod+Shift+R",
+		keys: "Mod+Alt+R",
 		label: "Launch recording panel",
 		category: "General",
 		central: true,

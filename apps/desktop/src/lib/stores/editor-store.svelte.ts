@@ -49,6 +49,11 @@ export interface ZoomRegion {
 	 * "Clear auto zooms" leaves their tweaks alone.
 	 */
 	source: "manual" | "auto";
+	/**
+	 * Muted in preview AND export but kept in the project — a non-destructive
+	 * toggle so you can A/B a zoom without losing its settings. Absent = visible.
+	 */
+	hidden?: boolean;
 }
 
 export const DEFAULT_ZOOM_RAMP = 0.35;
@@ -212,7 +217,11 @@ export const DEFAULT_ANNOTATION_FILL = "rgba(59,130,246,0.20)";
  *  - Anything else: an SVG cursor sprite drawn by `CursorOverlayLayer` over
  *    the preview. Preview-only today; export currently falls back to `dot`.
  */
-export type CursorStyleId = 'dot' | 'macos' | 'windows' | 'outline' | 'target';
+// Bundled built-in cursor styles. The soft `dot` (default, shader-drawn) plus
+// the two system-accurate sets. The original macos/windows/outline/target
+// styles moved into the installable "Classic Cursors" pack and are addressed
+// as `ext:classic-cursors:<id>` once installed.
+export type CursorStyleId = 'dot' | 'macos-system' | 'windows-system';
 
 /**
  * Stored cursor selection: a built-in {@link CursorStyleId} or an
@@ -479,6 +488,7 @@ export interface EditorRenderState {
 		centerY: number;
 		motionBlur: number;
 		source?: "manual" | "auto";
+		hidden?: boolean;
 	}>;
 	autoZoomApplied?: boolean;
 	autoZoomEnabled?: boolean;
@@ -510,8 +520,12 @@ export interface EditorRenderState {
 	// `export_video`). Not persisted to disk; never set by `loadRenderState`.
 	cursorSpriteRest?: string;          // data:image/png;base64,…
 	cursorSpritePress?: string;         // optional; falls back to rest in Rust
+	cursorSpriteRightPress?: string;    // optional; falls back to press → rest in Rust
+	cursorSpriteDrag?: string;          // optional; falls back to press → rest in Rust
 	cursorSpriteHotspotRest?: [number, number];   // 0..1 sprite UV
 	cursorSpriteHotspotPress?: [number, number];
+	cursorSpriteHotspotRightPress?: [number, number];
+	cursorSpriteHotspotDrag?: [number, number];
 	cursorSpriteSizePx?: number;        // sprite render size in source pixels
 }
 
@@ -1156,6 +1170,70 @@ export function createEditorStore() {
 		log.info('focus', 'zoom_removed', { id });
 	}
 
+	/** Remove every zoom region in one undo step. */
+	function clearZoomRegions() {
+		if (zoomRegions.length === 0) return;
+		pushUndoState();
+		zoomRegions = [];
+		selectedZoomRegionId = null;
+		log.info('focus', 'zoom_cleared_all', {});
+	}
+
+	/**
+	 * Duplicate a region's settings into a new one placed immediately after it
+	 * (back-to-back, same duration), clamped to the clip. A duplicate is always
+	 * "manual" — it's an explicit user edit — and the copy becomes selected.
+	 */
+	function duplicateZoomRegion(id: string) {
+		const src = zoomRegions.find((z) => z.id === id);
+		if (!src) return;
+		pushUndoState();
+		const clipEnd = trimEnd || metadata?.duration || src.end;
+		const duration = Math.max(0.1, src.end - src.start);
+		let start = src.end;
+		let end = start + duration;
+		if (end > clipEnd) {
+			// No room after the original — clamp the tail; if that collapses the
+			// window, just stack it on top of the original (user can drag it).
+			end = clipEnd;
+			start = Math.max(trimStart, end - duration);
+			if (end - start < 0.1) {
+				start = src.start;
+				end = src.end;
+			}
+		}
+		const copy: ZoomRegion = {
+			...src,
+			id: generateId(),
+			easeIn: { ...src.easeIn },
+			easeOut: { ...src.easeOut },
+			start,
+			end,
+			source: "manual",
+			hidden: src.hidden ?? false,
+		};
+		// Insert right after the source so list order matches the timeline.
+		const idx = zoomRegions.findIndex((z) => z.id === id);
+		zoomRegions = [
+			...zoomRegions.slice(0, idx + 1),
+			copy,
+			...zoomRegions.slice(idx + 1),
+		];
+		selectedZoomRegionId = copy.id;
+		log.info('focus', 'zoom_duplicated', { from: id, id: copy.id });
+		return copy.id;
+	}
+
+	/** Toggle (or set) a region's hidden flag — non-destructive mute. */
+	function setZoomRegionHidden(id: string, hidden?: boolean) {
+		const src = zoomRegions.find((z) => z.id === id);
+		if (!src) return;
+		pushUndoState();
+		const next = hidden ?? !(src.hidden ?? false);
+		zoomRegions = zoomRegions.map((z) => (z.id === id ? { ...z, hidden: next } : z));
+		log.info('focus', 'zoom_hidden_toggled', { id, hidden: next });
+	}
+
 	function updateZoomRegion(id: string, updates: Partial<ZoomRegion>) {
 		// Drag/resize/slider edits stream in — debounce per region id.
 		log.debounced(`zoom-${id}`, 'focus', 'zoom_updated', { id, ...updates });
@@ -1503,6 +1581,7 @@ export function createEditorStore() {
 				centerY: region.centerY,
 				motionBlur: region.motionBlur,
 				source: region.source,
+				hidden: region.hidden ?? false,
 			})),
 			autoZoomApplied,
 			autoZoomEnabled,
@@ -1574,6 +1653,7 @@ export function createEditorStore() {
 			centerY: region.centerY ?? DEFAULT_ZOOM_CENTER,
 			motionBlur: region.motionBlur ?? DEFAULT_ZOOM_MOTION_BLUR,
 			source: region.source ?? "manual",
+			hidden: region.hidden ?? false,
 		}));
 		// Legacy projects predate the auto-zoom flags. Treat them as already
 		// processed so we don't retroactively scatter zooms across footage
@@ -1855,6 +1935,9 @@ export function createEditorStore() {
 		addAutoZoomRegion,
 		clearAutoZooms,
 		removeZoomRegion,
+		clearZoomRegions,
+		duplicateZoomRegion,
+		setZoomRegionHidden,
 		updateZoomRegion,
 		selectZoomRegion,
 		addCut,

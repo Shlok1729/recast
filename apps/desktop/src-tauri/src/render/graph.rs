@@ -116,9 +116,17 @@ pub struct RenderState {
     #[serde(default)]
     pub cursor_sprite_press: Option<String>,
     #[serde(default)]
+    pub cursor_sprite_right_press: Option<String>,
+    #[serde(default)]
+    pub cursor_sprite_drag: Option<String>,
+    #[serde(default)]
     pub cursor_sprite_hotspot_rest: Option<[f64; 2]>,
     #[serde(default)]
     pub cursor_sprite_hotspot_press: Option<[f64; 2]>,
+    #[serde(default)]
+    pub cursor_sprite_hotspot_right_press: Option<[f64; 2]>,
+    #[serde(default)]
+    pub cursor_sprite_hotspot_drag: Option<[f64; 2]>,
     #[serde(default)]
     pub cursor_sprite_size_px: Option<f64>,
     /// Catch-all for any JS-only settings (e.g. `cursorStyle`,
@@ -170,8 +178,12 @@ impl Default for RenderState {
             camera_overlay: CameraOverlaySettings::default(),
             cursor_sprite_rest: None,
             cursor_sprite_press: None,
+            cursor_sprite_right_press: None,
+            cursor_sprite_drag: None,
             cursor_sprite_hotspot_rest: None,
             cursor_sprite_hotspot_press: None,
+            cursor_sprite_hotspot_right_press: None,
+            cursor_sprite_hotspot_drag: None,
             cursor_sprite_size_px: None,
             passthrough: serde_json::Map::new(),
         }
@@ -616,9 +628,10 @@ fn build_zoom_filter(node: &ZoomNode, source: SourceVideoMetadata, time_offset: 
     let samples_per_region: Vec<Vec<ZoomSample>> = node
         .regions
         .iter()
-        // Skip regions whose entire timeline window precedes `trim_start` —
-        // their LUT entries would all have negative output-t and never fire.
-        .filter(|region| region.end > time_offset)
+        // Skip hidden regions (non-destructive mute) and regions whose entire
+        // timeline window precedes `trim_start` (their LUT entries would all
+        // have negative output-t and never fire).
+        .filter(|region| !region.hidden && region.end > time_offset)
         .map(|region| sample_region(region, source, time_offset))
         .collect();
 
@@ -627,26 +640,27 @@ fn build_zoom_filter(node: &ZoomNode, source: SourceVideoMetadata, time_offset: 
         return String::new();
     }
 
-    // Three time-varying expressions:
+    // Three time-varying expressions, ALL built on the SAME merged scale
+    // breakpoints (see `build_zoom_exprs`):
     //   z_expr — multiplicative zoom factor, default 1.0 outside regions.
-    //   x_expr — crop top-left X in POST-SCALE absolute pixels.
-    //   y_expr — crop top-left Y in POST-SCALE absolute pixels.
+    //   x_expr — crop top-left X in POST-SCALE absolute pixels, default 0.
+    //   y_expr — crop top-left Y in POST-SCALE absolute pixels, default 0.
     //
-    // Defaults outside any region produce a centred crop on the un-zoomed
-    // source: x = (iw - W) / 2 = 0, y = (ih - H) / 2 = 0 (since iw == W and
-    // ih == H when Z = 1.0). Inside `crop`'s expressions, `iw` is the input
-    // (post-scale) width — so even though we name the constant default `0`,
-    // it remains correct because at Z=1 the post-scale dims equal source.
-    // Tolerances are in each field's own units: ~0.4% of a typical zoom delta
-    // for the scale factor, and sub-pixel for the crop origin. Both are well
-    // below visible thresholds, so the collinear merge only drops redundant
-    // breakpoints — it doesn't change how the zoom looks.
-    let z_expr = build_piecewise_expr(&samples_per_region, "1", 0.0035, |s| s.scale_factor);
-    let x_expr = build_piecewise_expr(&samples_per_region, "0", 1.0, |s| s.crop_x);
-    let y_expr = build_piecewise_expr(&samples_per_region, "0", 1.0, |s| s.crop_y);
+    // The crop origin is `cx*iw*(Z-1)` — the exact inverse of the preview's
+    // focus-pinned affine (`content_uv = (screen_uv - c)/scale + c`). Critically
+    // the crop LUT is derived from the SAME piecewise segments as the scale LUT,
+    // not merged independently, so `x` and `z` agree on `Z` at every t. Merging
+    // them separately (the previous bug) let their breakpoints/round-off diverge;
+    // since the implied focus is `x / (iw*(Z-1))`, that disagreement is divided
+    // by `(Z-1)` and blew up near the ramp ends (Z≈1) into a visible focus slide
+    // — EXPORT-only, because the preview computes the affine exactly per frame.
+    let iw = source.width as f64;
+    let ih = source.height as f64;
+    let (z_expr, x_expr, y_expr) = build_zoom_exprs(&samples_per_region, iw, ih);
 
     format!(
-        "scale=w='iw*({z_expr})':h='ih*({z_expr})':eval=frame,crop={}:{}:x='{x_expr}':y='{y_expr}'",
+        "scale=w='iw*({z_expr})':h='ih*({z_expr})':eval=frame,\
+         crop={}:{}:x='{x_expr}':y='{y_expr}'",
         source.width, source.height
     )
 }
@@ -655,13 +669,16 @@ fn build_zoom_filter(node: &ZoomNode, source: SourceVideoMetadata, time_offset: 
 struct ZoomSample {
     t: f64,            // output-stream time (post-trim) at this sample
     scale_factor: f64, // multiplicative zoom factor (>= 1.0)
-    crop_x: f64,       // crop top-left X in POST-SCALE absolute pixels
-    crop_y: f64,       // crop top-left Y in POST-SCALE absolute pixels
+    center_x: f64,     // focus centre X in UV space (0..1), constant per region
+    center_y: f64,     // focus centre Y in UV space (0..1), constant per region
 }
 
 fn sample_region(
     region: &ZoomRegion,
-    source: SourceVideoMetadata,
+    // Source dimensions are no longer needed: the crop origin is derived from
+    // the crop filter's own `in_w`/`in_h` at render time, not pre-computed in
+    // absolute pixels here. Kept in the signature for call-site symmetry.
+    _source: SourceVideoMetadata,
     time_offset: f64,
 ) -> Vec<ZoomSample> {
     // Clamp the sampling window to the post-trim portion of the region.
@@ -675,26 +692,14 @@ fn sample_region(
     } else {
         0.0
     };
-    let iw = source.width as f64;
-    let ih = source.height as f64;
-    // Output crop window matches source dimensions — we scale UP by Z(t),
-    // then crop a source-sized window from the upscaled frame.
-    let out_w = iw;
-    let out_h = ih;
-    // Focus centre is CONSTANT at (center_x, center_y) for the whole region —
-    // only the scale eases. This MUST match the editor preview's affine zoom
-    // (`content_uv = (screen_uv - c)/scale + c`, a focus-pinned transform) AND
-    // the cursor overlay, which uses the same affine forward transform. The
-    // crop below is the exact inverse of that shader sampling. The previous
-    // implementation did two things differently from the preview, both of
-    // which threw the composited cursor off and produced the "scale at centre
-    // then snap" look:
-    //   1. it eased the focus 0.5→target across the ramp (preview holds it
-    //      constant), and
-    //   2. it centred the focus point on the OUTPUT centre (`fx*iw_post -
-    //      out_w/2`) — a different zoom model than the preview's focus-pinned
-    //      affine, so the FFmpeg-zoomed video and the affine cursor disagreed
-    //      about where every pixel lands.
+    // Each sample carries the eased scale plus the region's CONSTANT focus
+    // centre (only the scale eases). The crop origin is NOT precomputed here as
+    // absolute pixels: it's derived later in `build_zoom_exprs` from the same
+    // merged scale segments, so the crop and scale LUTs share breakpoints and
+    // can't disagree on `Z` (the cause of the export-only focus drift). The
+    // centre must match the preview's focus-pinned affine
+    // (`content_uv = (screen_uv - c)/scale + c`) and the cursor overlay, which
+    // uses the same affine forward transform.
     let fx_target = region.center_x.clamp(0.0, 1.0);
     let fy_target = region.center_y.clamp(0.0, 1.0);
     let mut out = Vec::with_capacity(samples + 1);
@@ -704,155 +709,164 @@ fn sample_region(
         let timeline_t = effective_start + step * i as f64;
         let output_t = timeline_t - time_offset;
         let scale = region.scale_at(timeline_t).max(1.0);
-        // Affine focus-pinned crop. Derivation: the preview samples
-        // `content_uv = (screen_uv - c)/scale + c`; matching that against
-        // FFmpeg's "scale by Z then crop out_w" gives a crop origin of
-        // `c*(scale-1)*iw` in post-scale pixels. For scale ≥ 1 and c ∈ [0,1]
-        // this is provably within [0, iw_post - out_w], so the clamp is purely
-        // defensive (it never distorts the result the way the old centre-crop
-        // clamp could near an edge focus).
-        let iw_post = iw * scale;
-        let ih_post = ih * scale;
-        let crop_x = (fx_target * (scale - 1.0) * iw).clamp(0.0, (iw_post - out_w).max(0.0));
-        let crop_y = (fy_target * (scale - 1.0) * ih).clamp(0.0, (ih_post - out_h).max(0.0));
         out.push(ZoomSample {
             t: output_t,
             scale_factor: scale,
-            crop_x,
-            crop_y,
+            center_x: fx_target,
+            center_y: fy_target,
         });
     }
     out
 }
 
-/// Build one FFmpeg expression that evaluates a per-sample quantity via a
-/// piecewise-linear lookup over all regions, falling back to `default` when
-/// `t` is outside every region.
-///
-/// Emitted as a FLAT SUM rather than nested `if`s:
-///
-///   default + if(between(t,t0,t1), v(t)-default, 0)
-///           + if(between(t,t1,t2), v(t)-default, 0) + ...
-///
-/// At most one segment fires for any given `t` (regions don't overlap and
-/// segments within a region are abutting half-open windows in practice), so
-/// the sum equals the active segment's value or the default when none fire.
-///
-/// Why flat instead of nested: FFmpeg's expression evaluator has a recursion
-/// depth limit and silently fails to parse deeply nested `if(..., if(..., ...))`
-/// chains beyond ~100 levels. Flat addition has no depth — but `av_expr_parse`
-/// still fails ("Cannot allocate memory") on an over-LONG expression. A
-/// recording with many auto-zoom regions (one per click) produced ~120 terms
-/// and broke export at filter-init time.
-///
-/// So we keep the expression small two ways:
-///   1. **Collinear merge** — the dense per-sample polyline is reduced to the
-///      fewest linear segments that stay within `base_tol` of the curve. A
-///      smooth ease ramp collapses from ~8 samples to a few, and the constant
-///      "hold" phase between ramp-in/out collapses to a single term for free.
-///   2. **Adaptive coarsening** — if a curve still exceeds `MAX_TERMS_PER_EXPR`
-///      (lots of regions), the tolerance is doubled and it's re-merged until it
-///      fits. Easing precision degrades only when there are many regions, and
-///      always stays under the parser's limit.
+/// FFmpeg's `av_expr_parse` fails ("Cannot allocate memory") on an over-long
+/// expression — a recording with many auto-zoom regions once produced ~120
+/// terms and broke export at filter-init time. We keep each of the three
+/// expressions (z/x/y) under this many flat-sum terms.
 const MAX_TERMS_PER_EXPR: usize = 48;
 
-fn build_piecewise_expr<F>(
+/// One collinear-merged line segment over output time: value goes linearly from
+/// `(ta, va)` to `(tb, vb)`.
+type Segment = (f64, f64, f64, f64);
+
+/// Build the three time-varying FFmpeg expressions for the zoom — `(z, x, y)`:
+///   z — multiplicative zoom factor, default 1.0 outside every region.
+///   x — crop top-left X in post-scale pixels, default 0.
+///   y — crop top-left Y in post-scale pixels, default 0.
+///
+/// All three are emitted from the SAME merged scale breakpoints. The crop
+/// origin is the exact inverse of the preview's focus-pinned affine —
+/// `crop_x = cx*iw*(Z-1)`, `crop_y = cy*ih*(Z-1)` — evaluated at the very same
+/// segment endpoints as `Z`. Because `crop_x` is an affine function of `Z` and
+/// `Z` is linear within each segment, `crop_x` is exactly linear over that same
+/// segment, so the crop LUT and scale LUT can never disagree on `Z` at any `t`.
+/// (Merging them independently was the old bug: their breakpoints diverged and
+/// the implied focus `x/(iw*(Z-1))` blew up near the ramp ends where `Z≈1`,
+/// producing the export-only focus slide.)
+///
+/// Emitted as a FLAT SUM (`default + if(window,Δ,0) + …`) rather than nested
+/// `if`s, because FFmpeg's evaluator has a recursion-depth limit; at most one
+/// window fires per `t` (regions don't overlap; segments abut as half-open
+/// windows) so the sum equals the active segment's value or the default.
+fn build_zoom_exprs(
     samples_per_region: &[Vec<ZoomSample>],
-    default: &str,
-    base_tol: f64,
-    field: F,
-) -> String
-where
-    F: Fn(&ZoomSample) -> f64,
-{
-    let default_val: f64 = default.parse().unwrap_or(0.0);
-
-    let mut tol = base_tol.max(1e-9);
-    let mut terms = emit_piecewise_terms(samples_per_region, &field, default_val, tol);
-    // Coarsen until the term count fits the parser budget (bounded loop — the
-    // tolerance ceiling guarantees termination even pathologically).
-    while terms.len() > MAX_TERMS_PER_EXPR && tol < base_tol * 256.0 {
+    iw: f64,
+    ih: f64,
+) -> (String, String, String) {
+    // Merge the eased scale into the fewest linear segments per region, then
+    // coarsen (double the tolerance) until the total fits the parser budget.
+    // The hold phase collapses to one segment for free; a smooth ramp collapses
+    // from ~8 samples to a few.
+    let base_tol = 0.0035_f64;
+    let mut tol = base_tol;
+    let mut segs = merge_scale_segments(samples_per_region, tol);
+    while segment_count(&segs) > MAX_TERMS_PER_EXPR && tol < base_tol * 256.0 {
         tol *= 2.0;
-        terms = emit_piecewise_terms(samples_per_region, &field, default_val, tol);
+        segs = merge_scale_segments(samples_per_region, tol);
     }
 
-    if terms.is_empty() {
-        return default.to_string();
+    let mut z_terms = Vec::new();
+    let mut x_terms = Vec::new();
+    let mut y_terms = Vec::new();
+    for (region_idx, region_segs) in segs.iter().enumerate() {
+        // Focus centre is constant per region — read it off any sample.
+        let (cx, cy) = samples_per_region
+            .get(region_idx)
+            .and_then(|s| s.first())
+            .map(|s| (s.center_x, s.center_y))
+            .unwrap_or((0.5, 0.5));
+        for &(ta, za, tb, zb) in region_segs {
+            if let Some(t) = fmt_term(ta, za, tb, zb, 1.0) {
+                z_terms.push(t);
+            }
+            // crop_x = cx*iw*(Z-1); linear in t over the same segment as Z.
+            if let Some(t) = fmt_term(ta, cx * iw * (za - 1.0), tb, cx * iw * (zb - 1.0), 0.0) {
+                x_terms.push(t);
+            }
+            if let Some(t) = fmt_term(ta, cy * ih * (za - 1.0), tb, cy * ih * (zb - 1.0), 0.0) {
+                y_terms.push(t);
+            }
+        }
     }
-    format!("({}+{})", default, terms.join("+"))
+
+    (
+        wrap_flat_sum("1", z_terms),
+        wrap_flat_sum("0", x_terms),
+        wrap_flat_sum("0", y_terms),
+    )
 }
 
-/// Collinear-merge each region's samples at tolerance `tol`, then format the
-/// surviving segments as flat-sum `if(gte(t,a)*lt(t,b), contribution, 0)` terms.
-fn emit_piecewise_terms<F>(
-    samples_per_region: &[Vec<ZoomSample>],
-    field: &F,
-    default_val: f64,
-    tol: f64,
-) -> Vec<String>
-where
-    F: Fn(&ZoomSample) -> f64,
-{
-    // Collect merged (t_a, v_a, t_b, v_b) line segments per region.
-    let mut segments: Vec<(f64, f64, f64, f64)> = Vec::new();
-    for samples in samples_per_region {
-        // Greedy collinear merge: keep extending the current line to the next
-        // sample as long as dropping the intermediate breakpoint keeps it within
-        // `tol` of the extended line. A flat "hold" run is the degenerate case
-        // (slope 0) and collapses to one segment automatically.
-        let mut run: Option<(f64, f64, f64, f64)> = None;
-        for pair in samples.windows(2) {
-            let (a, b) = (&pair[0], &pair[1]);
-            if b.t <= a.t {
-                continue;
-            }
-            let (va, vb) = (field(a), field(b));
-            match run {
-                Some((ra, rva, _rb, _rvb)) => {
-                    let span = b.t - ra;
-                    let pred_at_a = if span > 1e-9 {
-                        rva + (vb - rva) * (a.t - ra) / span
-                    } else {
-                        va
-                    };
-                    if (pred_at_a - va).abs() <= tol {
-                        run = Some((ra, rva, b.t, vb)); // extend the line through b
-                    } else {
-                        segments.push((ra, rva, a.t, va)); // flush up to a
-                        run = Some((a.t, va, b.t, vb));
-                    }
-                }
-                None => run = Some((a.t, va, b.t, vb)),
-            }
-        }
-        if let Some(r) = run {
-            segments.push(r);
-        }
+fn wrap_flat_sum(default: &str, terms: Vec<String>) -> String {
+    if terms.is_empty() {
+        default.to_string()
+    } else {
+        format!("({}+{})", default, terms.join("+"))
     }
+}
 
-    let mut terms: Vec<String> = Vec::with_capacity(segments.len());
-    for (ta, va, tb, vb) in segments {
-        let term = if (va - vb).abs() < 1e-6 {
-            // Constant segment: contribution is (va - default).
-            let offset = va - default_val;
-            if offset.abs() < 1e-6 {
-                continue;
+fn segment_count(segs: &[Vec<Segment>]) -> usize {
+    segs.iter().map(|s| s.len()).sum()
+}
+
+/// Greedy collinear merge of each region's samples on `scale_factor`: keep
+/// extending the current line to the next sample while dropping the intermediate
+/// breakpoint stays within `tol` of the extended line.
+fn merge_scale_segments(samples_per_region: &[Vec<ZoomSample>], tol: f64) -> Vec<Vec<Segment>> {
+    samples_per_region
+        .iter()
+        .map(|samples| {
+            let mut segments: Vec<Segment> = Vec::new();
+            let mut run: Option<Segment> = None;
+            for pair in samples.windows(2) {
+                let (a, b) = (&pair[0], &pair[1]);
+                if b.t <= a.t {
+                    continue;
+                }
+                let (va, vb) = (a.scale_factor, b.scale_factor);
+                match run {
+                    Some((ra, rva, _rb, _rvb)) => {
+                        let span = b.t - ra;
+                        let pred_at_a = if span > 1e-9 {
+                            rva + (vb - rva) * (a.t - ra) / span
+                        } else {
+                            va
+                        };
+                        if (pred_at_a - va).abs() <= tol {
+                            run = Some((ra, rva, b.t, vb));
+                        } else {
+                            segments.push((ra, rva, a.t, va));
+                            run = Some((a.t, va, b.t, vb));
+                        }
+                    }
+                    None => run = Some((a.t, va, b.t, vb)),
+                }
             }
-            // Half-open window [ta, tb) — `gte(t,ta)*lt(t,tb)` is 1 inside,
-            // 0 outside. Avoids double-counting at endpoints shared between
-            // adjacent segments (the flat sum can't short-circuit).
-            format!("if(gte(t,{ta:.4})*lt(t,{tb:.4}),{offset:.4},0)")
-        } else {
-            let dt = tb - ta;
-            let dv = vb - va;
-            let offset_a = va - default_val;
-            format!(
-                "if(gte(t,{ta:.4})*lt(t,{tb:.4}),({offset_a:.4}+{dv:.6}*(t-{ta:.4})/{dt:.4}),0)"
-            )
-        };
-        terms.push(term);
+            if let Some(r) = run {
+                segments.push(r);
+            }
+            segments
+        })
+        .collect()
+}
+
+/// Format one segment as a flat-sum term over the half-open window `[ta, tb)`,
+/// contributing `value - default`. Returns `None` for a constant segment that
+/// equals the default (nothing to add).
+fn fmt_term(ta: f64, va: f64, tb: f64, vb: f64, default_val: f64) -> Option<String> {
+    if (va - vb).abs() < 1e-6 {
+        let offset = va - default_val;
+        if offset.abs() < 1e-6 {
+            return None;
+        }
+        Some(format!("if(gte(t,{ta:.4})*lt(t,{tb:.4}),{offset:.4},0)"))
+    } else {
+        let dt = tb - ta;
+        let dv = vb - va;
+        let offset_a = va - default_val;
+        Some(format!(
+            "if(gte(t,{ta:.4})*lt(t,{tb:.4}),({offset_a:.4}+{dv:.6}*(t-{ta:.4})/{dt:.4}),0)"
+        ))
     }
-    terms
 }
 
 fn resolve_background_path(
@@ -1013,6 +1027,7 @@ mod tests {
             center_x: 0.5,
             center_y: 0.5,
             motion_blur: 0.0,
+            hidden: false,
         }
     }
 
@@ -1180,6 +1195,22 @@ mod tests {
         assert!(fc.contains("gte(t,6.0000)"), "third region missing: {fc}");
     }
 
+    /// A hidden region is a non-destructive mute: it must contribute NOTHING to
+    /// the export filter (no scale/crop prelude when it's the only region).
+    #[test]
+    fn hidden_zoom_region_is_excluded_from_export() {
+        let mut r = region(1.0, 4.0, 1.6);
+        r.hidden = true;
+        let state = render_state_with_zoom(0.0, 5.0, vec![r]);
+        let plan = export_plan(&state);
+        if let Some(fc) = plan.filter_complex {
+            assert!(
+                !fc.contains("eval=frame"),
+                "hidden region must produce no zoom prelude: {fc}"
+            );
+        }
+    }
+
     /// One region's worth of samples: ease-in (1.0→peak), hold, ease-out, at
     /// 20 Hz — the shape auto-zoom produces. Used to stress the expression cap.
     fn smooth_region_samples(t0: f64, peak: f64) -> Vec<ZoomSample> {
@@ -1188,8 +1219,8 @@ mod tests {
             v.push(ZoomSample {
                 t,
                 scale_factor: z,
-                crop_x: 0.0,
-                crop_y: 0.0,
+                center_x: 0.5,
+                center_y: 0.5,
             });
         };
         let smoothstep = |f: f64| f * f * (3.0 - 2.0 * f);
@@ -1217,12 +1248,14 @@ mod tests {
         let regions: Vec<Vec<ZoomSample>> = (0..16)
             .map(|k| smooth_region_samples(k as f64 * 3.0, 1.6))
             .collect();
-        let expr = build_piecewise_expr(&regions, "1", 0.0035, |s| s.scale_factor);
-        let term_count = expr.matches("if(").count();
-        assert!(
-            term_count <= MAX_TERMS_PER_EXPR,
-            "expression must stay under the {MAX_TERMS_PER_EXPR}-term budget, got {term_count}"
-        );
+        let (z, x, y) = build_zoom_exprs(&regions, 1920.0, 1080.0);
+        for (name, expr) in [("z", &z), ("x", &x), ("y", &y)] {
+            let term_count = expr.matches("if(").count();
+            assert!(
+                term_count <= MAX_TERMS_PER_EXPR,
+                "{name} expression must stay under the {MAX_TERMS_PER_EXPR}-term budget, got {term_count}"
+            );
+        }
     }
 
     /// Collinear merge compacts a dense ramp but keeps its start anchor and the
@@ -1230,23 +1263,58 @@ mod tests {
     #[test]
     fn collinear_merge_compacts_ramp_but_keeps_anchor() {
         let region = smooth_region_samples(1.0, 1.5);
-        let expr = build_piecewise_expr(&[region], "1", 0.0035, |s| s.scale_factor);
-        assert!(expr.starts_with("(1+"), "flat sum over default: {expr}");
-        assert!(
-            expr.contains("gte(t,1.0000)"),
-            "ramp must start at t0: {expr}"
-        );
+        let (z, _x, _y) = build_zoom_exprs(&[region], 1920.0, 1080.0);
+        assert!(z.starts_with("(1+"), "flat sum over default: {z}");
+        assert!(z.contains("gte(t,1.0000)"), "ramp must start at t0: {z}");
         // The 21-sample hold (offset = peak − default = 0.5) collapses to one term.
         assert_eq!(
-            expr.matches(",0.5000,0)").count(),
+            z.matches(",0.5000,0)").count(),
             1,
-            "hold phase must collapse to a single term: {expr}"
+            "hold phase must collapse to a single term: {z}"
         );
         // ...and the whole thing is well under the 36 raw sample windows.
         assert!(
-            expr.matches("if(").count() < 20,
-            "merge should compact the curve: {expr}"
+            z.matches("if(").count() < 20,
+            "merge should compact the curve: {z}"
         );
+    }
+
+    /// The x/y crop LUTs MUST share the scale LUT's time breakpoints, so the
+    /// crop can never disagree with the scale on `Z` (their independent merge was
+    /// the export-only focus-drift bug). Every `gte(t,…)` window in `z` must also
+    /// appear in `x` and `y`, and vice versa.
+    #[test]
+    fn crop_lut_shares_scale_breakpoints() {
+        let mut r = region(1.0, 4.0, 1.6);
+        r.center_x = 0.8;
+        r.center_y = 0.3;
+        let samples = vec![sample_region(
+            &r,
+            SourceVideoMetadata {
+                width: 1920,
+                height: 1080,
+            },
+            0.0,
+        )];
+        let (z, x, y) = build_zoom_exprs(&samples, 1920.0, 1080.0);
+        // Off-centre focus must actually move the crop (not identically 0).
+        assert!(
+            x != "0" && y != "0",
+            "off-centre crop must be non-trivial: x={x} y={y}"
+        );
+        let windows = |e: &str| -> Vec<String> {
+            e.match_indices("gte(t,")
+                .map(|(i, _)| {
+                    let rest = &e[i + 6..];
+                    let end = rest.find(')').unwrap_or(rest.len());
+                    rest[..end].to_string()
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        };
+        assert_eq!(windows(&z), windows(&x), "x must share z's breakpoints");
+        assert_eq!(windows(&z), windows(&y), "y must share z's breakpoints");
     }
 
     fn plan_with(
