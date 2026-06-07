@@ -23,7 +23,7 @@
     "@recast/design": "workspace:*",
     "@recast/player": "workspace:*",
     "@recast/ui": "workspace:*",
-    "@sveltejs/kit": "^2.50.2",
+    "@sveltejs/kit": "^2.63.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tailwindcss/vite": "^4.2.1",
     "@types/node": "^22.10.0",
