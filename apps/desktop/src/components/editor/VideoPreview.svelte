@@ -5,7 +5,11 @@
 	  smoothCursorPath,
 	  smoothingStrengthToSigmaMs,
 	} from "$lib/cursor/smoothing";
-	import { CURSOR_STYLES, cursorStyleDataUrl } from "$lib/cursor/styles";
+	import {
+		resolveBackgroundWireValue,
+		resolveCursorDataUrl,
+		resolveCursorSprite,
+	} from "$lib/registry";
 	import { bezierY } from "$lib/easing/cubic-bezier";
 	import { assetsStore } from "$lib/stores/assets-store.svelte";
 	import {
@@ -113,7 +117,7 @@
 	let svgCursor = $state<{
 		visible: boolean;
 		alpha: number;
-		styleId: import("$lib/cursor/styles").CursorStyle["id"];
+		styleId: import("$lib/stores/editor-store.svelte").StoredCursorId;
 		pressed: boolean;
 		scale: number; // JS-driven press impact curve — see pressStateAt
 		canvasX: number; // source-pixel space, includes padding offset
@@ -716,6 +720,13 @@ void main() {
 	//  Background loading 
 	async function resolveBackgroundSrc(value: string): Promise<string> {
 		if (!value) return "";
+		// Extension wallpaper: `ext:<extId>:<localId>` → the pack's hydrated
+		// absolute path. Unresolved (pack removed) → fallback colour, no texture.
+		if (value.startsWith("ext:")) {
+			const wire = resolveBackgroundWireValue(value);
+			if (!wire || wire.startsWith("#")) return "";
+			return convertFileSrc(wire);
+		}
 		// Defensive: gradient/colour values must never reach convertFileSrc —
 		// the caller already gates on backgroundType, but a stray write that
 		// leaves a CSS gradient in backgroundValue while type briefly reads
@@ -1600,8 +1611,9 @@ void main() {
 			<FocusOverlay {store} {videoEl} targetEl={previewRectEl} />
 		</div>
 		{#if svgCursor.visible}
-			{@const style = CURSOR_STYLES.find((s) => s.id === svgCursor.styleId)}
+			{@const style = resolveCursorSprite(svgCursor.styleId)}
 			{@const stateKey = svgCursor.pressed && style?.pressedSvg ? "press" : "rest"}
+			{@const cursorSrc = resolveCursorDataUrl(svgCursor.styleId, stateKey)}{#if style && cursorSrc}
 			{@const hot =
 				stateKey === "press" && style?.pressedHotspot
 					? style.pressedHotspot
@@ -1627,7 +1639,7 @@ void main() {
 				"
 			>
 				<img
-					src={cursorStyleDataUrl(svgCursor.styleId, stateKey)}
+					src={cursorSrc}
 					alt=""
 					draggable="false"
 					class="block w-full will-change-transform"
@@ -1638,6 +1650,7 @@ void main() {
 					"
 				/>
 			</div>
+			{/if}
 		{/if}
 		<!-- Camera overlay sits ABOVE the cursor SVG so the bubble
 		     never gets visually clipped behind a cursor that wanders

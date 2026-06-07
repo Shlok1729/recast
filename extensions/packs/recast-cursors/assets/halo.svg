@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <filter id="ext-halo-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.4"/>
+      <feOffset dx="0" dy="1.2"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#ext-halo-shadow)" fill="none">
+    <circle cx="32" cy="32" r="14" stroke="#0a0a0a" stroke-opacity="0.35" stroke-width="4"/>
+    <circle cx="32" cy="32" r="14" stroke="#38bdf8" stroke-width="2.4"/>
+  </g>
+  <circle cx="32" cy="32" r="2.6" fill="#38bdf8"/>
+  <circle cx="32" cy="32" r="2.6" fill="none" stroke="#0a0a0a" stroke-opacity="0.4" stroke-width="0.8"/>
+</svg>

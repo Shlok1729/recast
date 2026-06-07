@@ -1,11 +1,8 @@
 <script lang="ts">
   import { SMOOTHING_PRESETS } from "$lib/cursor/smoothing";
-  import { CURSOR_STYLES } from "$lib/cursor/styles";
   import { EASE, EASING_PRESETS, easingEquals } from "$lib/easing/cubic-bezier";
-  import type {
-    CursorStyleId,
-    EditorStore,
-  } from "$lib/stores/editor-store.svelte";
+  import { registry } from "$lib/registry";
+  import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
     Activity,
     EyeOff,
@@ -48,7 +45,7 @@
   let showTrajectoryMap = $state(false);
 
   const activeStyle = $derived(
-    CURSOR_STYLES.find((s) => s.id === store.cursorSettings.style),
+    registry.get("cursor", store.cursorSettings.style),
   );
 
   function updateCursorSettings(
@@ -57,6 +54,16 @@
   ) {
     if (trackUndo) store.pushUndoState();
     store.updateCursorSettings(updates);
+  }
+
+  // Cursor SVGs can come from downloaded extension packs (untrusted). Render
+  // them through a data-URL <img> rather than {@html} so SVG loads in the
+  // browser's secure static mode — scripts/event handlers never execute.
+  function svgSwatchUrl(svg: string): string {
+    return (
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(svg.trim().replace(/\n\s*/g, " "))
+    );
   }
 </script>
 
@@ -95,7 +102,7 @@
       <div
         class="grid grid-cols-5 gap-1 rounded-lg border border-border/60 bg-muted/30 p-1 shadow-(--shadow-craft-inset)"
       >
-        {#each CURSOR_STYLES as style, i (style.id)}
+        {#each registry.list("cursor") as style, i (style.id)}
           {@const isActive = store.cursorSettings.style === style.id}
           <button
             in:fly={{ y: 6, duration: 240, delay: 60 + i * 35, easing: cubicOut }}
@@ -104,13 +111,12 @@
             aria-label={`${style.label} cursor`}
             onclick={() => {
               store.pushUndoState();
-              store.updateCursorSettings({ style: style.id as CursorStyleId });
+              store.updateCursorSettings({ style: style.id });
             }}
-            title={`${style.label} — ${style.description}`}
+            title={style.description ? `${style.label} — ${style.description}` : style.label}
             class={cn(
               "group relative aspect-square overflow-hidden rounded-md border transition-all duration-150",
               "focus:outline-none focus:ring-2 focus:ring-ring/40",
-              "[&_svg]:h-[60%] [&_svg]:w-[60%]",
               isActive
                 ? "border-primary/60 bg-primary/8 text-foreground"
                 : "border-transparent bg-background/40 text-foreground/80 hover:border-border hover:bg-background/80 hover:text-foreground",
@@ -125,7 +131,12 @@
               )}
               aria-hidden="true"
             >
-              {@html style.svg}
+              <img
+                src={svgSwatchUrl(style.value.svg)}
+                alt=""
+                draggable="false"
+                class="h-[60%] w-[60%]"
+              />
             </span>
             {#if isActive}
               <span

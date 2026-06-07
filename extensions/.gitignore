@@ -1,0 +1,3 @@
+# Generated installable manifests + flattened release assets + index.
+# Produced by scripts/build-registry.mjs at publish time; never committed.
+dist/

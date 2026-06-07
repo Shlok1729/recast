@@ -13,8 +13,7 @@
  * Rust side instead of bringing in a new sprite codec.
  */
 
-import { CURSOR_STYLES } from "$lib/cursor/styles";
-import type { CursorStyleId } from "$lib/stores/editor-store.svelte";
+import { resolveCursorSprite } from "$lib/registry";
 
 export interface CursorSpriteBundle {
 	/** PNG data URL of the resting sprite. Always populated. */
@@ -42,7 +41,7 @@ const cache = new Map<string, CursorSpriteBundle>();
  * size. Returns `null` for the soft-dot style — Rust draws that itself.
  */
 export async function rasterizeCursorSprites(
-	styleId: CursorStyleId,
+	styleId: string,
 	pixelSize: number,
 ): Promise<CursorSpriteBundle | null> {
 	if (styleId === "dot") return null;
@@ -51,7 +50,8 @@ export async function rasterizeCursorSprites(
 	const hit = cache.get(cacheKey);
 	if (hit) return hit;
 
-	const style = CURSOR_STYLES.find((s) => s.id === styleId);
+	// Resolves built-in ids and `ext:` cursor packs alike; null → soft dot.
+	const style = resolveCursorSprite(styleId);
 	if (!style) return null;
 
 	const rest = await renderSvgToDataUrl(style.svg, px);

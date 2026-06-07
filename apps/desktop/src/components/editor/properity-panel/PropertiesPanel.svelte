@@ -2,6 +2,7 @@
   import { CAMERA_OVERLAY_UI_ENABLED } from "$lib/feature-flags";
   import type { EditorStore, PanelTab } from "$lib/stores/editor-store.svelte";
   import {
+    Blocks,
     ImageIcon,
     Info,
     MousePointer,
@@ -18,6 +19,7 @@
   import BackgroundPicker from "./BackgroundPicker.svelte";
   import CameraPanel from "./CameraPanel.svelte";
   import CursorPanel from "./CursorPanel.svelte";
+  import ExtensionsPanel from "./ExtensionsPanel.svelte";
   import FocusPanel from "./FocusPanel.svelte";
   import InfoPanel from "./InfoPanel.svelte";
 
@@ -44,6 +46,7 @@
       ? [{ id: "camera" as PanelTab, label: "Camera", icon: Video }]
       : []),
     { id: "audio", label: "Audio", icon: Volume2 },
+    { id: "extensions", label: "Extensions", icon: Blocks },
     { id: "info", label: "Info", icon: Info },
   ];
 
@@ -142,6 +145,10 @@
 
     <Tabs.Content value="audio" class={tabContentClass}>
       <AudioPanel {store} />
+    </Tabs.Content>
+
+    <Tabs.Content value="extensions" class={tabContentClass}>
+      <ExtensionsPanel {store} />
     </Tabs.Content>
 
     <Tabs.Content value="info" class={tabContentClass}>

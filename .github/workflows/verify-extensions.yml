@@ -1,0 +1,38 @@
+name: Verify Extensions
+
+# Gate for community extension PRs. Runs the zero-dependency verifier against
+# every pack under `extensions/packs/*` so a submission can't land unless its
+# manifest, asset files, SHA-256s and filename-safety all check out — the same
+# trust boundary the desktop installer enforces at install time. Node-only; no
+# dependency install step, so it's fast.
+
+on:
+  # Push scoped to the default branch only; `pull_request` covers every other
+  # branch. Running push on "**" too double-fired CI on branches with an open PR
+  # (both `push` and `pull_request` triggered for the same SHA). Tag pushes don't
+  # match a `branches` filter, so `tags-ignore` is unnecessary.
+  push:
+    branches:
+      - main
+    paths:
+      - "extensions/**"
+      - ".github/workflows/verify-extensions.yml"
+  pull_request:
+    paths:
+      - "extensions/**"
+      - ".github/workflows/verify-extensions.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify extension packs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify packs
+        run: node extensions/scripts/verify-extensions.mjs
