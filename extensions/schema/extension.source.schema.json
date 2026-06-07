@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/kanakkholwal/recast/extensions/schema/extension.source.schema.json",
+  "$id": "https://cdn.jsdelivr.net/gh/kanakkholwal/recast@main/extensions/schema/extension.source.schema.json",
   "title": "Recast extension (source manifest)",
   "description": "Authoring form of a Recast asset-pack. Committed under extensions/packs/<id>/extension.json. The CI verifier validates it and the registry builder turns it into the installable manifest (adding per-asset url + sha256).",
   "type": "object",
