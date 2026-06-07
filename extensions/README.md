@@ -14,7 +14,7 @@ twice: by CI when a PR is opened, and by the desktop app at install time
 ## Contribute a pack
 
 1. Create a folder under `packs/<your-pack-id>/`. The id is a slug
-   (`[a-z0-9._-]`) and **must equal the folder name**.
+   (`[A-Za-z0-9._-]`, not leading with a dot) and **must equal the folder name**.
 2. Add your assets under `packs/<id>/assets/` (cursors as `.svg`; backgrounds as
    `.png`/`.jpg`/`.webp`). Filenames must be bare (no subfolders).
 3. Write `packs/<id>/extension.json` (see below).
@@ -107,8 +107,8 @@ builds every pack, serves it from memory, and **watches `extensions/` to rebuild
 on any change** — edit a pack and re-install without restarting:
 
 ```bash
-pnpm serve:extensions            # http://localhost:8123 (PORT=<n> to change)
+pnpm serve:extensions            # http://localhost:4422 (PORT=<n> to change)
 # In the app → Extensions tab → Install from URL:
-#   http://localhost:8123/recast-cursors.extension.json
-# (or point the browse gallery at http://localhost:8123/index.json)
+#   http://localhost:4422/recast-cursors.extension.json
+# (or point the browse gallery at http://localhost:4422/index.json)
 ```

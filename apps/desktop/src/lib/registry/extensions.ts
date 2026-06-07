@@ -91,12 +91,17 @@ export async function registerExtension(ext: InstalledExtension): Promise<number
 
 	// Backgrounds — wireValue is the pack's absolute image path.
 	for (const b of contributes.backgrounds ?? []) {
-		const full = assets.get(b.asset)?.path;
+		const mainAsset = assets.get(b.asset);
+		const full = mainAsset?.path;
 		if (!full) {
 			log.warn("registry", "ext_background_missing_asset", { extId, id: b.id });
 			continue;
 		}
-		const thumbPath = (b.thumb && assets.get(b.thumb)?.path) || full;
+		// Prefer an explicit thumb asset, then the hydrated per-asset thumbnail
+		// the installer downloaded, and only fall back to decoding the full-res
+		// image as a thumbnail when neither exists.
+		const thumbPath =
+			(b.thumb && assets.get(b.thumb)?.path) || mainAsset.thumbPath || full;
 		entries.push({
 			id: extEntryId(extId, b.id),
 			kind: "background",

@@ -11,13 +11,13 @@
  * are closed cleanly on Ctrl-C / SIGTERM. Nothing accumulates across rebuilds.
  *
  * Usage:
- *   pnpm serve:extensions            # http://localhost:8123
+ *   pnpm serve:extensions            # http://localhost:4422
  *   PORT=9000 pnpm serve:extensions  # pick a port
  *
  * Then in the app → Extensions → Install from URL:
- *   http://localhost:8123/<packId>.extension.json
+ *   http://localhost:4422/<packId>.extension.json
  * or point the browse gallery at:
- *   http://localhost:8123/index.json
+ *   http://localhost:4422/index.json
  */
 
 import { readdirSync, readFileSync, statSync, watch } from "node:fs";
@@ -69,7 +69,16 @@ function rebuild(reason) {
 rebuild("initial build");
 
 const server = createServer((req, res) => {
-	const path = decodeURIComponent((req.url ?? "/").split("?")[0]);
+	// decodeURIComponent throws URIError on malformed percent-encoding; a single
+	// bad request must not take down the watcher/server loop.
+	let path;
+	try {
+		path = decodeURIComponent((req.url ?? "/").split("?")[0]);
+	} catch {
+		res.writeHead(400, { "content-type": "text/plain" });
+		res.end("bad request");
+		return;
+	}
 	const key = path === "/" ? "/index.json" : path;
 	const hit = snapshot.get(key);
 	if (!hit) {

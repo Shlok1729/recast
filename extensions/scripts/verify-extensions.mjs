@@ -142,7 +142,12 @@ function validateContributions(res, contributes) {
 	const seenByKind = new Map(); // kind -> Set(ids)
 
 	const claimId = (kind, id, where) => {
-		if (!isSafeExtId(id)) res.err(`${where}: id "${id}" must be a slug [A-Za-z0-9._-]`);
+		// An invalid/missing id isn't worth uniqueness tracking — doing so would
+		// produce noisy follow-ups like `duplicate cursors id "undefined"`.
+		if (!isSafeExtId(id)) {
+			res.err(`${where}: id "${id}" must be a slug [A-Za-z0-9._-]`);
+			return;
+		}
 		const set = seenByKind.get(kind) ?? new Set();
 		if (set.has(id)) res.err(`${where}: duplicate ${kind} id "${id}"`);
 		set.add(id);
@@ -294,7 +299,15 @@ function validatePack(dir) {
 			continue;
 		}
 
-		const buf = readFileSync(abs);
+		let buf;
+		try {
+			buf = readFileSync(abs);
+		} catch (e) {
+			// A directory, broken symlink, or unreadable file is a per-asset
+			// problem — record it and keep verifying so CI reports every issue.
+			res.err(`${w}: could not read file ${a.file}: ${e.message}`);
+			continue;
+		}
 		const type = expectedType.get(a.id);
 		const e = ext(fname);
 		if (!type) {
