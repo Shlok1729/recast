@@ -18,6 +18,7 @@
 	  Cpu,
 	  Download,
 	  EyeOff,
+	  Film,
 	  Github,
 	  HardDrive,
 	  HardDriveUpload,
@@ -53,6 +54,49 @@
 	import { cn } from "@recast/ui/utils";
 	import { cubicOut } from "svelte/easing";
 	import { fly, slide } from "svelte/transition";
+
+	// Before/after proof clips. Drop URLs in here when assets are hosted
+	// (UploadThing while iterating → cdn.recast.li once locked). Empty string
+	// is a sentinel — the figure renders an "asset pending" placeholder
+	// instead of a broken <video>, so the section always looks intentional.
+	//
+	// `durationLabel` is the badge shown in the caption. Hardcoded — easier to
+	// hand-tune than reading from video metadata, and the silence-trim wedge
+	// reads stronger when the raw → polished delta is a chosen value
+	// ("0:30 → 0:22") rather than whatever ffprobe spits out for your cut.
+	//
+	// `applied` (polished slot only) renders as small chips overlaying the
+	// bottom of the polished video — names what the auto-polish did. Keep
+	// it ≤4 items or the strip wraps.
+	type BeforeAfterTone = "raw" | "polished";
+	const beforeAfterClips: Array<{
+		src: string;
+		label: string;
+		hint: string;
+		tone: BeforeAfterTone;
+		icon: typeof Target;
+		durationLabel: string;
+		applied: string[];
+	}> = [
+		{
+			src: "https://acfj680407.ufs.sh/f/04eGlAvZnRytISxl2uhqLT6zUZQfJh9bG8CRKe1apogYPB5t",
+			label: "Raw recording",
+			hint: "Built-in recorder, no edits",
+			tone: "raw",
+			icon: X,
+			durationLabel: "0:30",
+			applied: [],
+		},
+		{
+			src: "https://acfj680407.ufs.sh/f/04eGlAvZnRytxpuSIrkQkdZGSPJORrgCc71XDepIFuN2Hl8m",
+			label: "Polished automatically",
+			hint: "Same take, run through Recast",
+			tone: "polished",
+			icon: Sparkles,
+			durationLabel: "~0:22",
+			applied: ["Smart zoom", "Cursor smoothing", "Silence trim"],
+		},
+	];
 
 	// Recast Cloud — premium hosted tier (not shipped yet). Drive sharing
 	// covers the free user-owned path today; Cloud is the future paid
@@ -352,7 +396,7 @@
 />
 
 <main class="text-foreground">
-	<Hero />
+	<Hero previewSrc={beforeAfterClips[1].src} />
 
 	<!--
 	  Proof section. Permanently dark band regardless of site theme: the
@@ -384,42 +428,123 @@
 				</Reveal>
 
 				<Reveal variant="scale" delay={120}>
-					<div
-						class="relative mx-auto mt-12 max-w-6xl overflow-hidden rounded-2xl border border-hairline shadow-craft-xl"
-					>
-						<!-- Window chrome strip for the framed shot. Visual cue that
-						     this is product UI, not stock imagery. -->
-						<div class="flex h-10 items-center gap-2 border-b border-hairline-soft bg-white/5 px-4">
-							<div class="flex gap-1.5">
-								<span class="size-2.5 rounded-full bg-ink/20"></span>
-								<span class="size-2.5 rounded-full bg-ink/20"></span>
-								<span class="size-2.5 rounded-full bg-ink/20"></span>
-							</div>
-							<span class="ml-3 text-[11px] font-medium text-ink-muted">
-								Recast · Editor
-							</span>
-						</div>
+					<!--
+					  Before/after proof pair. Stacked vertically (not side-by-side)
+					  so each clip stays full-width and readable, and so the polished
+					  one finishing first — when silence is trimmed — becomes a
+					  visible beat instead of getting lost in a side-by-side crop.
+					  Both <video>s autoplay muted-looped-playsinline. They run
+					  silent by design — the proof here is purely visual (zoom,
+					  cursor smoothing, silence-trim pacing), narration would
+					  fight the on-page copy. No controls, no scrub bar; this
+					  is a hero proof loop, not a player.
+					-->
+					<div class="mx-auto mt-12 max-w-5xl">
+						<div class="grid grid-cols-1 gap-5">
+							{#each beforeAfterClips as clip (clip.tone)}
+								{@const Icon = clip.icon}
+								{@const hasSrc = clip.src.length > 0}
+								<figure
+									class={cn(
+										"relative overflow-hidden rounded-2xl border shadow-craft-xl",
+										clip.tone === "polished"
+											? "border-primary/40 ring-1 ring-primary/20"
+											: "border-hairline",
+									)}
+								>
+									<figcaption class="flex items-center justify-between gap-3 border-b border-hairline-soft bg-white/5 px-4 py-2.5">
+										<span
+											class={cn(
+												"inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em]",
+												clip.tone === "polished" ? "text-primary" : "text-ink-muted",
+											)}
+										>
+											<Icon class="size-3.5" />
+											{clip.label}
+										</span>
+										<span class="inline-flex items-center gap-3 text-[11px] font-medium text-ink-muted">
+											<span class="hidden sm:inline">{clip.hint}</span>
+											<span
+												class={cn(
+													"inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold ring-1 ring-inset",
+													clip.tone === "polished"
+														? "bg-primary/10 text-primary ring-primary/25"
+														: "bg-white/5 text-ink-muted ring-hairline",
+												)}
+											>
+												{clip.durationLabel}
+											</span>
+										</span>
+									</figcaption>
 
-						<div class="relative bg-canvas">
-							<img
-								src="/product_preview_hero.png"
-								alt="Recast editor showing a polished recording in the timeline"
-								loading="lazy"
-								decoding="async"
-								class="block w-full"
-							/>
+									<div class="relative aspect-video w-full bg-canvas">
+										{#if hasSrc}
+											<!-- svelte-ignore a11y_media_has_caption -->
+											<video
+												src={clip.src}
+												autoplay
+												loop
+												muted
+												playsinline
+												preload="metadata"
+												class={cn(
+													"block size-full object-cover",
+													clip.tone === "raw" && "saturate-[0.85]",
+												)}
+											></video>
+										{:else}
+											<!-- Empty state. Renders when no URL is wired yet so the
+											     section reads as intentional, not broken. Mirrors the
+											     editor-rail card aesthetic: dot-grid backdrop, glow
+											     blob, corner brackets, icon-as-hero. Once a URL goes
+											     into `beforeAfterClips[*].src`, the <video> branch
+											     above takes over and this whole block falls away. -->
+											<div class="absolute inset-0 grid place-items-center overflow-hidden">
+												<div
+													aria-hidden="true"
+													class="pointer-events-none absolute inset-0 opacity-40"
+													style="background-image: radial-gradient(circle, color-mix(in srgb, var(--color-ink) 10%, transparent) 1px, transparent 1px); background-size: 18px 18px;"
+												></div>
+												<div
+													aria-hidden="true"
+													class="pointer-events-none absolute left-1/2 top-1/2 size-72 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-60"
+													style="background: radial-gradient(closest-side, color-mix(in srgb, var(--color-primary) {clip.tone === 'polished' ? 22 : 8}%, transparent), transparent 70%);"
+												></div>
+												<div class="relative flex flex-col items-center gap-3 text-center">
+													<span
+														class={cn(
+															"grid size-14 place-items-center rounded-2xl border backdrop-blur-sm",
+															clip.tone === "polished"
+																? "border-primary/30 bg-primary/10 text-primary"
+																: "border-hairline bg-white/5 text-ink-muted",
+														)}
+													>
+														<Film class="size-6" />
+													</span>
+													<div class="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-ink-muted">
+														Clip pending
+													</div>
+												</div>
+											</div>
+										{/if}
 
-							<!-- Play affordance pinned bottom-left of the proof frame.
-							     Non-interactive today; ready to wire to an inline
-							     video modal when the asset lands. -->
-							<div class="pointer-events-none absolute bottom-5 left-5 hidden items-center gap-2 rounded-full bg-canvas/90 px-3.5 py-2 ring-1 ring-hairline backdrop-blur sm:inline-flex">
-								<span class="grid size-6 place-items-center rounded-full bg-primary text-primary-foreground">
-									<Play class="size-3" />
-								</span>
-								<span class="text-xs font-semibold text-ink">
-									Walkthrough video lands with v0.2
-								</span>
-							</div>
+										<!-- Applied-features chip strip. Polished slot only.
+										     Names what auto-polish did so the viewer attributes
+										     the visible delta to specific Recast features
+										     instead of treating it as generic "after". -->
+										{#if clip.tone === "polished" && clip.applied.length > 0}
+											<div class="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-1.5 bg-linear-to-t from-black/55 via-black/20 to-transparent px-4 pb-3 pt-10">
+												{#each clip.applied as feat}
+													<span class="inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white/90 ring-1 ring-inset ring-white/15 backdrop-blur">
+														<Check class="size-2.5 text-primary" />
+														{feat}
+													</span>
+												{/each}
+											</div>
+										{/if}
+									</div>
+								</figure>
+							{/each}
 						</div>
 					</div>
 				</Reveal>
@@ -676,12 +801,12 @@
 					{@const chip = kindChip[feature.kind]}
 					<Reveal variant="morph" delay={i * 60} class="snap-center shrink-0">
 						<article
-							class="group/feat relative flex w-[280px] flex-col gap-5 sm:w-[320px]"
+							class="group/feat relative flex w-70 flex-col gap-5 sm:w-[320px]"
 						>
 							<!-- Tilted visual. 3D perspective on the wrapper, the inner
 							     plate carries the rotation so hover can soften it. -->
 							<div
-								class="relative h-52 overflow-hidden rounded-2xl border border-border-low/50 bg-linear-to-br from-foreground/[0.05] via-foreground/[0.02] to-transparent shadow-craft-lg transition-shadow duration-500 group-hover/feat:shadow-craft-xl"
+								class="relative h-52 overflow-hidden rounded-2xl border border-border-low/50 bg-linear-to-br from-foreground/5 via-foreground/2 to-transparent shadow-craft-lg transition-shadow duration-500 group-hover/feat:shadow-craft-xl"
 								style="perspective: 1200px;"
 							>
 								<!-- Dot grid backdrop. Faint, decorative — the techy vibe. -->
