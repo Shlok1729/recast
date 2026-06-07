@@ -36,8 +36,15 @@ export interface CursorStyle {
   /** Optional pressed-state sprite swapped in while the captured cursor
    *  is mid-click. When omitted the rest sprite is reused. */
   pressedSvg?: string;
+  /** Optional right-click sprite. Falls back to {@link pressedSvg} → {@link svg}. */
+  rightPressedSvg?: string;
+  /** Optional drag sprite (button held while moving). Falls back to
+   *  {@link pressedSvg} → {@link svg}. */
+  dragSvg?: string;
   hotspot: { x: number; y: number };
   pressedHotspot?: { x: number; y: number };
+  rightPressedHotspot?: { x: number; y: number };
+  dragHotspot?: { x: number; y: number };
 }
 
 // Eagerly load every sprite as a raw SVG string at build time, keyed by its
@@ -76,40 +83,34 @@ export const CURSOR_STYLES: CursorStyle[] = [
     hotspot: { x: 32, y: 32 },
   },
   {
-    id: "macos",
-    label: "macOS",
-    description: "Apple-style arrow that turns into the link pointer on click.",
-    svg: sprite("macos-arrow"),
-    pressedSvg: sprite("macos-pointer"),
-    hotspot: { x: 8, y: 6 },
-    pressedHotspot: { x: 12, y: 4 },
+    // System-accurate Apple cursor set. rest=arrow, press=link hand,
+    // rightPress=contextual menu, drag=grab. Hotspots anchored to each
+    // sprite's tip/grab point. See ./sprites/CREDITS.md for attribution.
+    id: "macos-system",
+    label: "macOS System",
+    description: "System-accurate Apple set — arrow, link hand, grab, and right-click states.",
+    svg: sprite("system-macos-arrow"),
+    pressedSvg: sprite("system-macos-pointer"),
+    rightPressedSvg: sprite("system-macos-context"),
+    dragSvg: sprite("system-macos-grab"),
+    hotspot: { x: 18.6, y: 10.7 },
+    pressedHotspot: { x: 24.7, y: 11.3 },
+    rightPressedHotspot: { x: 18, y: 17 },
+    dragHotspot: { x: 32, y: 32 },
   },
   {
-    id: "windows",
-    label: "Windows 11",
-    description: "Fluent-style white arrow that turns into the link pointer on click.",
-    svg: sprite("windows-arrow"),
-    pressedSvg: sprite("windows-pointer"),
-    hotspot: { x: 10, y: 6 },
-    pressedHotspot: { x: 12, y: 4 },
-  },
-  {
-    id: "outline",
-    label: "Outline",
-    description: "Crisp white outline that turns into the link pointer on click.",
-    svg: sprite("outline-arrow"),
-    pressedSvg: sprite("outline-pointer"),
-    hotspot: { x: 10, y: 6 },
-    pressedHotspot: { x: 12, y: 4 },
-  },
-  {
-    id: "target",
-    label: "Target",
-    description: "Precision reticle that locks on with a glow on click.",
-    svg: sprite("target"),
-    pressedSvg: sprite("target-press"),
-    hotspot: { x: 32, y: 32 },
-    pressedHotspot: { x: 32, y: 32 },
+    // System-accurate Windows cursor set. Windows has no distinct right-click
+    // cursor, so rightPress falls back to press → rest. drag uses the 4-way
+    // move cursor. See ./sprites/CREDITS.md for attribution.
+    id: "windows-system",
+    label: "Windows System",
+    description: "System-accurate Windows set — arrow, link hand, and move (drag) states.",
+    svg: sprite("system-windows-arrow"),
+    pressedSvg: sprite("system-windows-hand"),
+    dragSvg: sprite("system-windows-move"),
+    hotspot: { x: 19.3, y: 12.4 },
+    pressedHotspot: { x: 28.5, y: 11 },
+    dragHotspot: { x: 32, y: 32 },
   },
 ];
 
@@ -117,15 +118,41 @@ export function getCursorStyle(id: CursorStyleId): CursorStyle {
   return CURSOR_STYLES.find((s) => s.id === id) ?? CURSOR_STYLES[0];
 }
 
-export type CursorStyleState = "rest" | "press";
+export type CursorStyleState = "rest" | "press" | "rightPress" | "drag";
+
+/** Resolve the sprite SVG for a state, falling back rightPress/drag → press →
+ *  rest so a style that only ships rest (+ press) never renders blank. */
+export function cursorStyleSvg(
+  style: CursorStyle,
+  state: CursorStyleState,
+): string {
+  switch (state) {
+    case "rightPress":
+      return style.rightPressedSvg ?? style.pressedSvg ?? style.svg;
+    case "drag":
+      return style.dragSvg ?? style.pressedSvg ?? style.svg;
+    case "press":
+      return style.pressedSvg ?? style.svg;
+    default:
+      return style.svg;
+  }
+}
 
 export function cursorStyleHotspot(
   id: CursorStyleId,
   state: CursorStyleState = "rest",
 ): { x: number; y: number } {
   const style = getCursorStyle(id);
-  if (state === "press" && style.pressedHotspot) return style.pressedHotspot;
-  return style.hotspot;
+  switch (state) {
+    case "rightPress":
+      return style.rightPressedHotspot ?? style.pressedHotspot ?? style.hotspot;
+    case "drag":
+      return style.dragHotspot ?? style.pressedHotspot ?? style.hotspot;
+    case "press":
+      return style.pressedHotspot ?? style.hotspot;
+    default:
+      return style.hotspot;
+  }
 }
 
 /** Cached `data:image/svg+xml,…` URLs (one per id+state) so the `<img>`
@@ -139,8 +166,7 @@ export function cursorStyleDataUrl(
   const cached = dataUrlCache.get(key);
   if (cached) return cached;
   const style = getCursorStyle(id);
-  const svg =
-    state === "press" && style.pressedSvg ? style.pressedSvg : style.svg;
+  const svg = cursorStyleSvg(style, state);
   const url =
     "data:image/svg+xml;utf8," +
     encodeURIComponent(svg.trim().replace(/\n\s*/g, " "));

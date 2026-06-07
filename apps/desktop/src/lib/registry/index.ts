@@ -18,6 +18,8 @@ export {
 	resolveBackgroundWireValue,
 	resolveCursorSprite,
 	resolveCursorDataUrl,
+	cursorSpriteSvg,
+	cursorSpriteHotspot,
 	resolveEasing,
 	resolveSmoothing,
 } from "./resolve";

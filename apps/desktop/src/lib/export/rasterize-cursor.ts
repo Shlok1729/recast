@@ -21,10 +21,18 @@ export interface CursorSpriteBundle {
 	/** PNG data URL of the pressed sprite. Falls back to `rest` when the
 	 *  active style has no pressed-state variant. */
 	press: string;
+	/** PNG data URL of the right-click sprite — only set when the style ships
+	 *  distinct art (Rust falls back to press → rest otherwise). */
+	rightPress?: string;
+	/** PNG data URL of the drag sprite — only set when the style ships distinct
+	 *  art (Rust falls back to press → rest otherwise). */
+	drag?: string;
 	/** Hotspot in 0..1 sprite UV. Used by Rust to anchor each sprite's
 	 *  click point to the cursor sample position regardless of size. */
 	restHotspot: [number, number];
 	pressHotspot: [number, number];
+	rightPressHotspot?: [number, number];
+	dragHotspot?: [number, number];
 	/** Sprite render size in source pixels — Rust composites at this size,
 	 *  scaled by the canvas pixel ratio (the same factor `cursorRadiusCanvas`
 	 *  uses). Cached so the rest of the pipeline can label by size. */
@@ -63,13 +71,30 @@ export async function rasterizeCursorSprites(
 		if (pressed) press = pressed;
 	}
 
+	// Right-click / drag are emitted ONLY when the style ships distinct art —
+	// Rust falls back to press → rest per-frame when these are absent, so we
+	// don't waste a decode shipping duplicates of `press`.
+	const uv = (h: { x: number; y: number }): [number, number] => [h.x / 64, h.y / 64];
+	const rightPress = style.rightPressedSvg
+		? ((await renderSvgToDataUrl(style.rightPressedSvg, px)) ?? undefined)
+		: undefined;
+	const drag = style.dragSvg
+		? ((await renderSvgToDataUrl(style.dragSvg, px)) ?? undefined)
+		: undefined;
+
 	const bundle: CursorSpriteBundle = {
 		rest,
 		press,
-		restHotspot: [style.hotspot.x / 64, style.hotspot.y / 64],
-		pressHotspot: style.pressedHotspot
-			? [style.pressedHotspot.x / 64, style.pressedHotspot.y / 64]
-			: [style.hotspot.x / 64, style.hotspot.y / 64],
+		rightPress,
+		drag,
+		restHotspot: uv(style.hotspot),
+		pressHotspot: uv(style.pressedHotspot ?? style.hotspot),
+		rightPressHotspot: rightPress
+			? uv(style.rightPressedHotspot ?? style.pressedHotspot ?? style.hotspot)
+			: undefined,
+		dragHotspot: drag
+			? uv(style.dragHotspot ?? style.pressedHotspot ?? style.hotspot)
+			: undefined,
 		pixelSize: px,
 	};
 	cache.set(cacheKey, bundle);

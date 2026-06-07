@@ -14,6 +14,11 @@ pub struct PressEvent {
     pub up_us: u64,
     pub down_x: f64,
     pub down_y: f64,
+    /// Right mouse button initiated this press (vs left). Selects the sprite
+    /// slot; does NOT affect the click animation/anchor curves.
+    pub right: bool,
+    /// Cursor moved past `DRAG_THRESHOLD_PX` (source px) while held — a drag.
+    pub dragged: bool,
 }
 
 /// Per-frame press state — visibility boost, sprite key, scale impact.
@@ -36,6 +41,10 @@ pub struct PressFrameState {
     pub pressed_sprite: bool,
     pub visible_alpha: f64,
     pub scale: f64,
+    /// Active press was a right-click (mirrors the selected event's `right`).
+    pub right: bool,
+    /// Active press is a drag (mirrors the selected event's `dragged`).
+    pub dragged: bool,
 }
 
 impl PressFrameState {
@@ -43,8 +52,13 @@ impl PressFrameState {
         pressed_sprite: false,
         visible_alpha: 0.0,
         scale: 1.0,
+        right: false,
+        dragged: false,
     };
 }
+
+/// Cursor displacement (source px) during a hold beyond which it's a drag.
+const DRAG_THRESHOLD_PX: f64 = 8.0;
 
 // MUST mirror the constants in apps/desktop/src/components/editor/VideoPreview.svelte
 // (`PRESS_*_US`, `PRESS_LIFT`, `PRESS_PUNCH`, `PRESS_BOUNCE`). Drift here
@@ -136,6 +150,8 @@ pub fn press_state_at(ts_us: i64, events: &[PressEvent]) -> PressFrameState {
         pressed_sprite,
         visible_alpha,
         scale,
+        right: ev.right,
+        dragged: ev.dragged,
     }
 }
 
@@ -152,15 +168,22 @@ where
     let mut down_us = 0_u64;
     let mut down_x = 0.0_f64;
     let mut down_y = 0.0_f64;
+    let mut right = false;
+    let mut max_disp = 0.0_f64;
     let mut last_ts = 0_u64;
-    for (ts, x, y, left, right) in samples {
+    for (ts, x, y, left, r) in samples {
         last_ts = ts;
-        let down = left || right;
+        let down = left || r;
         if down && !in_press {
             in_press = true;
             down_us = ts;
             down_x = x;
             down_y = y;
+            // Right-click only when right is the sole button down at the edge.
+            right = r && !left;
+            max_disp = 0.0;
+        } else if down && in_press {
+            max_disp = max_disp.max((x - down_x).hypot(y - down_y));
         } else if !down && in_press {
             in_press = false;
             events.push(PressEvent {
@@ -168,6 +191,8 @@ where
                 up_us: ts,
                 down_x,
                 down_y,
+                right,
+                dragged: max_disp > DRAG_THRESHOLD_PX,
             });
         }
     }
@@ -177,6 +202,8 @@ where
             up_us: last_ts,
             down_x,
             down_y,
+            right,
+            dragged: max_disp > DRAG_THRESHOLD_PX,
         });
     }
     events

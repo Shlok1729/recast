@@ -16,12 +16,42 @@ import {
 	listInstalledExtensions,
 	setExtensionEnabled,
 	uninstallExtension,
+	type ExtensionManifest,
 	type InstalledExtension,
 } from "$lib/ipc";
 import { log } from "$lib/logger";
 import { registerExtension, unregisterExtension } from "$lib/registry/extensions";
 import { isTauriApp } from "$lib/runtime/tauri";
 import { extensionsStore } from "$lib/stores/extensions-store.svelte";
+
+/** One entry of the curated registry index served from the extensions release. */
+export interface RegistryIndexEntry {
+	id: string;
+	name: string;
+	version?: string;
+	author?: string;
+	description?: string;
+	manifestUrl: string;
+	iconUrl?: string;
+}
+
+/** Compare two `x.y.z` versions. Returns -1 / 0 / 1 (a<b / a==b / a>b). Pack
+ *  versions are strict semver per the schema, so a numeric 3-part compare is
+ *  enough — pre-release suffixes aren't used. */
+export function compareSemver(a: string, b: string): number {
+	const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
+	const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);
+	for (let i = 0; i < 3; i++) {
+		const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+		if (d !== 0) return d < 0 ? -1 : 1;
+	}
+	return 0;
+}
+
+/** True when `latest` is a strictly newer version than the `installed` one. */
+export function hasUpdate(installed: string, latest: string | undefined): boolean {
+	return !!latest && compareSemver(latest, installed) > 0;
+}
 
 /** Curated registry index URL (browse gallery). Override via env. */
 const DEFAULT_REGISTRY_INDEX_URL =
@@ -116,6 +146,21 @@ export async function loadRegistryIndex<T = unknown>(): Promise<T | null> {
 		return await fetchExtensionRegistry<T>(registryIndexUrl());
 	} catch (err) {
 		log.warn("extensions", "registry_index_failed", { err: String(err) });
+		return null;
+	}
+}
+
+/** Fetch a pack's full manifest (contributes + assets) for the details preview
+ *  before install. Reuses the URL-allowlisted fetch the registry browse uses, so
+ *  the same https/localhost gate applies. Returns null on any failure. */
+export async function fetchManifestPreview(
+	manifestUrl: string,
+): Promise<ExtensionManifest | null> {
+	if (!(await isTauriApp())) return null;
+	try {
+		return await fetchExtensionRegistry<ExtensionManifest>(manifestUrl.trim());
+	} catch (err) {
+		log.warn("extensions", "manifest_preview_failed", { err: String(err) });
 		return null;
 	}
 }

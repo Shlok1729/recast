@@ -64,11 +64,17 @@ export async function registerExtension(ext: InstalledExtension): Promise<number
 			log.warn("registry", "ext_cursor_missing_asset", { extId, id: c.id });
 			continue;
 		}
-		const [svg, pressedSvg] = await Promise.all([
+		// Resolve an optional manifest-local asset id to its SVG text, or null.
+		const loadOptional = (assetId: string | undefined) =>
+			assetId && assets.get(assetId)?.path
+				? loadSvg(assets.get(assetId)!.path!)
+				: Promise.resolve(null);
+
+		const [svg, pressedSvg, rightPressedSvg, dragSvg] = await Promise.all([
 			loadSvg(restPath),
-			c.press && assets.get(c.press)?.path
-				? loadSvg(assets.get(c.press)!.path!)
-				: Promise.resolve(null),
+			loadOptional(c.press),
+			loadOptional(c.rightPress),
+			loadOptional(c.drag),
 		]);
 		if (!svg) {
 			log.warn("registry", "ext_cursor_svg_failed", { extId, id: c.id });
@@ -83,8 +89,12 @@ export async function registerExtension(ext: InstalledExtension): Promise<number
 			value: {
 				svg,
 				pressedSvg: pressedSvg ?? undefined,
+				rightPressedSvg: rightPressedSvg ?? undefined,
+				dragSvg: dragSvg ?? undefined,
 				hotspot: c.hotspot,
 				pressedHotspot: c.pressedHotspot,
+				rightPressedHotspot: c.rightPressedHotspot,
+				dragHotspot: c.dragHotspot,
 			},
 		});
 	}

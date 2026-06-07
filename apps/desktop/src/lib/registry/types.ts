@@ -35,14 +35,25 @@ export interface Hotspot {
 	y: number;
 }
 
+/** Render-time cursor states. `press` is the primary (left) click; `rightPress`
+ *  and `drag` fall back to `press` → rest when a style doesn't ship them. */
+export type CursorState = "rest" | "press" | "rightPress" | "drag";
+
 /** Per-kind `value` payloads carried by a {@link RegistryEntry}. */
 export interface CursorValue {
 	/** Raw SVG string (rest state). */
 	svg: string;
-	/** Optional pressed-state SVG swapped in mid-click. */
+	/** Optional pressed-state SVG swapped in mid-click (left button). */
 	pressedSvg?: string;
+	/** Optional right-click SVG. Falls back to {@link pressedSvg} → {@link svg}. */
+	rightPressedSvg?: string;
+	/** Optional drag SVG (button held while moving). Falls back to
+	 *  {@link pressedSvg} → {@link svg}. */
+	dragSvg?: string;
 	hotspot: Hotspot;
 	pressedHotspot?: Hotspot;
+	rightPressedHotspot?: Hotspot;
+	dragHotspot?: Hotspot;
 }
 export interface BackgroundValue {
 	/** The string the render pipeline consumes for `backgroundValue`:

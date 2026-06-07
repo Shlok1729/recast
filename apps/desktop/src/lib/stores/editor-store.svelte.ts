@@ -212,7 +212,11 @@ export const DEFAULT_ANNOTATION_FILL = "rgba(59,130,246,0.20)";
  *  - Anything else: an SVG cursor sprite drawn by `CursorOverlayLayer` over
  *    the preview. Preview-only today; export currently falls back to `dot`.
  */
-export type CursorStyleId = 'dot' | 'macos' | 'windows' | 'outline' | 'target';
+// Bundled built-in cursor styles. The soft `dot` (default, shader-drawn) plus
+// the two system-accurate sets. The original macos/windows/outline/target
+// styles moved into the installable "Classic Cursors" pack and are addressed
+// as `ext:classic-cursors:<id>` once installed.
+export type CursorStyleId = 'dot' | 'macos-system' | 'windows-system';
 
 /**
  * Stored cursor selection: a built-in {@link CursorStyleId} or an
@@ -510,8 +514,12 @@ export interface EditorRenderState {
 	// `export_video`). Not persisted to disk; never set by `loadRenderState`.
 	cursorSpriteRest?: string;          // data:image/png;base64,…
 	cursorSpritePress?: string;         // optional; falls back to rest in Rust
+	cursorSpriteRightPress?: string;    // optional; falls back to press → rest in Rust
+	cursorSpriteDrag?: string;          // optional; falls back to press → rest in Rust
 	cursorSpriteHotspotRest?: [number, number];   // 0..1 sprite UV
 	cursorSpriteHotspotPress?: [number, number];
+	cursorSpriteHotspotRightPress?: [number, number];
+	cursorSpriteHotspotDrag?: [number, number];
 	cursorSpriteSizePx?: number;        // sprite render size in source pixels
 }
 

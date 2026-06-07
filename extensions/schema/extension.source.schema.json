@@ -78,9 +78,13 @@
         "label": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
         "rest": { "type": "string", "description": "Asset id of the rest-state SVG." },
-        "press": { "type": "string", "description": "Asset id of the optional pressed-state SVG." },
+        "press": { "type": "string", "description": "Asset id of the optional pressed-state (left-click) SVG." },
+        "rightPress": { "type": "string", "description": "Asset id of the optional right-click SVG. Falls back to press → rest." },
+        "drag": { "type": "string", "description": "Asset id of the optional drag SVG (button held while moving). Falls back to press → rest." },
         "hotspot": { "$ref": "#/$defs/hotspot" },
-        "pressedHotspot": { "$ref": "#/$defs/hotspot" }
+        "pressedHotspot": { "$ref": "#/$defs/hotspot" },
+        "rightPressedHotspot": { "$ref": "#/$defs/hotspot" },
+        "dragHotspot": { "$ref": "#/$defs/hotspot" }
       }
     },
     "background": {

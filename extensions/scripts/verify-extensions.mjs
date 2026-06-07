@@ -179,8 +179,13 @@ function validateContributions(res, contributes) {
 		if (!isStr(cur?.label)) res.err(`${w}: label is required`);
 		ref(cur?.rest, "cursor", `${w}.rest`);
 		if (cur?.press != null) ref(cur.press, "cursor", `${w}.press`);
+		if (cur?.rightPress != null) ref(cur.rightPress, "cursor", `${w}.rightPress`);
+		if (cur?.drag != null) ref(cur.drag, "cursor", `${w}.drag`);
 		validateHotspot(res, w, cur?.hotspot);
 		if (cur?.pressedHotspot != null) validateHotspot(res, `${w}.pressedHotspot`, cur.pressedHotspot);
+		if (cur?.rightPressedHotspot != null)
+			validateHotspot(res, `${w}.rightPressedHotspot`, cur.rightPressedHotspot);
+		if (cur?.dragHotspot != null) validateHotspot(res, `${w}.dragHotspot`, cur.dragHotspot);
 	}
 	for (const b of c.backgrounds ?? []) {
 		total++;

@@ -648,10 +648,16 @@ export interface ExtCursorContribution {
 	description?: string;
 	/** Manifest-local asset id of the rest-state SVG. */
 	rest: string;
-	/** Manifest-local asset id of the optional pressed-state SVG. */
+	/** Manifest-local asset id of the optional pressed-state (left-click) SVG. */
 	press?: string;
+	/** Manifest-local asset id of the optional right-click SVG. */
+	rightPress?: string;
+	/** Manifest-local asset id of the optional drag SVG. */
+	drag?: string;
 	hotspot: { x: number; y: number };
 	pressedHotspot?: { x: number; y: number };
+	rightPressedHotspot?: { x: number; y: number };
+	dragHotspot?: { x: number; y: number };
 }
 export interface ExtBackgroundContribution {
 	id: string;

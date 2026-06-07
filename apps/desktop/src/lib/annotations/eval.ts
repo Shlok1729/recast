@@ -61,8 +61,16 @@ export function evalZoom(zoomRegions: ZoomRegionLike[], t: number): ZoomTransfor
 		const eased = atHold ? 1 : bezierY(curve, phase);
 		return {
 			scale: 1 + (r.scale - 1) * eased,
-			cx: 0.5 + (cxTarget - 0.5) * eased,
-			cy: 0.5 + (cyTarget - 0.5) * eased,
+			// Focus point is CONSTANT at the target for the whole region — only
+			// the scale eases. This must match VideoPreview's `evaluateZoomAt`
+			// 1:1 (see the long note there): the video shader pins the centre
+			// and dollies straight into the focus, so easing the centre
+			// 0.5→target here made overlays (text, blur, arrows, guides) slide
+			// laterally toward the focus during the ramp while the video stayed
+			// put — annotations drifting off their content pixels until the
+			// hold. Pinning keeps them glued to the same pixels as the frame.
+			cx: cxTarget,
+			cy: cyTarget,
 		};
 	}
 	return IDENTITY;
