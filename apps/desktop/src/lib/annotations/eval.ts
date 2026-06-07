@@ -17,6 +17,7 @@ export interface ZoomRegionLike {
 	easeOut: Easing;
 	centerX?: number;
 	centerY?: number;
+	hidden?: boolean;
 }
 
 export interface ZoomTransform {
@@ -34,6 +35,7 @@ const IDENTITY: ZoomTransform = { scale: 1, cx: 0.5, cy: 0.5 };
  */
 export function evalZoom(zoomRegions: ZoomRegionLike[], t: number): ZoomTransform {
 	for (const r of zoomRegions) {
+		if (r.hidden) continue;
 		if (t <= r.start || t >= r.end) continue;
 		const duration = Math.max(0, r.end - r.start);
 		const half = duration * 0.5;

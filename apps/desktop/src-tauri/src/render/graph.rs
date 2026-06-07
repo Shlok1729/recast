@@ -628,9 +628,10 @@ fn build_zoom_filter(node: &ZoomNode, source: SourceVideoMetadata, time_offset: 
     let samples_per_region: Vec<Vec<ZoomSample>> = node
         .regions
         .iter()
-        // Skip regions whose entire timeline window precedes `trim_start` —
-        // their LUT entries would all have negative output-t and never fire.
-        .filter(|region| region.end > time_offset)
+        // Skip hidden regions (non-destructive mute) and regions whose entire
+        // timeline window precedes `trim_start` (their LUT entries would all
+        // have negative output-t and never fire).
+        .filter(|region| !region.hidden && region.end > time_offset)
         .map(|region| sample_region(region, source, time_offset))
         .collect();
 
@@ -747,7 +748,11 @@ type Segment = (f64, f64, f64, f64);
 /// `if`s, because FFmpeg's evaluator has a recursion-depth limit; at most one
 /// window fires per `t` (regions don't overlap; segments abut as half-open
 /// windows) so the sum equals the active segment's value or the default.
-fn build_zoom_exprs(samples_per_region: &[Vec<ZoomSample>], iw: f64, ih: f64) -> (String, String, String) {
+fn build_zoom_exprs(
+    samples_per_region: &[Vec<ZoomSample>],
+    iw: f64,
+    ih: f64,
+) -> (String, String, String) {
     // Merge the eased scale into the fewest linear segments per region, then
     // coarsen (double the tolerance) until the total fits the parser budget.
     // The hold phase collapses to one segment for free; a smooth ramp collapses
@@ -1022,6 +1027,7 @@ mod tests {
             center_x: 0.5,
             center_y: 0.5,
             motion_blur: 0.0,
+            hidden: false,
         }
     }
 
@@ -1189,6 +1195,22 @@ mod tests {
         assert!(fc.contains("gte(t,6.0000)"), "third region missing: {fc}");
     }
 
+    /// A hidden region is a non-destructive mute: it must contribute NOTHING to
+    /// the export filter (no scale/crop prelude when it's the only region).
+    #[test]
+    fn hidden_zoom_region_is_excluded_from_export() {
+        let mut r = region(1.0, 4.0, 1.6);
+        r.hidden = true;
+        let state = render_state_with_zoom(0.0, 5.0, vec![r]);
+        let plan = export_plan(&state);
+        if let Some(fc) = plan.filter_complex {
+            assert!(
+                !fc.contains("eval=frame"),
+                "hidden region must produce no zoom prelude: {fc}"
+            );
+        }
+    }
+
     /// One region's worth of samples: ease-in (1.0→peak), hold, ease-out, at
     /// 20 Hz — the shape auto-zoom produces. Used to stress the expression cap.
     fn smooth_region_samples(t0: f64, peak: f64) -> Vec<ZoomSample> {
@@ -1276,7 +1298,10 @@ mod tests {
         )];
         let (z, x, y) = build_zoom_exprs(&samples, 1920.0, 1080.0);
         // Off-centre focus must actually move the crop (not identically 0).
-        assert!(x != "0" && y != "0", "off-centre crop must be non-trivial: x={x} y={y}");
+        assert!(
+            x != "0" && y != "0",
+            "off-centre crop must be non-trivial: x={x} y={y}"
+        );
         let windows = |e: &str| -> Vec<String> {
             e.match_indices("gte(t,")
                 .map(|(i, _)| {

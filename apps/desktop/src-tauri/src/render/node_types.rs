@@ -363,6 +363,11 @@ pub struct ZoomRegion {
     /// UV-space focus centre Y.
     #[serde(default = "default_zoom_center")]
     pub center_y: f64,
+    /// Non-destructive mute: when true the region is excluded from the export
+    /// (and the preview), but kept in the project file. Absent in older
+    /// projects → visible.
+    #[serde(default)]
+    pub hidden: bool,
     /// Preview motion-blur strength 0..1.
     ///
     /// **Preview-only by design** — the WebGL preview applies a radial 7-tap

@@ -295,13 +295,22 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
     const CURSOR_SPRITE_KEY_RIGHT_PRESS: &str = "__recast_cursor_right_press__";
     const CURSOR_SPRITE_KEY_DRAG: &str = "__recast_cursor_drag__";
     for (url, key) in [
-        (&request.render_state.cursor_sprite_rest, CURSOR_SPRITE_KEY_REST),
-        (&request.render_state.cursor_sprite_press, CURSOR_SPRITE_KEY_PRESS),
+        (
+            &request.render_state.cursor_sprite_rest,
+            CURSOR_SPRITE_KEY_REST,
+        ),
+        (
+            &request.render_state.cursor_sprite_press,
+            CURSOR_SPRITE_KEY_PRESS,
+        ),
         (
             &request.render_state.cursor_sprite_right_press,
             CURSOR_SPRITE_KEY_RIGHT_PRESS,
         ),
-        (&request.render_state.cursor_sprite_drag, CURSOR_SPRITE_KEY_DRAG),
+        (
+            &request.render_state.cursor_sprite_drag,
+            CURSOR_SPRITE_KEY_DRAG,
+        ),
     ] {
         if let Some(url) = url {
             if let Some(img) = decode_data_url(url) {
@@ -584,9 +593,7 @@ pub fn render_cursor_overlay(request: CursorOverlayRequest) -> Result<CursorOver
             let (key, slot_hotspot) = if pressed {
                 if press.dragged && image_cache.contains_key(CURSOR_SPRITE_KEY_DRAG) {
                     (CURSOR_SPRITE_KEY_DRAG, rs.cursor_sprite_hotspot_drag)
-                } else if press.right
-                    && image_cache.contains_key(CURSOR_SPRITE_KEY_RIGHT_PRESS)
-                {
+                } else if press.right && image_cache.contains_key(CURSOR_SPRITE_KEY_RIGHT_PRESS) {
                     (
                         CURSOR_SPRITE_KEY_RIGHT_PRESS,
                         rs.cursor_sprite_hotspot_right_press,
@@ -826,7 +833,9 @@ fn active_zoom_at(
     time_offset: f64,
 ) -> Option<(f64, f64, f64)> {
     for region in regions {
-        if t_secs < region.start || t_secs > region.end {
+        // Hidden regions are muted in the video filter too — keep the cursor's
+        // affine in lockstep so it isn't transformed by a zoom that never renders.
+        if region.hidden || t_secs < region.start || t_secs > region.end {
             continue;
         }
         // Rebuild the exact sample grid `sample_region` emits, then linearly

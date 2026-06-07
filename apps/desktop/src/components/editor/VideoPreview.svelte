@@ -1082,6 +1082,7 @@ void main() {
 	} {
 		const regions = store.zoomRegions;
 		for (const r of regions) {
+			if (r.hidden) continue;
 			if (timeSec <= r.start || timeSec >= r.end) continue;
 			const duration = Math.max(0, r.end - r.start);
 			const half = duration * 0.5;
