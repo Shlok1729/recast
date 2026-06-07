@@ -169,7 +169,7 @@
 		{
 			icon: Zap,
 			label: "GPU",
-			minimum: "Integrated GPU or none — falls back to CPU (libx264)",
+			minimum: "Integrated GPU or none; falls back to CPU (libx264)",
 			recommended:
 				"NVIDIA (NVENC, GTX 10-series+), AMD (AMF, RX 400+), or Intel iGPU (QSV, 6th-gen+)",
 		},
@@ -196,17 +196,17 @@
 	const installSteps: Record<Exclude<OS, "Unknown">, PlatformGuide> = {
 		macOS: {
 			intro:
-				"macOS is in beta. The smoothest path is Homebrew (step 1) — one line that grabs the right build for your chip and clears Gatekeeper for you. Prefer the .dmg? Steps 2–5 cover the manual install; macOS just needs one Terminal command on first launch until we're Apple-notarized.",
+				"macOS is in beta. The smoothest path is Homebrew (step 1): one line that grabs the right build for your chip and clears Gatekeeper for you. Prefer the .dmg? Steps 2–5 cover the manual install, and macOS just needs one Terminal command on first launch until we're Apple-notarized.",
 			steps: [
 				{
 					title: "Fastest: install with Homebrew",
 					body:
-						"One line installs the right build for your Mac and removes the Gatekeeper quarantine automatically — no \"is damaged\" error, and brew keeps it updated. Tap once if you'd rather use the short name: brew tap kanakkholwal/recast, then brew install --cask recast.",
+						"One line installs the right build for your Mac and removes the Gatekeeper quarantine automatically, so there's no \"is damaged\" error, and brew keeps it updated. Tap once if you'd rather use the short name: brew tap kanakkholwal/recast, then brew install --cask recast.",
 					code: "brew install --cask kanakkholwal/recast/recast",
-					hint: "Installed this way? You're done — skip the manual .dmg steps below.",
+					hint: "Installed this way? You're done. Skip the manual .dmg steps below.",
 				},
 				{
-					title: "Or download the .dmg — pick the right build",
+					title: "Or download the .dmg and pick the right build",
 					body:
 						"Apple Silicon for M1/M2/M3/M4 Macs. Intel for older models. Check via   → About This Mac if you're unsure.",
 				},
@@ -232,7 +232,7 @@
 				{
 					title: "“Recast is damaged and can't be opened”",
 					body:
-						"Not actually damaged — that's the un-notarized Gatekeeper error. Step 3 above fixes it.",
+						"It's not actually damaged. That's the un-notarized Gatekeeper error, and step 3 above fixes it.",
 				},
 				{
 					title: "Permissions don't stick after enabling",
@@ -243,7 +243,7 @@
 		},
 		Windows: {
 			intro:
-				"Windows SmartScreen flags new publishers as 'Unknown'. One click past the warning and you're in — this goes away once we sign with an EV certificate.",
+				"Windows SmartScreen flags new publishers as 'Unknown'. One click past the warning and you're in. This goes away once we sign with an EV certificate.",
 			steps: [
 				{
 					title: "Pick the right installer",
@@ -263,14 +263,14 @@
 				{
 					title: "Finish setup",
 					body:
-						"Pick an install location and let the wizard finish. Recast launches from the Start menu — pin it to the taskbar while you're at it.",
+						"Pick an install location and let the wizard finish. Recast launches from the Start menu, so pin it to the taskbar while you're at it.",
 				},
 			],
 			faqs: [
 				{
 					title: "Antivirus flags Recast as suspicious",
 					body:
-						"False positive — fresh unsigned binaries trip heuristic scanners until they age. Add Recast.exe to your antivirus's allowlist.",
+						"It's a false positive. Fresh unsigned binaries trip heuristic scanners until they age. Add Recast.exe to your antivirus's allowlist.",
 				},
 				{
 					title: "Capture is empty or black",
@@ -281,7 +281,7 @@
 		},
 		Linux: {
 			intro:
-				"Three packages cover most distros. Pick by your package manager — AppImage works on anything.",
+				"Three packages cover most distros. Pick by your package manager; the AppImage works on anything.",
 			steps: [
 				{
 					title: "Pick your package",
@@ -289,24 +289,24 @@
 						"AppImage = portable (any distro, no install). .deb = Debian, Ubuntu, Mint. .rpm = Fedora, RHEL, openSUSE.",
 				},
 				{
-					title: "AppImage — mark executable & run",
+					title: "AppImage: mark executable & run",
 					body:
 						"Give it execute permission, then double-click or run from the terminal.",
 					code: "chmod +x Recast-*.AppImage\n./Recast-*.AppImage",
 					hint: "Some distros need libfuse2: sudo apt install libfuse2.",
 				},
 				{
-					title: ".deb — install with apt",
+					title: ".deb: install with apt",
 					body: "apt resolves any missing dependencies for you.",
 					code: "sudo apt install ./recast_*.deb",
 				},
 				{
-					title: ".rpm — install with dnf",
+					title: ".rpm: install with dnf",
 					body: "Use zypper on openSUSE: sudo zypper install ./recast-*.rpm.",
 					code: "sudo dnf install ./recast-*.rpm",
 				},
 				{
-					title: "Wayland — enable the portal",
+					title: "Wayland: enable the portal",
 					body:
 						"Recast uses xdg-desktop-portal for screen capture under Wayland. Most distros bundle it; if capture is empty, install the portal and the matching backend (GNOME or KDE).",
 					code: "sudo apt install xdg-desktop-portal xdg-desktop-portal-gnome",
@@ -334,7 +334,7 @@
 	title="Download Recast"
 	description="Download Recast for macOS, Windows, or Linux. Free during beta. The native screen recorder for makers shipping every week."
 	eyebrow="Download"
-	pageTitle="Download Recast — macOS, Windows, Linux"
+	pageTitle="Download Recast for macOS, Windows, and Linux"
 />
 
 <main class="text-foreground">
@@ -552,7 +552,7 @@
 			<SectionHeader
 				eyebrow="System requirements"
 				title="Recording on every machine."
-				description="Hardware-accelerated where it counts — and a solid CPU fallback so a budget laptop without a discrete GPU still records cleanly."
+				description="Hardware-accelerated where it counts, with a solid CPU fallback so a budget laptop without a discrete GPU still records cleanly."
 			/>
 
 			<Reveal>
@@ -658,7 +658,7 @@
 													)}
 													title={p.stability === "stable"
 														? "This is the build I use daily."
-														: "Early port — please file issues on GitHub when something breaks."}
+														: "Early port. Please file issues on GitHub when something breaks."}
 												>
 													<span class={cn("size-1.5 rounded-full", stab.dot)}></span>
 													{p.stability === "stable" ? "Stable" : "Beta"}
