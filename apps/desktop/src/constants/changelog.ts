@@ -37,6 +37,36 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.4',
+		date: '2026-06-07',
+		highlights: [
+			'**Extensions arrive** — browse and install community asset packs (cursors, backgrounds, gradients, colours, and easing/smoothing presets) from a new Extensions tab. Packs are code-free and verified by HTTPS-only downloads with per-asset SHA-256 pinning.',
+			'**Editor polishing pass continues** — the preset picker gains richer visual previews and predictable keyboard navigation, while the Info panel is reshaped into a more actionable, jump-to-tab summary.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Extensions: browse and install community asset packs — cursors, backgrounds, gradients, colours, and easing/smoothing presets — from a new Extensions tab, with a local dev-registry server for authoring packs.' },
+			{ kind: 'changed', summary: 'Preset picker refresh: the current preset is pinned and visibly marked, categories gain icons, wallpaper presets render real thumbnail previews, and arrow-key navigation now moves across the 2-column grid predictably instead of walking raw DOM order.' },
+			{ kind: 'changed', summary: 'Info panel redesign: source, project, and edit stats are reorganized into clearer cards with direct jump actions into the related editor tabs.' },
+			{ kind: 'fixed', summary: 'Harden extension-pack installation: untrusted pack SVGs are rendered as images instead of inlined markup, asset paths and URL schemes are validated more strictly, and installed packs hydrate in a stable order.' },
+			{ kind: 'fixed', summary: 'Development builds no longer send crash telemetry, so running the app locally never pollutes production analytics.' },
+		],
+	},
+	{
+		version: '0.2.3',
+		date: '2026-06-06',
+		highlights: [
+			'**Desktop diagnostics are now first-class** — a user-facing verbose-logging toggle plus log-management controls capture real diagnostic data on demand instead of asking users to reproduce issues blind.',
+			'**Editor polish** — the audio panel was reshaped around segmented fade presets and a clearer control hierarchy, and a centralized keyboard-shortcut registry now powers a dedicated shortcuts dialog.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Diagnostic logging controls in the desktop app: a feature flag / UI toggle for verbose logs, plus log management plumbing so debugging information can be turned on when needed instead of asking users to reproduce issues blind.' },
+			{ kind: 'added', summary: 'Centralized keyboard-shortcut registry and a shortcuts dialog, with extra keyboard-event diagnostics in the desktop shell so modifier-key and stale-listener bugs can be traced from real `keydown` payloads when debugging editor shortcuts.' },
+			{ kind: 'changed', summary: 'Audio panel redesign: fade presets move into a segmented control, output/fade controls get a clearer hierarchy, and the panel now states the shared system-audio + microphone mixing model more honestly.' },
+			{ kind: 'changed', summary: 'Desktop environment variables were consolidated so configuration reads from one clearer source of truth instead of drifting across multiple names and code paths.' },
+			{ kind: 'fixed', summary: 'Tooltip positioning in the properties panel now avoids the previous clipping / overlap cases, making the labels readable around tighter panel layouts.' },
+		],
+	},
+	{
 		version: '0.2.2',
 		date: '2026-06-05',
 		highlights: [

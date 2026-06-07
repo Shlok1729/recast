@@ -29,31 +29,31 @@
 	// The six contribution kinds a pack can add. These map 1:1 to the editor's
 	// pickers, so the page reads as "this shows up where you already work".
 	const kinds = [
-		{ icon: MousePointer2, title: "Cursors", description: "Pointer styles with rest + click states and precise hotspots, in the cursor picker." },
+		{ icon: MousePointer2, title: "Cursors", description: "New pointer styles with rest and click states, plus precise hotspots, right in the cursor picker." },
 		{ icon: ImageIcon, title: "Backgrounds", description: "Wallpapers that drop straight into the canvas background picker." },
-		{ icon: Blend, title: "Gradients", description: "Curated gradient sets, rendered live in both preview and export." },
-		{ icon: Palette, title: "Colors", description: "Solid-color swatches for the canvas, ready to click." },
+		{ icon: Blend, title: "Gradients", description: "Curated gradient sets, rendered live in both the preview and the export." },
+		{ icon: Palette, title: "Colors", description: "Solid color swatches for the canvas, ready to click." },
 		{ icon: Spline, title: "Easing presets", description: "Named motion curves for zoom and cursor animation." },
-		{ icon: Waves, title: "Smoothing presets", description: "Cursor-smoothing recipes — strength plus click-snap — shared as packs." },
+		{ icon: Waves, title: "Smoothing presets", description: "Cursor smoothing recipes, strength plus click snap, that you can share as packs." },
 	];
 
 	const steps = [
-		{ icon: Blocks, title: "Browse or paste", description: "Open the Extensions tab in the editor and browse the registry — or paste a pack URL to install one directly." },
-		{ icon: Download, title: "Install in a click", description: "The pack downloads, every asset is hash-verified, and it installs to your machine. No account, no network round-trip to us." },
-		{ icon: Sparkles, title: "Use it everywhere", description: "Its cursors, backgrounds, gradients and presets appear in the pickers you already use. Toggle or remove it any time." },
+		{ icon: Blocks, title: "Browse or paste", description: "Open the Extensions tab in the editor and browse the registry, or paste a pack URL to install one directly." },
+		{ icon: Download, title: "Install in a click", description: "The pack downloads, every asset gets checked against its hash, and it installs to your machine. No account, and nothing phones home to us." },
+		{ icon: Sparkles, title: "Use it everywhere", description: "Its cursors, backgrounds, gradients and presets show up in the pickers you already use. Toggle it off or remove it whenever you like." },
 	];
 
 	const trust = [
-		{ icon: Lock, title: "No code runs", description: "A pack is a manifest plus static files. Nothing executes — there's no sandbox to escape because there's nothing to sandbox." },
-		{ icon: Hash, title: "Hash-pinned over HTTPS", description: "Every asset is SHA-256 verified on download. A tampered or swapped file fails the install outright." },
-		{ icon: ShieldCheck, title: "Zero permissions", description: "Asset packs can't request capabilities. A pack can never reach further than the app itself already can." },
-		{ icon: Check, title: "Open & checked", description: "The registry is public on GitHub, and every submission is verified by CI — schema, hashes, and safe filenames — before it can ship." },
+		{ icon: Lock, title: "No code runs", description: "A pack is a manifest plus static files. Nothing executes, so there's no sandbox to escape because there's nothing to sandbox." },
+		{ icon: Hash, title: "Hash-pinned over HTTPS", description: "Every asset is checked against its SHA-256 on download. A tampered or swapped file fails the install outright." },
+		{ icon: ShieldCheck, title: "Zero permissions", description: "Asset packs can't request capabilities. A pack never reaches further than the app already can." },
+		{ icon: Check, title: "Open and checked", description: "The registry is public on GitHub, and CI checks every submission for schema, hashes and safe filenames before it can ship." },
 	];
 </script>
 
 <SeoMeta
-	title="Extensions — make Recast yours"
-	description="Install community asset packs right in the Recast editor: cursors, backgrounds, gradients, and motion presets. Declarative, hash-verified, zero permissions. Free, offline, and open."
+	title="Extensions for Recast"
+	description="Install community asset packs right inside Recast: new cursors, backgrounds, gradients and motion presets. They carry no code, get checked by hash on install, and ask for nothing. Free, offline and open."
 	eyebrow="Extensions"
 />
 
@@ -64,7 +64,7 @@
 			<SectionHeader
 				eyebrow="Extensions"
 				title="Make Recast yours."
-				description="Cursors, backgrounds, gradients, and motion presets — installed right in the editor, from an open community registry. Every pack is just a manifest and static files: no code, hash-verified, zero permissions. The app stays free, offline, and yours."
+				description="Cursors, backgrounds, gradients and motion presets, installed right in the editor from an open community registry. Every pack is just a manifest and a few static files. Nothing runs, every asset is checked by hash, and the app stays free, offline and yours."
 				align="center"
 			/>
 			<Reveal variant="up" delay={120} class="mt-10 flex flex-wrap items-center justify-center gap-3">
@@ -90,7 +90,7 @@
 			<SectionHeader
 				eyebrow="What a pack adds"
 				title="It shows up where you already work."
-				description="A pack contributes to the same pickers you use every day — nothing new to learn. Mix any of these in a single pack."
+				description="A pack feeds the same pickers you use every day, so there's nothing new to learn. One pack can mix any of these."
 				align="center"
 			/>
 			<div class="mt-16 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border-low/40 bg-border-low/30 sm:grid-cols-2 lg:grid-cols-3">
@@ -148,7 +148,7 @@
 			<SectionHeader
 				eyebrow="Safe by design"
 				title="Installable, without the install-anything risk."
-				description="Plugins usually mean running someone else's code. Recast packs don't — they only carry assets, so the whole class of plugin-supply-chain attacks simply doesn't apply."
+				description="Plugins usually mean running someone else's code on your machine. Recast packs don't. They only carry assets, so the whole class of plugin supply-chain attacks simply doesn't apply."
 				align="center"
 			/>
 			<div class="mt-16 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border-low/40 bg-border-low/30 sm:grid-cols-2 lg:grid-cols-4">
@@ -176,13 +176,13 @@
 					<SectionHeader
 						eyebrow="Build & share"
 						title="Make a pack in an afternoon."
-						description="Drop your SVGs or images in a folder, write a small manifest, and open a pull request. CI verifies the schema, hashes, and filenames; once it's merged, it's in the gallery for everyone — with your name on it."
+						description="Drop your SVGs or images in a folder, write a small manifest, and open a pull request. CI checks the schema, hashes and filenames for you. Once it's merged, it's in the gallery for everyone, with your name on it."
 					/>
 					<ul class="mt-10 space-y-3.5">
 						{#each [
-							{ icon: ImageIcon, title: "Add your assets", description: "Cursors as SVG, backgrounds as PNG/JPG/WebP — bare files in your pack's assets/ folder." },
-							{ icon: Blocks, title: "Write the manifest", description: "A few lines of JSON declaring what each file contributes. No URLs or hashes to hand-write." },
-							{ icon: Check, title: "Verify & open a PR", description: "Run pnpm verify:extensions, push, and the Verify Extensions workflow does the rest." },
+							{ icon: ImageIcon, title: "Add your assets", description: "Cursors as SVG, backgrounds as PNG, JPG or WebP. Bare files, sitting in your pack's assets folder." },
+							{ icon: Blocks, title: "Write the manifest", description: "A few lines of JSON that say what each file contributes. No URLs or hashes to write by hand." },
+							{ icon: Check, title: "Verify and open a PR", description: "Run pnpm verify:extensions, push, and the Verify Extensions workflow takes it from there." },
 						] as f, i}
 							{@const Icon = f.icon}
 							<Reveal as="li" variant="left" delay={i * 70} class="flex items-start gap-3.5">

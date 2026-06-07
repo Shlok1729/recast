@@ -42,19 +42,36 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-06-07
+
 ### Highlights
-- **Desktop diagnostics are getting first-class tooling** — a user-facing logging toggle, log management controls, and extra key-event tracing for chasing down phantom shortcut reports.
-- **Editor polishing pass in progress** — the preset picker is being upgraded with richer visual previews and better keyboard navigation, while the Info and Audio panels are being reshaped into more actionable summaries.
+- **Extensions arrive** — browse and install community asset packs (cursors, backgrounds, gradients, colours, and easing/smoothing presets) from a new Extensions tab. Packs are code-free and verified by HTTPS-only downloads with per-asset SHA-256 pinning.
+- **Editor polishing pass continues** — the preset picker gains richer visual previews and predictable keyboard navigation, while the Info panel is reshaped into a more actionable, jump-to-tab summary.
+
+### Added
+- Extensions: browse and install community asset packs — cursors, backgrounds, gradients, colours, and easing/smoothing presets — from a new Extensions tab, with a local dev-registry server for authoring packs.
+
+### Changed
+- Preset picker refresh: the current preset is pinned and visibly marked, categories gain icons, wallpaper presets render real thumbnail previews, and arrow-key navigation now moves across the 2-column grid predictably instead of walking raw DOM order.
+- Info panel redesign: source, project, and edit stats are reorganized into clearer cards with direct jump actions into the related editor tabs.
+
+### Fixed
+- Harden extension-pack installation: untrusted pack SVGs are rendered as images instead of inlined markup, asset paths and URL schemes are validated more strictly, and installed packs hydrate in a stable order.
+- Development builds no longer send crash telemetry, so running the app locally never pollutes production analytics.
+
+## [0.2.3] — 2026-06-06
+
+### Highlights
+- **Desktop diagnostics are now first-class** — a user-facing verbose-logging toggle plus log-management controls capture real diagnostic data on demand instead of asking users to reproduce issues blind.
+- **Editor polish** — the audio panel was reshaped around segmented fade presets and a clearer control hierarchy, and a centralized keyboard-shortcut registry now powers a dedicated shortcuts dialog.
 
 ### Added
 - Diagnostic logging controls in the desktop app: a feature flag / UI toggle for verbose logs, plus log management plumbing so debugging information can be turned on when needed instead of asking users to reproduce issues blind.
-- Extra keyboard-event diagnostics in the desktop shell so modifier-key and stale-listener bugs can be traced from real `keydown` payloads when debugging editor shortcuts.
+- Centralized keyboard-shortcut registry and a shortcuts dialog, with extra keyboard-event diagnostics in the desktop shell so modifier-key and stale-listener bugs can be traced from real `keydown` payloads when debugging editor shortcuts.
 
 ### Changed
-- Desktop environment variables are being consolidated so configuration reads from one clearer source of truth instead of drifting across multiple names and code paths.
-- Preset picker refresh in progress: the current preset is pinned and visibly marked, categories gain icons, wallpaper presets render real thumbnail previews, and arrow-key navigation now moves across the 2-column grid predictably instead of walking raw DOM order.
-- Info panel redesign in progress: source, project, and edit stats are being reorganized into clearer cards with direct jump actions into the related editor tabs.
-- Audio panel redesign in progress: fade presets move into a segmented control, output/fade controls get a clearer hierarchy, and the panel now states the current shared system-audio + microphone mixing model more honestly.
+- Audio panel redesign: fade presets move into a segmented control, output/fade controls get a clearer hierarchy, and the panel now states the shared system-audio + microphone mixing model more honestly.
+- Desktop environment variables were consolidated so configuration reads from one clearer source of truth instead of drifting across multiple names and code paths.
 
 ### Fixed
 - Tooltip positioning in the properties panel now avoids the previous clipping / overlap cases, making the labels readable around tighter panel layouts.

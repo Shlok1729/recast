@@ -81,7 +81,7 @@
 				})(),
 				{
 					loading: "Adding you to the waitlist…",
-					success: "You're on the list — we'll email when access opens.",
+					success: "You're on the list. We'll email when access opens.",
 					error: (err) => (err as Error)?.message ?? "Couldn't join the waitlist.",
 				},
 			);
@@ -223,7 +223,7 @@
 		{
 			icon: Layers,
 			title: "Recording profiles",
-			description: "Save capture presets (region + window + camera + mic) and switch with one shortcut. Investor demo, changelog clip, tutorial — pick the profile, hit record.",
+			description: "Save capture presets (region + window + camera + mic) and switch with one shortcut. Investor demo, changelog clip, tutorial: pick the profile, hit record.",
 		},
 		{
 			icon: Pause,
@@ -238,7 +238,7 @@
 	];
 
 	const shareFeatures = [
-		{ icon: HardDriveUpload, title: "Upload to your Drive", description: "Connect Google Drive once. The export dialog ships the file straight to your account — no manual upload step." },
+		{ icon: HardDriveUpload, title: "Upload to your Drive", description: "Connect Google Drive once. The export dialog ships the file straight to your account, with no manual upload step." },
 		{ icon: Link2, title: "Copy a share link", description: "When the upload finishes, the Drive link is one click away. Send it however you already send links." },
 		{ icon: ShieldCheck, title: "You own the file", description: "The video lives in your Drive, not on a Recast server. Your retention, your sharing rules, your delete button." },
 	];
@@ -246,10 +246,10 @@
 	// "Make it yours" beat — extensions as proof of the no-lock-in moat, not a
 	// generic "marketplace". Stays a supporting note under the core wedge.
 	const extensionBeat = [
-		{ icon: MousePointer2, title: "Cursor packs", description: "Swap the pointer for a new style — install a pack and it shows up in the cursor picker." },
-		{ icon: Palette, title: "Backgrounds & gradients", description: "Wallpapers, gradients, and color sets that drop straight into the background picker." },
+		{ icon: MousePointer2, title: "Cursor packs", description: "Swap the pointer for a new style. Install a pack and it shows up in the cursor picker." },
+		{ icon: Palette, title: "Backgrounds & gradients", description: "Wallpapers, gradients and color sets that drop straight into the background picker." },
 		{ icon: Sparkles, title: "Motion presets", description: "Easing and cursor-smoothing presets, shared as packs you can install in a click." },
-		{ icon: ShieldCheck, title: "Safe by design", description: "Every pack is a manifest plus static files — no code, hash-verified, zero permissions." },
+		{ icon: ShieldCheck, title: "Safe by design", description: "Every pack is a manifest plus static files. No code runs, every asset is hash-checked, and nothing asks for permission." },
 	];
 
 	// "Inside the editor" — honest tour of every tool a non-editor user will
@@ -808,7 +808,7 @@
 			<SectionHeader
 				eyebrow="Make it yours"
 				title="Open packs. No lock-in."
-				description="Install community asset packs right in the editor — cursors, backgrounds, gradients, and motion presets that appear in the pickers you already use. Every pack is just a manifest and static files: no code, hash-verified, zero permissions. The app stays free, offline, and yours."
+				description="Install community asset packs right inside the editor. Cursors, backgrounds, gradients and motion presets show up in the pickers you already use. Each pack is just a manifest and a few static files, checked by hash on the way in, with no code and no permissions. The app stays free, offline and yours."
 				align="center"
 			/>
 
@@ -852,7 +852,7 @@
 					<SectionHeader
 						eyebrow="Step 3 · Share"
 						title="Ship a link. To your Drive."
-						description="Connect Google Drive once. From then on, the export dialog uploads the finished file straight to your own Drive and hands you a share-link. The video lives in your account, not on a Recast server — your storage, your retention, your access controls."
+						description="Connect Google Drive once. From then on, the export dialog uploads the finished file straight to your own Drive and hands you a share-link. The video lives in your account, not on a Recast server. Your storage, your retention, your access controls."
 					/>
 
 					<ul class="mt-10 space-y-3.5">
@@ -946,7 +946,7 @@
 					<SectionHeader
 						eyebrow="Coming next · Recast Cloud"
 						title="When a Drive link isn't enough."
-						description="For the moments a shared file can't express — knowing which prospect actually watched, gating an investor demo by viewer, branding the player as your product. Loom-style hosted demos, with more of the dials handed to you."
+						description="For the moments a shared file can't express: knowing which prospect actually watched, gating an investor demo by viewer, branding the player as your product. Loom-style hosted demos, with more of the dials handed to you."
 					/>
 
 					<ul class="mt-10 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
@@ -984,7 +984,7 @@
 									Storage-agnostic by design.
 								</h3>
 								<p class="mt-2 text-sm leading-relaxed text-muted-foreground">
-									Most hosted recorders lock you to their bucket and bill you for the privilege. Recast Cloud is a sharing + analytics layer that points at <span class="font-semibold text-foreground">whichever storage you want</span> — yours or ours.
+									Most hosted recorders lock you to their bucket and bill you for the privilege. Recast Cloud is a sharing + analytics layer that points at <span class="font-semibold text-foreground">whichever storage you want</span>, yours or ours.
 								</p>
 
 								<!-- Storage tier mini-table. Free → BYO storage,
