@@ -132,7 +132,10 @@ async fn download_verified(
 
 /// Ensure `target` exists on disk with content matching `expected_sha256`. If
 /// it already does, return `true` (skipped). Otherwise download + verify.
-async fn ensure_one(
+///
+/// Shared with the extension installer (`commands/extensions.rs`), which reuses
+/// the same sha256-verified streaming + atomic-rename guarantees.
+pub(crate) async fn ensure_one(
     client: &reqwest::Client,
     url: &str,
     expected_sha256: &str,

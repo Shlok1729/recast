@@ -1,11 +1,8 @@
 <script lang="ts">
   import { SMOOTHING_PRESETS } from "$lib/cursor/smoothing";
-  import { CURSOR_STYLES } from "$lib/cursor/styles";
   import { EASE, EASING_PRESETS, easingEquals } from "$lib/easing/cubic-bezier";
-  import type {
-    CursorStyleId,
-    EditorStore,
-  } from "$lib/stores/editor-store.svelte";
+  import { registry } from "$lib/registry";
+  import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
     Activity,
     EyeOff,
@@ -48,7 +45,7 @@
   let showTrajectoryMap = $state(false);
 
   const activeStyle = $derived(
-    CURSOR_STYLES.find((s) => s.id === store.cursorSettings.style),
+    registry.get("cursor", store.cursorSettings.style),
   );
 
   function updateCursorSettings(
@@ -95,7 +92,7 @@
       <div
         class="grid grid-cols-5 gap-1 rounded-lg border border-border/60 bg-muted/30 p-1 shadow-(--shadow-craft-inset)"
       >
-        {#each CURSOR_STYLES as style, i (style.id)}
+        {#each registry.list("cursor") as style, i (style.id)}
           {@const isActive = store.cursorSettings.style === style.id}
           <button
             in:fly={{ y: 6, duration: 240, delay: 60 + i * 35, easing: cubicOut }}
@@ -104,9 +101,9 @@
             aria-label={`${style.label} cursor`}
             onclick={() => {
               store.pushUndoState();
-              store.updateCursorSettings({ style: style.id as CursorStyleId });
+              store.updateCursorSettings({ style: style.id });
             }}
-            title={`${style.label} — ${style.description}`}
+            title={style.description ? `${style.label} — ${style.description}` : style.label}
             class={cn(
               "group relative aspect-square overflow-hidden rounded-md border transition-all duration-150",
               "focus:outline-none focus:ring-2 focus:ring-ring/40",
@@ -125,7 +122,7 @@
               )}
               aria-hidden="true"
             >
-              {@html style.svg}
+              {@html style.value.svg}
             </span>
             {#if isActive}
               <span

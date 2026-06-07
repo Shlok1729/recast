@@ -6,6 +6,9 @@
 import type { CursorSampleLike } from '../cursor/smoothing';
 import { EASE, type Easing } from '../easing/cubic-bezier';
 import { log } from '../logger';
+// Narrow import (not `$lib/registry`) so the registry's `builtins` side-effect
+// — which pulls this store's catalogs — can't form an import cycle.
+import { resolveBackgroundWireValue } from '../registry/resolve';
 import { totalCutDuration, type CutSource, type TimelineCut } from '../timeline/cuts';
 
 export type BackgroundType = 'wallpaper' | 'image' | 'color' | 'gradient';
@@ -211,10 +214,19 @@ export const DEFAULT_ANNOTATION_FILL = "rgba(59,130,246,0.20)";
  */
 export type CursorStyleId = 'dot' | 'macos' | 'windows' | 'outline' | 'target';
 
+/**
+ * Stored cursor selection: a built-in {@link CursorStyleId} or an
+ * `ext:<extId>:<localId>` id contributed by an installed cursor pack. Kept as a
+ * widened string (the `string & {}` trick preserves built-in autocomplete)
+ * because extension ids can't be enumerated at compile time. Resolution +
+ * graceful fallback (unknown id → soft dot) lives in `lib/registry/resolve.ts`.
+ */
+export type StoredCursorId = CursorStyleId | (string & {});
+
 export interface CursorSettings {
 	enabled: boolean;
 	size: number; // 1-5 scale
-	style: CursorStyleId;
+	style: StoredCursorId;
 	smoothing: number; // 0-100 → Gaussian σ in ms (0 = raw capture, 100 ≈ 150 ms)
 	snapToClicks: boolean; // anchor smoothed path to exact click x/y around mouse-down
 	snapWindowMs: number; // half-width (ms) of the snap anchor — 0..200
@@ -442,7 +454,7 @@ export interface EditorRenderState {
 	 * `outline` / `target`). Optional for backwards compatibility — projects
 	 * saved before this field landed default to `dot` on load.
 	 */
-	cursorStyle?: CursorStyleId;
+	cursorStyle?: StoredCursorId;
 	cursorSmoothing: number;
 	cursorSnapToClicks: boolean;
 	cursorSnapWindowMs: number;
@@ -562,7 +574,7 @@ export function aspectRatio(a: OutputAspect): number | null {
 
 export type EditorWindowBehavior = 'navigate' | 'new-window';
 
-export type PanelTab = 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'info';
+export type PanelTab = 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'extensions' | 'info';
 
 export const WALLPAPERS: WallpaperOption[] = Array.from({ length: 23 }, (_, i) => ({
 	id: `wallpaper${i + 1}`,
@@ -1458,7 +1470,9 @@ export function createEditorStore() {
 			outputAspect,
 			lastAppliedPresetId,
 			backgroundType,
-			backgroundValue,
+			// `ext:` background ids → the pack's hydrated absolute path; built-in
+			// values (hex/gradient/`asset:<id>`) pass through unchanged.
+			backgroundValue: resolveBackgroundWireValue(backgroundValue),
 			backgroundBlur,
 			padding,
 			borderRadius,

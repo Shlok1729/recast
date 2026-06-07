@@ -627,6 +627,125 @@ export function hydrateCachedAssets(): Promise<HydratedAsset[]> {
 	return invoke<HydratedAsset[]>("hydrate_cached_assets");
 }
 
+//  Declarative asset-pack extensions
+
+/** A manifest-local asset (downloaded + sha256-verified by the installer). */
+export interface ExtensionAssetEntry {
+	id: string;
+	filename: string;
+	url: string;
+	sha256: string;
+	size?: number | null;
+	version?: string | null;
+	thumbFilename?: string | null;
+	thumbUrl?: string | null;
+	thumbSha256?: string | null;
+}
+
+export interface ExtCursorContribution {
+	id: string;
+	label: string;
+	description?: string;
+	/** Manifest-local asset id of the rest-state SVG. */
+	rest: string;
+	/** Manifest-local asset id of the optional pressed-state SVG. */
+	press?: string;
+	hotspot: { x: number; y: number };
+	pressedHotspot?: { x: number; y: number };
+}
+export interface ExtBackgroundContribution {
+	id: string;
+	label: string;
+	/** Manifest-local asset id of the full-resolution image. */
+	asset: string;
+	/** Optional manifest-local asset id of a thumbnail. */
+	thumb?: string;
+}
+export interface ExtGradientContribution {
+	id: string;
+	label: string;
+	/** CSS `linear-gradient(...)` string. */
+	value: string;
+}
+export interface ExtColorContribution {
+	id: string;
+	label: string;
+	/** Hex colour. */
+	value: string;
+}
+export interface ExtEasingContribution {
+	id: string;
+	label: string;
+	value: { x1: number; y1: number; x2: number; y2: number };
+}
+export interface ExtSmoothingContribution {
+	id: string;
+	label: string;
+	smoothing: number;
+	snapToClicks: boolean;
+	snapWindowMs: number;
+}
+
+export interface ExtensionContributions {
+	cursors?: ExtCursorContribution[];
+	backgrounds?: ExtBackgroundContribution[];
+	gradients?: ExtGradientContribution[];
+	colors?: ExtColorContribution[];
+	easings?: ExtEasingContribution[];
+	smoothings?: ExtSmoothingContribution[];
+}
+
+export interface ExtensionManifest {
+	id: string;
+	name: string;
+	version: string;
+	author?: string | null;
+	kind: string;
+	permissions: string[];
+	signature?: string | null;
+	contributes: ExtensionContributions;
+	assets: ExtensionAssetEntry[];
+}
+
+/** Resolved on-disk location for one manifest-local asset id. */
+export interface ExtAssetPath {
+	id: string;
+	path: string | null;
+	thumbPath: string | null;
+}
+
+export interface InstalledExtension {
+	manifest: ExtensionManifest;
+	enabled: boolean;
+	dir: string;
+	assets: ExtAssetPath[];
+}
+
+/** Install (or update) a pack from its manifest URL. Validates + sha256-verifies. */
+export function installExtension(manifestUrl: string): Promise<InstalledExtension> {
+	return invoke<InstalledExtension>("install_extension", { manifestUrl });
+}
+
+/** No-network enumeration of installed packs (for startup hydration). */
+export function listInstalledExtensions(): Promise<InstalledExtension[]> {
+	return invoke<InstalledExtension[]>("list_installed_extensions");
+}
+
+/** Toggle a pack's enabled flag without removing its files. */
+export function setExtensionEnabled(extId: string, enabled: boolean): Promise<void> {
+	return invoke<void>("set_extension_enabled", { extId, enabled });
+}
+
+/** Remove a pack and all of its files. */
+export function uninstallExtension(extId: string): Promise<void> {
+	return invoke<void>("uninstall_extension", { extId });
+}
+
+/** Fetch a curated registry *index* (no install) for the gallery. */
+export function fetchExtensionRegistry<T = unknown>(indexUrl: string): Promise<T> {
+	return invoke<T>("fetch_extension_registry", { indexUrl });
+}
+
 
 // start recording
  export async function launchRecordingPanel() {

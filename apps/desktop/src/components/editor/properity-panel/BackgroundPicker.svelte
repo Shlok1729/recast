@@ -31,6 +31,7 @@
     getRecentColors,
     pushRecentColor,
   } from "$lib/annotations/recent-colors";
+  import { registry } from "$lib/registry";
   import { Button } from "@recast/ui/button";
   import { ColorField } from "@recast/ui/color-field";
   import { SegmentedToggle } from "@recast/ui/segmented";
@@ -244,7 +245,8 @@
   function isValidValueForType(type: BackgroundType, value: string) {
     switch (type) {
       case "wallpaper":
-        return WALLPAPERS.some((w) => wallpaperBackgroundValue(w.id) === value);
+        // Any registered background id (built-in `asset:<id>` or an `ext:` pack).
+        return registry.get("background", value) !== undefined;
       case "color":
         return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value);
       case "gradient":
@@ -550,33 +552,41 @@
     <PanelSection title="Wallpapers" flush>
       {#snippet action()}
         <span class="font-mono text-[10px] tabular-nums text-muted-foreground">
-          {WALLPAPERS.length}
+          {registry.list("background").length}
         </span>
       {/snippet}
       <div class="grid grid-cols-3 gap-1.5">
-        {#each WALLPAPERS as wallpaper (wallpaper.id)}
-          {@const wallpaperValue = wallpaperBackgroundValue(wallpaper.id)}
-          {@const isSelected = store.backgroundValue === wallpaperValue}
+        {#each registry.list("background") as entry (entry.id)}
+          {@const isSelected = store.backgroundValue === entry.id}
           <Button
             variant="raw"
             size="raw"
-            onclick={() => applyBackground("wallpaper", wallpaperValue)}
+            onclick={() => applyBackground("wallpaper", entry.id)}
             class={cn(
               "group relative aspect-video overflow-hidden rounded-md border transition-all",
               isSelected
                 ? "border-primary ring-2 ring-primary/30"
                 : "border-border hover:border-foreground/30",
             )}
-            title={wallpaper.label}
-            aria-label="Use {wallpaper.label} background"
+            title={entry.label}
+            aria-label="Use {entry.label} background"
             aria-pressed={isSelected}
           >
-            <LazyExternalImage
-              assetId={wallpaper.id}
-              alt={wallpaper.label}
-              tier="thumb"
-              class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
-            />
+            {#if entry.thumbUrl}
+              <!-- Extension wallpaper: thumbnail already resolved to a WebView URL. -->
+              <img
+                src={entry.thumbUrl}
+                alt={entry.label}
+                class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+              />
+            {:else if entry.thumbAssetId}
+              <LazyExternalImage
+                assetId={entry.thumbAssetId}
+                alt={entry.label}
+                tier="thumb"
+                class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+              />
+            {/if}
           </Button>
         {/each}
       </div>
@@ -594,7 +604,8 @@
       flush
     >
       <div class="grid grid-cols-6 gap-1.5">
-        {#each COLOR_PRESETS as color}
+        {#each registry.list("color") as entry (entry.id)}
+          {@const color = entry.value.value}
           {@const isSelected = store.backgroundValue === color}
           <Button
             variant="raw"
@@ -638,31 +649,32 @@
     >
       {#snippet action()}
         <span class="font-mono text-[10px] tabular-nums text-muted-foreground">
-          {GRADIENT_PRESETS.length}
+          {registry.list("gradient").length}
         </span>
       {/snippet}
       <div class="grid grid-cols-3 gap-1.5">
-        {#each GRADIENT_PRESETS as gradient}
-          {@const isSelected = store.backgroundValue === gradient.value}
+        {#each registry.list("gradient") as entry (entry.id)}
+          {@const value = entry.value.value}
+          {@const isSelected = store.backgroundValue === value}
           <Button
             variant="raw"
             size="raw"
-            onclick={() => applyBackground("gradient", gradient.value)}
+            onclick={() => applyBackground("gradient", value)}
             class={cn(
               "group relative h-14 overflow-hidden rounded-md border p-1.5 text-left transition-all",
               isSelected
                 ? "border-primary ring-2 ring-primary/30"
                 : "border-border hover:border-foreground/30",
             )}
-            style="background: {gradient.value}"
-            aria-label="Use {gradient.label} gradient"
+            style="background: {value}"
+            aria-label="Use {entry.label} gradient"
             aria-pressed={isSelected}
           >
             <div class="flex h-full items-end">
               <span
                 class="rounded border border-black/10 bg-black/40 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-sm"
               >
-                {gradient.label}
+                {entry.label}
               </span>
             </div>
           </Button>

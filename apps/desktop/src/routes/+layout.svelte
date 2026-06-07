@@ -90,6 +90,7 @@
   import { analytics } from "$lib/analytics/client";
   import { desktopConsent } from "$lib/stores/consent.svelte";
   import { initAssets } from "$lib/assets";
+  import { initExtensions } from "$lib/extensions";
   import { NavProgress } from "@recast/ui/nav-progress";
   import { getTauriTheme, isTauriApp } from "$lib/runtime/tauri";
   import { Toaster, toast } from "@recast/ui/sonner";
@@ -270,6 +271,8 @@
   // Kick off external-asset download (wallpapers etc.) on first paint. Safe in
   // both browser and Tauri runtimes — no-op in the browser.
   initAssets();
+  // Hydrate installed asset-pack extensions and register their contributions.
+  initExtensions();
 
   // Remove the boot splash screen after the app is mounted
   onMount(async () => {

@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schema/extension.source.schema.json",
+  "id": "recast-cursors",
+  "name": "Recast Cursors",
+  "version": "1.0.0",
+  "author": "Recast",
+  "description": "A starter cursor pack: a soft focus halo and an amber precision arrow.",
+  "kind": "asset-pack",
+  "permissions": [],
+  "contributes": {
+    "cursors": [
+      {
+        "id": "halo",
+        "label": "Halo",
+        "description": "Soft focus ring with a center dot; tightens on click.",
+        "rest": "halo",
+        "press": "halo-press",
+        "hotspot": { "x": 32, "y": 32 },
+        "pressedHotspot": { "x": 32, "y": 32 }
+      },
+      {
+        "id": "spark",
+        "label": "Spark",
+        "description": "Amber precision arrow.",
+        "rest": "spark",
+        "hotspot": { "x": 8, "y": 6 }
+      }
+    ]
+  },
+  "assets": [
+    { "id": "halo", "file": "assets/halo.svg" },
+    { "id": "halo-press", "file": "assets/halo-press.svg" },
+    { "id": "spark", "file": "assets/spark.svg" }
+  ]
+}
