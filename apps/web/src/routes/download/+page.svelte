@@ -485,14 +485,14 @@
 						</span>
 						<div class="min-w-0 flex-1">
 							<h3 class="text-sm font-semibold tracking-tight text-foreground">
-								Heads up — platform stability
+								Heads up: platform stability
 							</h3>
 							<p class="mt-1.5 text-sm leading-relaxed text-muted-foreground">
 								Windows is the build I use daily and the most polished today.
 								<span class="font-semibold text-foreground/85">
 									macOS and Linux are early ports
 								</span>
-								— please don't expect feature parity yet, and reach for the
+								, so please don't expect feature parity yet, and reach for the
 								Windows build if you have the choice.
 							</p>
 							<div class="mt-3 flex flex-wrap items-center gap-1.5">
@@ -519,7 +519,7 @@
 								>
 									GitHub Issues
 								</a>
-								— I read every one and reply personally.
+								. I read every one and reply personally.
 							</p>
 						</div>
 					</div>
@@ -563,7 +563,7 @@
 						</span>
 						<h3 class="text-base font-semibold tracking-tight">How encoding picks itself</h3>
 						<p class="text-sm leading-relaxed text-muted-foreground">
-							Recast tests NVIDIA (NVENC), AMD (AMF), and Intel iGPU (QSV) at startup. If none initialise — old GPUs with under ~128 MB VRAM, integrated graphics without QSV, no GPU at all — it falls back to the CPU encoder (libx264) tuned for low-latency capture.
+							Recast tests NVIDIA (NVENC), AMD (AMF), and Intel iGPU (QSV) at startup. If none initialise (old GPUs with under ~128 MB VRAM, integrated graphics without QSV, no GPU at all), it falls back to the CPU encoder (libx264) tuned for low-latency capture.
 						</p>
 						<p class="text-xs leading-relaxed text-muted-foreground/80">
 							You'll always be able to record. Hardware encoders just let your CPU breathe while you do it.
@@ -794,7 +794,7 @@
 												<span>
 													<span class="font-semibold text-foreground">Heads up:</span>
 													until we ship Apple notarization, the quarantine step above is
-													required on the .dmg path — or just install with Homebrew, which
+													required on the .dmg path, or just install with Homebrew, which
 													clears it for you. Pasting <span class="font-mono text-foreground/85">"Recast is damaged"</span>
 													into Google brought you here.
 												</span>

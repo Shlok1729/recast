@@ -1026,7 +1026,7 @@
 									Get early access.
 								</h4>
 								<p class="mt-1 text-sm leading-relaxed text-muted-foreground">
-									Drop your email — we'll let you in before the public launch.
+									Drop your email and we'll let you in before the public launch.
 								</p>
 
 								{#if joined}

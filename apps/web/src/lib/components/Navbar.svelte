@@ -56,7 +56,7 @@
 			<a
 				href="/"
 				class="group/logo flex items-center gap-2.5 transition-transform active:scale-[0.97]"
-				aria-label="Recast — home"
+				aria-label="Recast home"
 			>
 				<span
 					class="grid size-7 place-items-center rounded-lg bg-foreground p-1 text-background shadow-craft-sm transition-transform group-hover/logo:rotate-[-4deg]"

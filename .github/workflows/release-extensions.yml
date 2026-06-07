@@ -1,0 +1,125 @@
+name: Release Extensions Registry
+
+# Builds the installable asset-pack registry from `extensions/packs/*` and
+# publishes it as a standalone GitHub Release. The desktop app's Extensions tab
+# fetches the curated index from this release at
+# `releases/download/<tag>/index.json` and installs each pack from its
+# `<packId>.extension.json` manifest URL, so refreshing packs never requires
+# cutting a new app build.
+#
+# The build is zero-dependency (Node built-ins only — the same scripts you run
+# locally via `pnpm verify:extensions` / `pnpm build:extensions-registry`), so
+# there's no install step.
+#
+# Triggers:
+#   - Manual `workflow_dispatch` → the normal path; defaults to re-publishing
+#     the `extensions-v1` tag the desktop app pins.
+#   - Push a tag matching `extensions-v*` → publishes automatically, mirroring
+#     the wallpaper release stream.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag the desktop app fetches (e.g. extensions-v1)"
+        required: true
+        type: string
+        default: extensions-v1
+      prerelease:
+        description: "Mark the GitHub release as a pre-release"
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "extensions-v*"
+
+concurrency:
+  group: release-extensions-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  release-extensions:
+    name: Build registry + publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: resolve_tag
+        shell: bash
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Same trust boundary the desktop installer enforces at install time —
+      # a pack that fails verification must never reach a release.
+      - name: Verify packs
+        run: node extensions/scripts/verify-extensions.mjs
+
+      # `RELEASE_TAG` templates every asset/manifest URL against this release,
+      # and `GH_REPO` keeps those URLs correct on forks too.
+      - name: Build registry
+        env:
+          RELEASE_TAG: ${{ steps.resolve_tag.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+        run: node extensions/scripts/build-registry.mjs
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          test -f extensions/dist/index.json || { echo "::error::extensions/dist/index.json missing — build produced no registry"; exit 1; }
+          node -e "
+            const idx = require('./extensions/dist/index.json');
+            if (!Array.isArray(idx.extensions) || idx.extensions.length === 0) {
+              throw new Error('index.json lists no extensions');
+            }
+            console.log('Registry OK —', idx.extensions.length, 'pack(s), version=' + idx.version);
+          "
+
+      - name: Summarise release payload
+        shell: bash
+        run: |
+          echo "## Extensions registry ${{ steps.resolve_tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| File | Size |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|------|" >> "$GITHUB_STEP_SUMMARY"
+          for f in extensions/dist/*; do
+            size=$(du -h "$f" | cut -f1)
+            echo "| \`$(basename "$f")\` | $size |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
+          name: "Extensions ${{ steps.resolve_tag.outputs.tag }}"
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          body: |
+            ## 🧩 Recast extensions registry — `${{ steps.resolve_tag.outputs.tag }}`
+
+            Installable asset-pack manifests (`<packId>.extension.json`), their
+            flattened assets, and the curated `index.json` browsed by the
+            desktop app's **Extensions** tab.
+
+            **Consumed automatically** by any desktop build whose extensions
+            gallery points at this release's `index.json`. Packs are declarative
+            (manifest + static assets, no code), and every asset is downloaded
+            over HTTPS and verified against its SHA-256 before it lands in the
+            user's app data dir.
+
+            Not an installer — see the [app releases](../../releases?q=v) for
+            those.
+          files: |
+            extensions/dist/*
