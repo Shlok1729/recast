@@ -243,6 +243,15 @@
 		{ icon: ShieldCheck, title: "You own the file", description: "The video lives in your Drive, not on a Recast server. Your retention, your sharing rules, your delete button." },
 	];
 
+	// "Make it yours" beat — extensions as proof of the no-lock-in moat, not a
+	// generic "marketplace". Stays a supporting note under the core wedge.
+	const extensionBeat = [
+		{ icon: MousePointer2, title: "Cursor packs", description: "Swap the pointer for a new style — install a pack and it shows up in the cursor picker." },
+		{ icon: Palette, title: "Backgrounds & gradients", description: "Wallpapers, gradients, and color sets that drop straight into the background picker." },
+		{ icon: Sparkles, title: "Motion presets", description: "Easing and cursor-smoothing presets, shared as packs you can install in a click." },
+		{ icon: ShieldCheck, title: "Safe by design", description: "Every pack is a manifest plus static files — no code, hash-verified, zero permissions." },
+	];
+
 	// "Inside the editor" — honest tour of every tool a non-editor user will
 	// actually touch. Each card is tagged `auto` (it happens for you) or
 	// `manual` (you reach for it when you want control).
@@ -787,6 +796,50 @@
 				<p class="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-muted-foreground">
 					Plus trim &amp; cut, background &amp; padding, drop shadow, watermark, custom export presets, and a focus mode that hides everything but the frame. Nothing locked behind a "Pro" tier.
 				</p>
+			</Reveal>
+		</Container>
+	</Section>
+
+	<!-- Make it yours — extensions as proof of the open, no-lock-in moat.
+	     A supporting beat (not a headline) that reinforces "free, offline,
+	     yours" rather than pivoting to a generic marketplace pitch. -->
+	<Section id="extensions" class="border-t border-border-low/60 bg-foreground/1.5 dark:bg-foreground/2">
+		<Container>
+			<SectionHeader
+				eyebrow="Make it yours"
+				title="Open packs. No lock-in."
+				description="Install community asset packs right in the editor — cursors, backgrounds, gradients, and motion presets that appear in the pickers you already use. Every pack is just a manifest and static files: no code, hash-verified, zero permissions. The app stays free, offline, and yours."
+				align="center"
+			/>
+
+			<div class="mt-16 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border-low/40 bg-border-low/30 sm:grid-cols-2 lg:grid-cols-4">
+				{#each extensionBeat as item, i}
+					{@const Icon = item.icon}
+					<Reveal variant="morph" delay={i * 80} class="h-full">
+						<div class="flex h-full flex-col gap-3 bg-background/50 p-6 backdrop-blur-md">
+							<Icon class="size-5 text-primary" />
+							<div>
+								<div class="text-sm font-semibold text-foreground">{item.title}</div>
+								<div class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{item.description}</div>
+							</div>
+						</div>
+					</Reveal>
+				{/each}
+			</div>
+
+			<Reveal variant="up" delay={120} class="mt-10 flex flex-wrap items-center justify-center gap-3">
+				<Button href="/extensions" class="gap-2">
+					<Sparkles class="size-4" />
+					Explore extensions
+				</Button>
+				<Button
+					href="https://github.com/kanakkholwal/recast/tree/main/extensions"
+					variant="ghost"
+					class="gap-2"
+				>
+					<Github class="size-4" />
+					Build a pack
+				</Button>
 			</Reveal>
 		</Container>
 	</Section>

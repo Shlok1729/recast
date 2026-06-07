@@ -9,6 +9,7 @@
 			variant: "default" as const,
 			links: [
 				{ label: "Features", href: "/features" },
+				{ label: "Extensions", href: "/extensions" },
 				{ label: "Pricing", href: "/pricing" },
 				{ label: "Cloud Waitlist", href: "/waitlist" },
 			],

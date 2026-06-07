@@ -6,6 +6,9 @@
 //!
 //!   * Gated on the `telemetry_errors` consent flag (default opt-in / ON),
 //!     read from `AppConfig` (mirrored there by `set_telemetry_consent`).
+//!   * Suppressed entirely in debug builds (`tauri dev`) unless
+//!     `PUBLIC_POSTHOG_ALLOW_DEV=1`, mirroring the JS clients' `!import.meta.env.DEV`
+//!     gate so local development never pollutes the PostHog project.
 //!   * PII-scrubbed before anything leaves the machine.
 //!   * Uses the same anonymous `install_id` as JS events, so a Rust-side crash
 //!     and a later JS event attribute to the same person.
@@ -53,6 +56,24 @@ fn posthog_host() -> String {
     let v = option_env!("PUBLIC_POSTHOG_HOST").map(|s| s.to_string());
     v.filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_HOST.to_string())
+}
+
+/// Suppress all telemetry in debug builds so `tauri dev` never pollutes the
+/// PostHog project — the native parity of the JS clients' `!import.meta.env.DEV`
+/// gate. Opt back in with `PUBLIC_POSTHOG_ALLOW_DEV=1` to deliberately exercise
+/// the crash path against a test project (the same intent the debug env-read in
+/// `posthog_key` serves). Release builds always send, subject to consent.
+fn dev_telemetry_suppressed() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        !std::env::var("PUBLIC_POSTHOG_ALLOW_DEV")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
+            .unwrap_or(false)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
 }
 
 /// Redact filesystem paths and emails from free text before it leaves the
@@ -134,6 +155,9 @@ fn read_consent(app: &AppHandle) -> (bool, String) {
 /// the process exits before the send finishes, the report is simply dropped
 /// (best-effort delivery; reliability is never traded for blocking the app).
 pub fn capture_exception(app: &AppHandle, name: &str, message: &str, stack: Option<String>) {
+    if dev_telemetry_suppressed() {
+        return;
+    }
     let (errors_on, distinct_id) = read_consent(app);
     if !errors_on {
         return;
