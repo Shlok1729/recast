@@ -55,6 +55,16 @@
     if (trackUndo) store.pushUndoState();
     store.updateCursorSettings(updates);
   }
+
+  // Cursor SVGs can come from downloaded extension packs (untrusted). Render
+  // them through a data-URL <img> rather than {@html} so SVG loads in the
+  // browser's secure static mode — scripts/event handlers never execute.
+  function svgSwatchUrl(svg: string): string {
+    return (
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(svg.trim().replace(/\n\s*/g, " "))
+    );
+  }
 </script>
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
@@ -107,7 +117,6 @@
             class={cn(
               "group relative aspect-square overflow-hidden rounded-md border transition-all duration-150",
               "focus:outline-none focus:ring-2 focus:ring-ring/40",
-              "[&_svg]:h-[60%] [&_svg]:w-[60%]",
               isActive
                 ? "border-primary/60 bg-primary/8 text-foreground"
                 : "border-transparent bg-background/40 text-foreground/80 hover:border-border hover:bg-background/80 hover:text-foreground",
@@ -122,7 +131,12 @@
               )}
               aria-hidden="true"
             >
-              {@html style.value.svg}
+              <img
+                src={svgSwatchUrl(style.value.svg)}
+                alt=""
+                draggable="false"
+                class="h-[60%] w-[60%]"
+              />
             </span>
             {#if isActive}
               <span

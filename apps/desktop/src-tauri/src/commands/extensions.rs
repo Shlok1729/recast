@@ -276,7 +276,10 @@ pub async fn install_extension(
 
     for entry in &manifest.assets {
         if !url_allowed(&entry.url) {
-            return Err(format!("asset '{}' url must be https", entry.id));
+            return Err(format!(
+                "asset '{}' url must be https (localhost allowed for dev)",
+                entry.id
+            ));
         }
         let target = dir.join(&entry.filename);
         ensure_one(&client, &entry.url, &entry.sha256, &target)
@@ -323,6 +326,9 @@ pub fn list_installed_extensions(app: AppHandle) -> Result<Vec<InstalledExtensio
             out.push(build_installed(&dir, manifest, enabled));
         }
     }
+    // `read_dir` yields no defined order, so sort by id to keep startup
+    // hydration (and thus registry registration / picker order) stable.
+    out.sort_by(|a, b| a.manifest.id.cmp(&b.manifest.id));
     Ok(out)
 }
 

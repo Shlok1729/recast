@@ -94,10 +94,21 @@ manifest URL. To (re)publish after merging packs:
 
 ```bash
 RELEASE_TAG=extensions-v1 node extensions/scripts/build-registry.mjs
-gh release create extensions-v1 \
-  extensions/dist/release/* \
-  extensions/dist/*.extension.json \
-  extensions/dist/index.json
+gh release create extensions-v1 extensions/dist/*
 ```
 
 (`extensions/dist/` is generated and git-ignored.)
+
+### Local install dry-run (no release needed)
+
+The installer accepts `http://localhost` URLs, so you can test the whole
+download → verify → install path against a local server. `serve:extensions`
+builds every pack, serves it from memory, and **watches `extensions/` to rebuild
+on any change** — edit a pack and re-install without restarting:
+
+```bash
+pnpm serve:extensions            # http://localhost:8123 (PORT=<n> to change)
+# In the app → Extensions tab → Install from URL:
+#   http://localhost:8123/recast-cursors.extension.json
+# (or point the browse gallery at http://localhost:8123/index.json)
+```

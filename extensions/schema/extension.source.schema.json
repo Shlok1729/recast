@@ -10,8 +10,8 @@
     "$schema": { "type": "string" },
     "id": {
       "type": "string",
-      "description": "Path-safe slug; must equal the pack's folder name.",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+      "description": "Path-safe slug; must equal the pack's folder name. Mirrors is_safe_ext_id / isSafeExtId: 1-64 chars from [A-Za-z0-9._-], not leading with a dot.",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$"
     },
     "name": { "type": "string", "minLength": 1 },
     "version": {
@@ -46,7 +46,7 @@
     }
   },
   "$defs": {
-    "localId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+    "localId": { "type": "string", "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$" },
     "hotspot": {
       "type": "object",
       "additionalProperties": false,
