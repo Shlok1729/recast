@@ -868,6 +868,23 @@ pub async fn export_video(
     // fallback when the render state has no Trim node (duration == 0).
     let source_duration = metadata.duration.max(0.0);
     let profile = resolve_export_profile(&request.quality);
+    // Output frame rate (MP4/WebM). Default = source rate, so the export keeps
+    // the original smoothness with no resampling. A user selection is clamped to
+    // never exceed the source — we only ever downsample, never duplicate frames
+    // (which would bloat the file without adding motion). The target drives the
+    // composite background rate, the looped-input rate, and the cursor overlay
+    // rate so the whole graph runs at one consistent rate (see the 25fps-default
+    // judder bug fixed alongside this). GIF ignores it (uses gif_settings.fps).
+    let source_fps = if metadata.fps.is_finite() && metadata.fps >= 1.0 {
+        metadata.fps
+    } else {
+        60.0
+    };
+    let target_fps = request
+        .fps
+        .filter(|f| f.is_finite() && *f >= 1.0)
+        .map(|f| f.min(source_fps))
+        .unwrap_or(source_fps);
     // Encoder effort axis, orthogonal to the resolution profile. Defaults to
     // Balanced (historical settings) when absent/unknown.
     let speed = ExportSpeed::from_request(request.speed.as_deref().unwrap_or("balanced"));
@@ -996,6 +1013,7 @@ pub async fn export_video(
             SourceVideoMetadata {
                 width: metadata.width,
                 height: metadata.height,
+                fps: target_fps,
             },
             &static_root(),
             1,
@@ -1025,7 +1043,7 @@ pub async fn export_video(
                     source_width: metadata.width,
                     source_height: metadata.height,
                     padding: canvas_padding,
-                    fps: metadata.fps.round().max(1.0) as u32,
+                    fps: target_fps.round().max(1.0) as u32,
                     duration_secs: overlay_duration,
                     trim_start,
                     render_state: request.render_state.clone(),
@@ -1063,8 +1081,15 @@ pub async fn export_video(
     }
     args.extend(["-i".to_string(), source_video.to_string_lossy().to_string()]);
 
+    // `-loop 1` on a still image defaults to 25 fps. A wallpaper/gradient/image
+    // background is the BASE of the composite overlay, so leaving it at 25 fps
+    // would force the whole export to 25 fps (frame-dropping the 60 fps source
+    // into judder). Pin every looped image input to the source frame rate.
+    let loop_fps = target_fps;
     for input in &export_plan.extra_inputs {
         args.extend([
+            "-framerate".to_string(),
+            format!("{loop_fps}"),
             "-loop".to_string(),
             "1".to_string(),
             "-i".to_string(),

@@ -873,6 +873,11 @@ export function createEditorStore() {
 	let exportFormat = $state<ExportFormat>('mp4');
 	let exportQuality = $state<ExportQuality>('hd');
 	let exportSpeed = $state<ExportSpeed>('balanced');
+	// Output frame rate for MP4/WebM. `null` = keep the source recording's rate
+	// (the quality-preserving default). A number requests a clean downsample to
+	// that rate (only ever offered ≤ source, so we never duplicate frames). GIF
+	// has its own fps control in `gifSettings`.
+	let exportFps = $state<number | null>(null);
 	let gifSettings = $state<GifSettings>({ ...DEFAULT_GIF_SETTINGS });
 	let exportProgress = $state<number | null>(null);
 	let isExporting = $state(false);
@@ -1463,6 +1468,7 @@ export function createEditorStore() {
 		};
 		exportQuality = 'hd';
 		exportSpeed = 'balanced';
+		exportFps = null;
 		undoStack = [];
 		redoStack = [];
 	}
@@ -1891,6 +1897,9 @@ export function createEditorStore() {
 
 		get exportSpeed() { return exportSpeed; },
 		set exportSpeed(v: ExportSpeed) { exportSpeed = v; },
+
+		get exportFps() { return exportFps; },
+		set exportFps(v: number | null) { exportFps = v; },
 
 		get gifSettings() { return gifSettings; },
 		set gifSettings(v: GifSettings) { gifSettings = v; },

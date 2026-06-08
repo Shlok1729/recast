@@ -654,7 +654,7 @@ impl RecordingManager {
             first_frame_offset_us.clone(),
         )?;
 
-        let encoder_handle = spawn_encoder_loop(
+        let encoder_handle = match spawn_encoder_loop(
             EncoderConfig {
                 width: target.source.width,
                 height: target.source.height,
@@ -664,7 +664,17 @@ impl RecordingManager {
             },
             stop_flag.clone(),
             pipeline.clone(),
-        )?;
+        ) {
+            Ok(handle) => handle,
+            Err(e) => {
+                // Capture thread is already live; signal + join it so a failed
+                // start doesn't leave an orphaned capture loop (and its FFmpeg
+                // child) running forever.
+                stop_flag.store(true, Ordering::Release);
+                let _ = capture_handle.join();
+                return Err(e);
+            }
+        };
 
         // Cursor coordinates need to be remapped from virtual-desktop space
         // (where `GetCursorPos` returns them) to the recorded frame's
@@ -673,7 +683,7 @@ impl RecordingManager {
         // virtual-desktop (`crop.x`, `crop.y`). Without this remap, every
         // sample lives outside the [0..frame] range whenever the user
         // records a secondary monitor or a region.
-        let cursor_handle = spawn_cursor_capture(
+        let cursor_handle = match spawn_cursor_capture(
             stop_flag.clone(),
             clock.clone(),
             CursorCaptureFrame {
@@ -686,7 +696,17 @@ impl RecordingManager {
                 // line up. 1.0 on Windows/Linux (already physical) → unchanged.
                 scale: target.scale_factor,
             },
-        )?;
+        ) {
+            Ok(handle) => handle,
+            Err(e) => {
+                // Capture + encoder are already live; tear both down so a failed
+                // start doesn't orphan them.
+                stop_flag.store(true, Ordering::Release);
+                let _ = capture_handle.join();
+                let _ = encoder_handle.join();
+                return Err(e);
+            }
+        };
 
         // Start system audio capture. If it fails, log and continue.
         let audio_session = match AudioCaptureSession::start(AudioCaptureConfig {

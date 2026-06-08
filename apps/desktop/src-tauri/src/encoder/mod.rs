@@ -1,8 +1,8 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{ChildStderr, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -10,29 +10,66 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::recording::{pipeline::RecordingPipeline, CaptureArea};
 
-/// Best-effort drain of FFmpeg's stderr after the process has exited.
-/// Returns up to ~4KB of the tail so the encoder error message
-/// surfaces *why* FFmpeg died (codec error, disk full, etc.) instead
-/// of the cryptic "The pipe is being closed. (os error 232)" the OS
-/// reports when we write to a dead child's stdin.
-fn drain_child_stderr(child: &mut Child) -> String {
-    let Some(mut stderr) = child.stderr.take() else {
-        return String::new();
-    };
-    let mut buf = String::new();
-    let _ = stderr.read_to_string(&mut buf);
-    // Tail-only — the trailing lines are where the actual fatal
-    // message lives; FFmpeg's startup chatter is noise.
-    if buf.len() > 4096 {
-        let cut = buf.len() - 4096;
-        // Skip to the next newline so we don't start mid-UTF8-codepoint.
-        if let Some(nl) = buf[cut..].find('\n') {
-            buf.drain(..cut + nl + 1);
-        } else {
-            buf.drain(..cut);
+/// Maximum stderr tail retained for diagnostics. The fatal line is always at
+/// the end (codec error, disk full, etc.); FFmpeg's startup chatter is noise.
+const STDERR_TAIL_LIMIT: usize = 8192;
+
+/// Continuously read FFmpeg's stderr to EOF, keeping only the last
+/// `STDERR_TAIL_LIMIT` bytes in `sink`. Runs on its own thread for the whole
+/// life of the process so the stderr pipe is *always* drained.
+///
+/// This is load-bearing, not just for diagnostics: FFmpeg writes its banner
+/// and periodic `frame=… fps=…` progress to stderr. If nobody reads it, the
+/// ~64KB OS pipe buffer fills on a long recording, FFmpeg blocks on the stderr
+/// `write()`, stops reading stdin, and the encoder thread's `stdin.write_all`
+/// below deadlocks — the capture freezes mid-recording. macOS/Linux default to
+/// smaller pipe buffers than Windows, so they hit it sooner. Draining on a side
+/// thread also means the `child.wait()` calls on the error paths can never hang
+/// waiting for a stderr-blocked process to exit.
+fn pump_stderr_tail(stderr: ChildStderr, sink: Arc<Mutex<String>>) {
+    let mut reader = std::io::BufReader::new(stderr);
+    let mut chunk = [0u8; 4096];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break, // EOF — FFmpeg closed stderr (i.e. exited).
+            Ok(n) => {
+                if let Ok(mut tail) = sink.lock() {
+                    tail.push_str(&String::from_utf8_lossy(&chunk[..n]));
+                    if tail.len() > STDERR_TAIL_LIMIT {
+                        let mut cut = tail.len() - STDERR_TAIL_LIMIT;
+                        // Prefer a newline boundary so the tail starts on a
+                        // clean line; fall back to the raw offset.
+                        if let Some(nl) = tail[cut..].find('\n') {
+                            cut += nl + 1;
+                        }
+                        // `drain` panics on a non-char boundary (lossy decoding
+                        // can leave multi-byte chars straddling chunks), so back
+                        // off to the nearest boundary first.
+                        while cut < tail.len() && !tail.is_char_boundary(cut) {
+                            cut += 1;
+                        }
+                        tail.drain(..cut);
+                    }
+                }
+            }
+            Err(_) => break,
         }
     }
-    buf.trim().to_string()
+}
+
+/// Join the stderr pump (if it was spawned) and return the retained tail.
+/// The pump exits when FFmpeg closes stderr, so the process must already have
+/// exited — or be exiting — before this is called.
+fn collect_stderr_tail(
+    pump: &mut Option<thread::JoinHandle<()>>,
+    sink: &Arc<Mutex<String>>,
+) -> String {
+    if let Some(handle) = pump.take() {
+        let _ = handle.join();
+    }
+    sink.lock()
+        .map(|t| t.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Configuration for the live recording encoder.
@@ -158,6 +195,20 @@ pub fn spawn_encoder_loop(
                 .stdin
                 .take()
                 .context("ffmpeg encoder stdin was not available")?;
+
+            // Drain stderr continuously on a side thread — see `pump_stderr_tail`
+            // for why this is required (deadlock avoidance), not just nice-to-have.
+            let stderr_tail = Arc::new(Mutex::new(String::new()));
+            let mut stderr_pump = match child.stderr.take() {
+                Some(stderr) => {
+                    let sink = stderr_tail.clone();
+                    thread::Builder::new()
+                        .name("recast-encoder-stderr".into())
+                        .spawn(move || pump_stderr_tail(stderr, sink))
+                        .ok()
+                }
+                None => None,
+            };
             let stats = pipeline.stats();
 
             // Frame counter — check FFmpeg's liveness periodically (every
@@ -178,10 +229,10 @@ pub fn spawn_encoder_loop(
                         frames_since_alive_check = 0;
                         if let Ok(Some(status)) = child.try_wait() {
                             drop(stdin);
-                            let stderr_tail = drain_child_stderr(&mut child);
+                            let tail = collect_stderr_tail(&mut stderr_pump, &stderr_tail);
                             return Err(anyhow!(
                                 "ffmpeg encoder exited unexpectedly mid-recording \
-                                 (status: {status}). Last stderr output:\n{stderr_tail}"
+                                 (status: {status}). Last stderr output:\n{tail}"
                             ));
                         }
                     }
@@ -189,15 +240,16 @@ pub fn spawn_encoder_loop(
 
                     if let Err(e) = stdin.write_all(&frame.data) {
                         // Broken pipe — FFmpeg died between our liveness
-                        // check and this write. Surface the real reason
-                        // by draining stderr.
+                        // check and this write. The stderr pump is already
+                        // draining, so `wait()` can't hang; surface the real
+                        // reason from the captured tail.
                         drop(stdin);
                         let _ = child.wait();
-                        let stderr_tail = drain_child_stderr(&mut child);
+                        let tail = collect_stderr_tail(&mut stderr_pump, &stderr_tail);
                         return Err(anyhow!(
                             "ffmpeg encoder stdin write failed ({e}). \
                              FFmpeg likely exited mid-recording. \
-                             Last stderr output:\n{stderr_tail}"
+                             Last stderr output:\n{tail}"
                         ));
                     }
                     stats.encoded_frames.fetch_add(1, Ordering::Relaxed);
@@ -213,13 +265,12 @@ pub fn spawn_encoder_loop(
 
             drop(stdin);
 
-            let output = child.wait_with_output()?;
-            if !output.status.success() {
-                return Err(anyhow!(
-                    "ffmpeg encoder failed (status: {}): {}",
-                    output.status,
-                    String::from_utf8_lossy(&output.stderr)
-                ));
+            // stdout is `Stdio::null` and stderr is drained by the pump, so a
+            // bare `wait()` is sufficient and can't deadlock.
+            let status = child.wait()?;
+            let tail = collect_stderr_tail(&mut stderr_pump, &stderr_tail);
+            if !status.success() {
+                return Err(anyhow!("ffmpeg encoder failed (status: {status}): {tail}"));
             }
 
             Ok(())

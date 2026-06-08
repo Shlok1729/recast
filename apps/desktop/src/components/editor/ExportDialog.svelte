@@ -83,6 +83,32 @@
   function setSpeed(v: ExportSpeed) {
     store.exportSpeed = v;
   }
+  function setFps(v: number | null) {
+    store.exportFps = v;
+  }
+
+  // Frame-rate options derived from the SOURCE recording. We only ever offer
+  // the source rate (default, preserves the original) plus standard lower rates
+  // — never higher, since duplicating frames adds size without smoothness. If
+  // the user's stored choice exceeds the current source (e.g. a different clip),
+  // it falls back to Original at export via the Rust-side clamp.
+  const sourceFps = $derived(Math.max(1, Math.round(store.metadata?.fps ?? 60)));
+  const fpsOptions = $derived([
+    { value: null as number | null, label: "Original", desc: `${sourceFps} fps` },
+    ...[60, 30, 24]
+      .filter((f) => f < sourceFps)
+      .map((f) => ({
+        value: f as number | null,
+        label: `${f} fps`,
+        desc: f === 24 ? "Cinematic" : "Smaller file",
+      })),
+  ]);
+  // Only worth showing when there's an actual choice (source > 24). Uses the
+  // store directly rather than `isGif` (declared further down) to avoid a
+  // use-before-declaration.
+  const showFps = $derived(
+    store.exportFormat !== "gif" && fpsOptions.length > 1,
+  );
 
   function formatTime(seconds: number) {
     if (!Number.isFinite(seconds) || seconds <= 0) return "0:00.00";
@@ -555,6 +581,60 @@
           {/each}
         </div>
       </section>
+
+      <!-- Frame rate: output fps for MP4/WebM. Defaults to Original (the source
+           rate) so exports keep the recording's smoothness; lower rates shrink
+           the file. Hidden for GIF (its own fps control) and when the source is
+           already ≤24 fps (no meaningful choice). -->
+      {#if showFps}
+        <section
+          in:fly={{ y: 8, duration: 240, delay: 185, easing: cubicOut }}
+          class="flex flex-col gap-2.5 px-5 pt-4"
+        >
+          {@render sectionLabel("Frame rate", "Original keeps the source rate.")}
+          <div
+            class={cn(
+              "grid gap-1.5",
+              fpsOptions.length === 2 ? "grid-cols-2" : "grid-cols-3",
+            )}
+          >
+            {#each fpsOptions as f, i (f.value ?? "original")}
+              {@const selected = store.exportFps === f.value}
+              <span
+                class="flex"
+                in:scale={{ start: 0.92, duration: 220, delay: 215 + i * 35, easing: cubicOut }}
+              >
+                <button
+                  type="button"
+                  onclick={() => setFps(f.value)}
+                  aria-pressed={selected}
+                  title={f.desc}
+                  class={cn(
+                    "group flex w-full flex-col items-center gap-0.5 rounded-xl border px-2 py-2 text-center transition-all duration-200",
+                    selected
+                      ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
+                      : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
+                  )}
+                >
+                  <span
+                    class={cn(
+                      "text-[12.5px] font-semibold tracking-tight",
+                      selected ? "text-primary" : "text-foreground",
+                    )}
+                  >
+                    {f.label}
+                  </span>
+                  <span
+                    class="truncate text-[10px] leading-tight text-muted-foreground"
+                  >
+                    {f.desc}
+                  </span>
+                </button>
+              </span>
+            {/each}
+          </div>
+        </section>
+      {/if}
 
       <!-- Speed: encoder effort. Hidden for GIF, which uses a palette 2-pass
            and ignores these codec preset knobs entirely. -->

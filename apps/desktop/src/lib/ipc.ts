@@ -469,10 +469,12 @@ export function exportVideo(
 	exportId: string,
 	gifSettings?: ExportGifSettings,
 	speed: ExportSpeed = "balanced",
+	/** Output frame rate for MP4/WebM. `null`/omitted keeps the source rate. */
+	fps?: number | null,
 ): Promise<string> {
-	analytics.capture("export_started", { format, quality, speed });
+	analytics.capture("export_started", { format, quality, speed, fps: fps ?? "source" });
 	return invoke<string>("export_video", {
-		request: { exportId, inputPath, format, quality, speed, renderState, gifSettings },
+		request: { exportId, inputPath, format, quality, speed, renderState, gifSettings, fps: fps ?? null },
 	});
 }
 

@@ -248,6 +248,12 @@ pub struct ExportRequest {
     pub render_state: RenderState,
     #[serde(default)]
     pub gif_settings: Option<GifSettings>,
+    /// Output frame rate for MP4/WebM. `None` keeps the source recording's rate
+    /// (the quality-preserving default). Only values ≤ source are offered in the
+    /// UI, so the export never duplicates frames. GIF ignores this and uses
+    /// `gif_settings.fps`.
+    #[serde(default)]
+    pub fps: Option<f64>,
 }
 
 #[derive(Clone, Copy)]
@@ -262,7 +268,12 @@ pub struct ExportProfile {
 }
 
 pub struct AppState {
-    pub recording_manager: crate::recording::RecordingManager,
+    // `Arc` so `stop_recording` can hand an owned handle to a `spawn_blocking`
+    // worker. `stop()` joins the encoder/capture threads and (with a paused
+    // camera) runs a 30s+ FFmpeg re-encode; doing that on Tauri's main thread
+    // froze the macOS WebView until it finished. All other callers reach the
+    // manager through `Deref`, so the `Arc` is transparent to them.
+    pub recording_manager: Arc<crate::recording::RecordingManager>,
     pub last_file_path: parking_lot::Mutex<Option<String>>,
     pub config: parking_lot::Mutex<AppConfig>,
     /// Per-run cancellation tokens for active exports, keyed by export session id.

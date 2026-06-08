@@ -40,12 +40,14 @@
   import {
     ArrowLeft,
     CheckCircle2,
+    Circle,
     ExternalLink,
     FlaskConical,
     FolderOpen,
     Cloud,
     HardDriveUpload,
     Link2,
+    LoaderCircle,
     RefreshCw,
     Share2,
     TriangleAlert,
@@ -792,6 +794,9 @@
         exportId,
         store.exportFormat === "gif" ? store.gifSettings : undefined,
         store.exportSpeed,
+        // GIF carries its own fps in gifSettings; MP4/WebM use the picker
+        // (null = keep source rate).
+        store.exportFormat === "gif" ? undefined : store.exportFps,
       );
       // Safety net: if the export-state success event was missed, fall back to
       // the Promise result. Don't overwrite if the listener already set it.
@@ -1638,16 +1643,16 @@
                         >shipping…</span
                       >
                     {:else if s.state === "running"}
-                      <span
-                        class="flex size-2.5 shrink-0 items-center justify-center"
-                      >
-                        <span
-                          class="size-1.5 animate-pulse rounded-full bg-primary"
-                        ></span>
-                      </span>
+                      <LoaderCircle
+                        size={11}
+                        class="shrink-0 animate-spin text-primary"
+                      />
                       <span class="text-foreground">{s.label}</span>
                     {:else}
-                      <span class="size-2.5 shrink-0"></span>
+                      <Circle
+                        size={11}
+                        class="shrink-0 text-muted-foreground/40"
+                      />
                       <span class="text-muted-foreground/60">{s.label}</span>
                     {/if}
                   </li>
