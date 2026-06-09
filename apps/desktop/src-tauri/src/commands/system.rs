@@ -248,6 +248,13 @@ pub async fn get_displays() -> Result<Vec<DisplayInfo>, String> {
                 height: monitor.height().unwrap_or_default(),
                 is_primary: monitor.is_primary().unwrap_or_default(),
                 thumbnail: capture_monitor_thumbnail(monitor),
+                // Round to the nearest whole Hz; 0 if xcap can't report it.
+                refresh_hz: monitor
+                    .frequency()
+                    .ok()
+                    .filter(|hz| hz.is_finite() && *hz >= 1.0)
+                    .map(|hz| hz.round() as u32)
+                    .unwrap_or(0),
             })
             .collect())
     })

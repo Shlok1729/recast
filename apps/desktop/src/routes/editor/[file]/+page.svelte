@@ -1450,12 +1450,80 @@
   />
 {/snippet}
 
+{#snippet exportSpecStrip()}
+  {@const fmt = store.exportFormat}
+  {@const isGifFmt = fmt === "gif"}
+  {@const srcFps = Math.max(1, Math.round(store.metadata?.fps ?? 60))}
+  {@const qualityLabel = isGifFmt
+    ? store.gifSettings.quality === "low"
+      ? "Lite"
+      : store.gifSettings.quality === "high"
+        ? "Vivid"
+        : "Standard"
+    : store.exportQuality === "small"
+      ? "720p"
+      : store.exportQuality === "hd"
+        ? "1080p"
+        : store.exportQuality === "4k"
+          ? "2160p"
+          : "Source"}
+  {@const fpsLabel = isGifFmt
+    ? store.gifSettings.fps
+      ? `${store.gifSettings.fps} fps`
+      : "Auto"
+    : store.exportFps
+      ? `${store.exportFps} fps`
+      : `${srcFps} fps`}
+  <!-- Spec recap — carries the committed export settings forward from the
+       options step so every later phase (encoding, done, cancelled, failed)
+       stays anchored to "what you're exporting". Mirrors the options stat
+       strip styling for visual continuity. -->
+  <section
+    class="flex items-stretch divide-x divide-border/40 border-b border-border/40 bg-muted/15 px-5 py-2.5"
+  >
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 pr-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >Format</span
+      >
+      <span class="truncate text-[12px] font-medium tabular-nums text-foreground">
+        {fmt.toUpperCase()}
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 px-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >{isGifFmt ? "Colors" : "Quality"}</span
+      >
+      <span class="truncate text-[12px] font-medium tabular-nums text-foreground">
+        {qualityLabel}
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 px-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >Frame rate</span
+      >
+      <span class="truncate text-[12px] font-medium tabular-nums text-foreground">
+        {fpsLabel}
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 pl-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >Duration</span
+      >
+      <span class="truncate font-mono text-[12px] tabular-nums text-foreground">
+        {formatTime(getExportDuration())}
+      </span>
+    </div>
+  </section>
+{/snippet}
+
 {#snippet progress()}
   {@const isPreparing =
     prepSending !== "done" && !exportHasProgress && !exportFinalizing}
   {@const eta = exportEtaMs()}
-  {@const exportDuration = getExportDuration()}
-  {@const exportRange = getExportRangeLabel()}
   {@const ringPct = isPreparing
     ? 0
     : exportFinalizing
@@ -1463,8 +1531,10 @@
       : Math.min(100, Math.max(0, displayPct))}
   {@const RING_R = 52}
 
-  <div class="flex flex-col" style="width: 420px;">
-    <!-- Header: title + live metadata -->
+  <div class="flex flex-col" style="width: 540px;">
+    <!-- Header: phase title + reassuring status line. The encode spec moves to
+         the shared spec strip below so it reads as a continuation of the
+         options step. -->
     <header
       class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
@@ -1488,15 +1558,27 @@
             Encoding video
           {/if}
         </h3>
-        <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
-          · {formatTime(exportDuration)} clip · {exportRange}
+        <p class="mt-0.5 text-[11px] text-muted-foreground">
+          {#if exportCancelling}
+            Stopping and cleaning up the partial file…
+          {:else if exportFinalizing}
+            Writing the finished file to disk…
+          {:else if isPreparing}
+            Getting frames and effects ready…
+          {:else}
+            This can take a moment — you can keep working.
+          {/if}
         </p>
       </div>
     </header>
 
-    <!-- Circular progress ring + stages -->
-    <div class="flex flex-col items-center gap-3 px-5 pt-5 pb-3">
+    {@render exportSpecStrip()}
+
+    <!-- Circular progress ring + stages, centred so the wider spec strip and
+         footer frame it consistently with the other phases. -->
+    <div
+      class="mx-auto flex w-full max-w-xs flex-col items-center gap-3 px-5 pt-5 pb-3"
+    >
       <div class="relative size-32" aria-live="polite">
         <svg
           viewBox="0 0 120 120"
@@ -1680,11 +1762,11 @@
 {/snippet}
 
 {#snippet success()}
-  <div class="flex flex-col" style="width: 500px;">
-    <!-- Header: success badge + title + file path as the secondary line.
-         Format/quality is implicit from the export the user just kicked off
-         and drops here in favor of the path the user actually needs to see. -->
-    <header class="flex items-start gap-3 px-5 py-4">
+  <div class="flex flex-col" style="width: 540px;">
+    <!-- Header: success badge + title + file path as the secondary line. The
+         encode spec is recapped in the shared strip below; the path is the
+         thing the user actually needs here, so it stays in the subtitle. -->
+    <header class="flex items-start gap-3 border-b border-border/40 px-5 py-4">
       <div
         class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-success/30 bg-success/10 text-success shadow-(--shadow-craft-inset)"
       >
@@ -1707,6 +1789,8 @@
         {/if}
       </div>
     </header>
+
+    {@render exportSpecStrip()}
 
     {#if successUpload}
       <!-- Drive row: single horizontal row with leading status icon, label,
@@ -1911,7 +1995,7 @@
 {/snippet}
 
 {#snippet cancelled()}
-  <div class="flex flex-col" style="width: 420px;">
+  <div class="flex flex-col" style="width: 540px;">
     <header
       class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
@@ -1928,10 +2012,14 @@
           Export cancelled
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          No file was written.
+          Stopped before finishing — no file was written. Your settings are
+          kept, so you can pick up right where you left off.
         </p>
       </div>
     </header>
+
+    {@render exportSpecStrip()}
+
     <footer
       class="flex items-center justify-end gap-1.5 border-t border-border/40 bg-muted/30 px-3 py-2.5"
     >
@@ -1952,7 +2040,7 @@
 {/snippet}
 
 {#snippet errorPanel()}
-  <div class="flex flex-col" style="width: 500px;">
+  <div class="flex flex-col" style="width: 540px;">
     <header
       class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
@@ -1969,13 +2057,24 @@
           Export failed
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          Something went wrong while encoding.
+          Something went wrong while encoding. Your settings are kept — try
+          again, or adjust them first.
         </p>
       </div>
     </header>
+
+    {@render exportSpecStrip()}
+
+    <!-- Failure detail — the raw FFmpeg/pipeline message, scrollable so a long
+         stack never blows out the dialog height. -->
     <div
       class="max-h-40 overflow-y-auto border-b border-border/40 px-5 py-3"
     >
+      <p
+        class="mb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+      >
+        Details
+      </p>
       {#if exportResult?.kind === "error"}
         <pre
           class="whitespace-pre-wrap wrap-break-word font-mono text-[10px] leading-snug text-destructive">{exportResult.message}</pre>

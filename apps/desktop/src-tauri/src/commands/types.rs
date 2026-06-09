@@ -22,6 +22,11 @@ pub struct DisplayInfo {
     pub height: u32,
     pub is_primary: bool,
     pub thumbnail: Option<String>,
+    /// Monitor refresh rate in Hz (rounded), e.g. 60 / 120 / 144. The capture
+    /// pipeline can't deliver more unique frames per second than this, so the
+    /// recording UI uses it to gate the offered frame-rate options. 0 when the
+    /// platform couldn't report it (UI then falls back to 60).
+    pub refresh_hz: u32,
 }
 
 #[derive(Serialize, Clone)]

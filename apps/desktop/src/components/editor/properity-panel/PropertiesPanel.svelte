@@ -75,7 +75,7 @@
 </script>
 
 <aside
-  class="@container/panel flex h-full min-h-0 flex-col bg-sidebar text-[12px]"
+  class="@container/panel flex h-full min-h-0 flex-col bg-background text-[12px]"
 >
   <Tabs.Root
     value={store.activePanel}

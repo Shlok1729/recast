@@ -25,6 +25,8 @@
     type RecordingOptions,
   } from "$lib/ipc";
   import {
+    loadRecordingFps,
+    loadRecordingQuality,
     resolveCamera,
     resolveMic,
     type RecordingProfile,
@@ -81,6 +83,9 @@
     type: "monitor" | "window" | "region";
     id: number;
     label: string;
+    /** Monitor refresh rate in Hz (monitors only); caps the useful capture
+     *  fps so we never record above what the display can present. */
+    refreshHz?: number;
     region?: {
       x: number;
       y: number;
@@ -385,6 +390,20 @@
                   }
                 : undefined,
           };
+          // Restored a monitor — look up its current refresh rate (best
+          // effort, off the start path) so record-time fps clamping knows the
+          // display's ceiling without an extra probe at capture time.
+          if (selectedSource?.type === "monitor") {
+            const restoredId = selectedSource.id;
+            getDisplays()
+              .then((displays) => {
+                const hz = displays.find((d) => d.id === restoredId)?.refreshHz;
+                if (hz && selectedSource && selectedSource.id === restoredId) {
+                  selectedSource = { ...selectedSource, refreshHz: hz };
+                }
+              })
+              .catch(() => {});
+          }
           return;
         }
         return getDisplays().then((displays) => {
@@ -394,6 +413,7 @@
               type: "monitor",
               id: d.id,
               label: d.isPrimary ? "Primary Display" : `Display ${d.id}`,
+              refreshHz: d.refreshHz || undefined,
             };
           }
         });
@@ -830,6 +850,16 @@
     }
   }
 
+  /** Cap a desired capture fps to the selected monitor's refresh rate. `null`
+   *  (Auto) and non-monitor / unknown-refresh sources pass through unchanged —
+   *  the backend still clamps to its 24–240 range. */
+  function clampFpsToDisplay(desired: number | null): number | null {
+    if (desired == null) return null;
+    const cap =
+      selectedSource?.type === "monitor" ? selectedSource.refreshHz : undefined;
+    return cap && cap >= 1 ? Math.min(desired, cap) : desired;
+  }
+
   async function startActualRecording() {
     if (!selectedSource) {
       isStarting = false;
@@ -843,6 +873,15 @@
       // Rust feeds this directly to FFmpeg dshow as a DirectShow friendly
       // name — pass the label, not the browser deviceId hash.
       cameraDeviceId: cameraOn ? selectedCameraName : null,
+      // Global capture preferences set in Settings → Recording, read fresh at
+      // start time (localStorage is shared across the app's webviews). The
+      // backend clamps/validates both, so a stale or missing value is safe.
+      // The desired fps is additionally capped to the selected monitor's
+      // refresh — capturing above it only duplicates frames, so e.g. a 144 fps
+      // preference records at 60 on a 60 Hz display while still recording 144
+      // on a 144 Hz one. The user's preference itself is left untouched.
+      fps: clampFpsToDisplay(loadRecordingFps()),
+      quality: loadRecordingQuality(),
     };
     try {
       const result = await startRecording(

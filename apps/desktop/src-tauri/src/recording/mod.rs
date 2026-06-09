@@ -430,6 +430,17 @@ pub struct RecordingOptions {
     /// Camera device ID / DirectShow device name (None = first available).
     #[serde(default)]
     pub camera_device_id: Option<String>,
+    /// Capture frame rate. `None` (or out of the supported 24..=240 range)
+    /// falls back to [`RECORDING_FPS`]. The pacer and encoder both run at this
+    /// rate; values above the monitor's refresh just duplicate frames, so the
+    /// UI gates the offered options by the detected display refresh.
+    #[serde(default)]
+    pub fps: Option<u32>,
+    /// Capture quality tier — `"balanced"` (default), `"high"`, or
+    /// `"pristine"`. Unknown values fall back to balanced. See
+    /// [`crate::encoder::RecordingQuality`].
+    #[serde(default)]
+    pub quality: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -457,7 +468,20 @@ impl Default for RecordingOptions {
             microphone_device_id: None,
             camera: false,
             camera_device_id: None,
+            fps: None,
+            quality: None,
         }
+    }
+}
+
+/// Clamp a requested capture frame rate to a sane range, falling back to the
+/// default when unset or out of range. The lower bound matches the lowest
+/// cinematic rate; the upper bound covers high-refresh panels (240 Hz) while
+/// rejecting absurd values that would blow the queue budget.
+fn resolve_recording_fps(requested: Option<u32>) -> u32 {
+    match requested {
+        Some(fps) if (24..=240).contains(&fps) => fps,
+        _ => RECORDING_FPS,
     }
 }
 
@@ -507,6 +531,8 @@ struct RecordingSession {
     clock: RecordingClock,
     started_at_unix_ms: u64,
     camera_overlay: CameraOverlayTracker,
+    /// Capture rate this session was started at (pacer + encoder + metadata).
+    recording_fps: u32,
 }
 
 impl RecordingManager {
@@ -607,6 +633,16 @@ impl RecordingManager {
         }
 
         std::fs::create_dir_all(&output_dir)?;
+        // Resolve the capture rate + quality tier up front. Both the pacer and
+        // the encoder must agree on `recording_fps` (the encoder declares it as
+        // `-framerate`, the pacer emits exactly that many frames/sec), and the
+        // chosen rate is persisted into the project metadata at stop().
+        let recording_fps = resolve_recording_fps(options.fps);
+        let recording_quality =
+            crate::encoder::RecordingQuality::from_label(options.quality.as_deref());
+        log::info!(
+            "recording config: {recording_fps} fps, quality={recording_quality:?}"
+        );
         let started_at_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -650,7 +686,7 @@ impl RecordingManager {
             pause_flag.clone(),
             pipeline.clone(),
             started_at,
-            RECORDING_FPS,
+            recording_fps,
             first_frame_offset_us.clone(),
         )?;
 
@@ -658,9 +694,10 @@ impl RecordingManager {
             EncoderConfig {
                 width: target.source.width,
                 height: target.source.height,
-                fps: RECORDING_FPS,
+                fps: recording_fps,
                 crop: target.crop_relative_to_source(),
                 output_path: recording_path.clone(),
+                quality: recording_quality,
             },
             stop_flag.clone(),
             pipeline.clone(),
@@ -779,6 +816,7 @@ impl RecordingManager {
                 last_at_secs: Some(0.0),
                 overlay: camera_overlay,
             },
+            recording_fps,
         });
         Ok(warnings)
     }
@@ -875,6 +913,7 @@ impl RecordingManager {
         let stats = build_stats(
             &session.pipeline,
             session.clock.effective_elapsed().as_millis() as u64,
+            session.recording_fps,
         );
 
         // Persist the user's latest overlay settings (mirror, shape, corner
@@ -1031,7 +1070,7 @@ fn trim_video_pause_intervals(path: &Path, intervals: &[(u64, u64)]) -> Result<(
     Ok(())
 }
 
-fn build_stats(pipeline: &RecordingPipeline, duration_ms: u64) -> RecordingStats {
+fn build_stats(pipeline: &RecordingPipeline, duration_ms: u64, nominal_fps: u32) -> RecordingStats {
     let PipelineSnapshot {
         captured_frames,
         dropped_frames,
@@ -1043,7 +1082,7 @@ fn build_stats(pipeline: &RecordingPipeline, duration_ms: u64) -> RecordingStats
         encoded_frames,
         dropped_frames,
         duration_ms,
-        nominal_fps: 60,
+        nominal_fps,
     }
 }
 

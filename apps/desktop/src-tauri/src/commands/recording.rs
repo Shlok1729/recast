@@ -154,7 +154,11 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<String, String
             video: ProjectVideoMetadata {
                 width: artifacts.capture_target.crop.width,
                 height: artifacts.capture_target.crop.height,
-                fps: crate::recording::RECORDING_FPS,
+                // The pacer + encoder ran at the session's chosen capture rate
+                // (default 60); persist that, not a hard-coded const, so the
+                // editor and export source-fps detection are correct for
+                // high-refresh recordings.
+                fps: artifacts.stats.nominal_fps,
                 duration_ms: artifacts.stats.duration_ms,
             },
             media: Some(ProjectMediaMetadata {

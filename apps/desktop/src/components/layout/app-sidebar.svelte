@@ -1,7 +1,6 @@
 <script lang="ts">
   import { page } from "$app/state";
   import SearchCommandMenu from "$components/layout/SearchCommandMenu.svelte";
-  import WindowControls from "$components/layout/window-controls.svelte";
   import Logo from "$components/logo.svelte";
   import { launchRecordingPanel } from "$lib/ipc";
   import {
@@ -23,12 +22,8 @@
   let {
     ref = $bindable(null),
     variant = "inset",
-    showMacLights = false,
     ...restProps
-  }: ComponentProps<typeof Sidebar.Root> & {
-    /** Render macOS traffic lights at the top-left (set by the app layout). */
-    showMacLights?: boolean;
-  } = $props();
+  }: ComponentProps<typeof Sidebar.Root> = $props();
 
   // Read the parent <Sidebar.Provider> state so transitions can fire on
   // open/collapse rather than being purely CSS-driven.
@@ -61,19 +56,6 @@
   <Sidebar.Rail class="data-[state=collapsed]:hidden" />
 
   <Sidebar.Header class="gap-3 py-3">
-    {#if showMacLights}
-      <!-- macOS traffic lights sit at the window's top-left, inside the
-           sidebar. Draggable around the buttons so the window still moves. -->
-      <div
-        class={cn(
-          "flex h-3 items-center",
-          open ? "px-1.5" : "justify-center",
-        )}
-        data-tauri-drag-region
-      >
-        <WindowControls kind="mac" />
-      </div>
-    {/if}
     <Sidebar.MenuItem class="relative">
       <a
         href="/"
