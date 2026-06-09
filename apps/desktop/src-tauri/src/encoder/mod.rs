@@ -82,6 +82,14 @@ pub struct EncoderConfig {
     pub output_path: PathBuf,
 }
 
+/// Number of duplicate frames to emit alongside one real frame to make up
+/// for pacer drops, bounded by `cap` so a large backlog drains over several
+/// iterations rather than blocking the encode loop in one burst. The residual
+/// (anything above `cap`) is flushed after the capture loop ends.
+fn dup_count(total_drops: u64, compensated: u64, cap: u64) -> u64 {
+    total_drops.saturating_sub(compensated).min(cap)
+}
+
 fn build_video_filter(crop: Option<CaptureArea>) -> Option<String> {
     crop.map(|area| {
         format!(
@@ -218,6 +226,26 @@ pub fn spawn_encoder_loop(
             let mut frames_since_alive_check: u32 = 0;
             const ALIVE_CHECK_EVERY: u32 = 30;
 
+            // Dropped-frame compensation. The capture pacer emits exactly
+            // `fps` frames per wall-clock second; when the queue saturates
+            // (encoder slower than capture), `RecordingPipeline::push` drops
+            // the overflow. Because we declare a fixed `-framerate` to FFmpeg
+            // and feed timestamp-less rawvideo, every dropped frame would
+            // otherwise SHORTEN the output below real time — the recording
+            // plays back sped-up and drifts out of sync with the cursor track
+            // and audio (which are wall-clock-timed). To keep
+            // `encoded == captured` (1 wall-clock second == 1 second of video
+            // PTS), we re-emit a duplicate of the most recent frame once per
+            // drop. A duplicate of an unchanged frame is ~free for every
+            // encoder (a skipped / near-zero-byte P-frame), so this can't
+            // meaningfully worsen the backpressure that caused the drop.
+            let mut compensated_drops: u64 = 0;
+            let mut last_frame: Option<std::sync::Arc<[u8]>> = None;
+            // Bound the dup burst per real frame so a large backlog drains
+            // over a few iterations instead of blocking the loop at once; any
+            // residual is flushed after the loop.
+            const MAX_DUPS_PER_ITER: u64 = 120;
+
             loop {
                 if let Some(frame) = pipeline.pop() {
                     // Detect FFmpeg early exit BEFORE writing — otherwise
@@ -238,21 +266,29 @@ pub fn spawn_encoder_loop(
                     }
                     frames_since_alive_check += 1;
 
-                    if let Err(e) = stdin.write_all(&frame.data) {
-                        // Broken pipe — FFmpeg died between our liveness
-                        // check and this write. The stderr pump is already
-                        // draining, so `wait()` can't hang; surface the real
-                        // reason from the captured tail.
-                        drop(stdin);
-                        let _ = child.wait();
-                        let tail = collect_stderr_tail(&mut stderr_pump, &stderr_tail);
-                        return Err(anyhow!(
-                            "ffmpeg encoder stdin write failed ({e}). \
-                             FFmpeg likely exited mid-recording. \
-                             Last stderr output:\n{tail}"
-                        ));
+                    // Emit the real frame, then one duplicate for each pacer
+                    // drop seen since our last write (capped per iteration).
+                    let drops = stats.dropped_frames.load(Ordering::Relaxed);
+                    let dups = dup_count(drops, compensated_drops, MAX_DUPS_PER_ITER);
+                    compensated_drops += dups;
+                    for _ in 0..(1 + dups) {
+                        if let Err(e) = stdin.write_all(&frame.data) {
+                            // Broken pipe — FFmpeg died between our liveness
+                            // check and this write. The stderr pump is already
+                            // draining, so `wait()` can't hang; surface the real
+                            // reason from the captured tail.
+                            drop(stdin);
+                            let _ = child.wait();
+                            let tail = collect_stderr_tail(&mut stderr_pump, &stderr_tail);
+                            return Err(anyhow!(
+                                "ffmpeg encoder stdin write failed ({e}). \
+                                 FFmpeg likely exited mid-recording. \
+                                 Last stderr output:\n{tail}"
+                            ));
+                        }
+                        stats.encoded_frames.fetch_add(1, Ordering::Relaxed);
                     }
-                    stats.encoded_frames.fetch_add(1, Ordering::Relaxed);
+                    last_frame = Some(frame.data.clone());
                     continue;
                 }
 
@@ -261,6 +297,23 @@ pub fn spawn_encoder_loop(
                 }
 
                 thread::sleep(Duration::from_millis(2));
+            }
+
+            // Final reconciliation: flush any drops not yet compensated (e.g.
+            // a backlog that exceeded the per-iteration cap right at the end)
+            // as duplicates of the last real frame, so total encoded frames
+            // equal total captured frames and the video length matches the
+            // wall-clock recording length to the frame.
+            if let Some(last) = last_frame {
+                let drops = stats.dropped_frames.load(Ordering::Relaxed);
+                let mut remaining = drops.saturating_sub(compensated_drops);
+                while remaining > 0 {
+                    if stdin.write_all(&last).is_err() {
+                        break;
+                    }
+                    stats.encoded_frames.fetch_add(1, Ordering::Relaxed);
+                    remaining -= 1;
+                }
             }
 
             drop(stdin);
@@ -280,8 +333,56 @@ pub fn spawn_encoder_loop(
 
 #[cfg(test)]
 mod tests {
-    use super::build_video_filter;
+    use super::{build_video_filter, dup_count};
     use crate::recording::CaptureArea;
+
+    /// Simulate the encoder's emit accounting over a whole recording and
+    /// assert the load-bearing invariant: total frames written to FFmpeg
+    /// (real + compensating duplicates, including the post-loop flush) equals
+    /// the number the pacer captured — so 1 wall-clock second always maps to
+    /// 1 second of video PTS regardless of how many frames were dropped.
+    fn total_emitted(captured: u64, drops: u64, cap: u64) -> u64 {
+        assert!(drops <= captured);
+        let real_frames = captured - drops; // frames that made it through the queue
+        let mut compensated = 0u64;
+        let mut emitted = 0u64;
+        for _ in 0..real_frames {
+            // Worst case for placement: all drops are already visible by the
+            // time each real frame is written.
+            let dups = dup_count(drops, compensated, cap);
+            compensated += dups;
+            emitted += 1 + dups;
+        }
+        // Post-loop flush of any residual the per-iteration cap left behind.
+        emitted += drops.saturating_sub(compensated);
+        emitted
+    }
+
+    #[test]
+    fn no_drops_emits_exactly_captured() {
+        assert_eq!(total_emitted(600, 0, 120), 600);
+    }
+
+    #[test]
+    fn drops_are_fully_compensated_to_match_captured() {
+        // Encoded must equal captured across a spread of drop counts and a
+        // small cap that forces multi-iteration draining + a final flush.
+        for &(captured, drops) in &[(600, 50), (600, 599), (100, 1), (3600, 1200)] {
+            assert_eq!(
+                total_emitted(captured, drops, 8),
+                captured,
+                "captured={captured} drops={drops}"
+            );
+        }
+    }
+
+    #[test]
+    fn dup_count_is_bounded_by_cap_and_never_over_compensates() {
+        assert_eq!(dup_count(100, 0, 30), 30); // capped
+        assert_eq!(dup_count(100, 90, 30), 10); // only the remainder
+        assert_eq!(dup_count(100, 100, 30), 0); // fully compensated
+        assert_eq!(dup_count(5, 9, 30), 0); // never negative
+    }
 
     #[test]
     fn no_crop_yields_no_filter() {

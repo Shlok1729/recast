@@ -21,6 +21,7 @@
     Monitor,
     Moon,
     Navigation,
+    PanelsTopLeft,
     Server,
     Settings as SettingsIcon,
     Shield,
@@ -46,6 +47,11 @@
     experimentalStore,
     type ExperimentalFlag,
   } from "$lib/stores/experimental.svelte";
+  import {
+    LAYOUT_MODES,
+    layoutMode,
+    type LayoutMode,
+  } from "$lib/stores/layout-mode.svelte";
   import { profilesStore } from "$lib/stores/profiles.svelte";
   import {
     recordingCountdown,
@@ -180,6 +186,11 @@
       }
     }
   }
+
+  const layoutModeIcons: Record<LayoutMode, typeof Monitor> = {
+    "os-native": Monitor,
+    recast: PanelsTopLeft,
+  };
 
   const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "Light", icon: Sun },
@@ -646,6 +657,60 @@
                         >
                           <Icon class="size-3.5" />
                           <span>{t.label}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Layout -->
+              <section id="settings-layout" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    Layout
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    How the window titlebar and controls are arranged.
+                  </p>
+                </div>
+                <div
+                  class="rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Window chrome
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {LAYOUT_MODES.find((m) => m.value === layoutMode.current)
+                          ?.hint}
+                      </div>
+                    </div>
+                    <div
+                      class="flex items-center gap-1 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+                      role="radiogroup"
+                      aria-label="Window chrome layout"
+                    >
+                      {#each LAYOUT_MODES as m (m.value)}
+                        {@const Icon = layoutModeIcons[m.value]}
+                        {@const active = layoutMode.current === m.value}
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onclick={() => (layoutMode.current = m.value)}
+                          class={cn(
+                            "flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-all duration-200",
+                            active
+                              ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <Icon class="size-3.5" />
+                          <span>{m.label}</span>
                         </button>
                       {/each}
                     </div>
