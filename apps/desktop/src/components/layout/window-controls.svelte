@@ -1,0 +1,166 @@
+<script module lang="ts">
+  // Windows/Linux control button — same look as the editor titlebar.
+  const winBtn =
+    "group inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground";
+</script>
+
+<script lang="ts">
+  import { isTauriApp } from "$lib/runtime/tauri";
+  import { Minus, Plus, Square, X } from "@lucide/svelte";
+  import { cn } from "@recast/ui/utils";
+  import { onMount } from "svelte";
+
+  // `mac` → faux macOS traffic lights (rendered top-left, in the sidebar).
+  // `win` → minimize / maximize / close stack (rendered top-right, in the
+  // content header). The OS decision is made by the caller via `platform()`
+  // so this component just draws + wires the chosen variant.
+  let { kind, class: className }: { kind: "mac" | "win"; class?: string } =
+    $props();
+
+  let isTauri = $state(false);
+  let isMaximized = $state(false);
+
+  onMount(() => {
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      isTauri = await isTauriApp();
+      if (!isTauri) return;
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const win = getCurrentWindow();
+      isMaximized = await win.isMaximized();
+      // Keep the maximize/restore glyph in sync with OS-driven resizes
+      // (snap, double-click titlebar, etc.).
+      unlisten = await win.onResized(async () => {
+        isMaximized = await win.isMaximized();
+      });
+    })();
+    return () => unlisten?.();
+  });
+
+  async function currentWindow() {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    return getCurrentWindow();
+  }
+  async function minimize(e: MouseEvent) {
+    e.stopPropagation();
+    (await currentWindow()).minimize();
+  }
+  async function toggleMaximize(e: MouseEvent) {
+    e.stopPropagation();
+    const win = await currentWindow();
+    if (await win.isMaximized()) await win.unmaximize();
+    else await win.maximize();
+  }
+  async function close(e: MouseEvent) {
+    e.stopPropagation();
+    (await currentWindow()).close();
+  }
+</script>
+
+{#if isTauri}
+  {#if kind === "mac"}
+    <!--
+      Faux macOS traffic lights. Real system buttons would need the native
+      title bar (a Rust window-config change we deliberately skipped), so these
+      mirror the system look: standard close/minimise/zoom colours with glyphs
+      that fade in on hover of the cluster. Window-chrome mimicry is the one
+      place we use literal OS colours instead of theme tokens — by design.
+    -->
+    <div
+      class={cn("group/lights flex items-center gap-2", className)}
+      onmousedown={(e) => e.stopPropagation()}
+      role="presentation"
+    >
+      <button
+        type="button"
+        onclick={close}
+        aria-label="Close"
+        title="Close"
+        class="flex size-3 items-center justify-center rounded-full bg-[#ff5f57] ring-1 ring-inset ring-black/15"
+      >
+        <X
+          size={8}
+          strokeWidth={2.5}
+          class="text-black/55 opacity-0 transition-opacity group-hover/lights:opacity-100"
+        />
+      </button>
+      <button
+        type="button"
+        onclick={minimize}
+        aria-label="Minimize"
+        title="Minimize"
+        class="flex size-3 items-center justify-center rounded-full bg-[#febc2e] ring-1 ring-inset ring-black/15"
+      >
+        <Minus
+          size={8}
+          strokeWidth={2.5}
+          class="text-black/55 opacity-0 transition-opacity group-hover/lights:opacity-100"
+        />
+      </button>
+      <button
+        type="button"
+        onclick={toggleMaximize}
+        aria-label={isMaximized ? "Restore" : "Zoom"}
+        title={isMaximized ? "Restore" : "Zoom"}
+        class="flex size-3 items-center justify-center rounded-full bg-[#28c840] ring-1 ring-inset ring-black/15"
+      >
+        <Plus
+          size={8}
+          strokeWidth={2.5}
+          class="text-black/55 opacity-0 transition-opacity group-hover/lights:opacity-100"
+        />
+      </button>
+    </div>
+  {:else}
+    <div
+      class={cn(
+        "flex items-center gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border/40",
+        className
+      )}
+      onmousedown={(e) => e.stopPropagation()}
+      role="presentation"
+    >
+      <button
+        type="button"
+        onclick={minimize}
+        aria-label="Minimize"
+        title="Minimize"
+        class={winBtn}
+      >
+        <Minus size={14} />
+      </button>
+      <button
+        type="button"
+        onclick={toggleMaximize}
+        aria-label={isMaximized ? "Restore" : "Maximize"}
+        title={isMaximized ? "Restore" : "Maximize"}
+        class={winBtn}
+      >
+        {#if isMaximized}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 13 13"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1"
+          >
+            <rect x="3" y="0.5" width="9" height="9" rx="1.5" />
+            <rect x="0.5" y="3" width="9" height="9" rx="1.5" />
+          </svg>
+        {:else}
+          <Square size={14} />
+        {/if}
+      </button>
+      <button
+        type="button"
+        onclick={close}
+        aria-label="Close"
+        title="Close"
+        class={cn(winBtn, "hover:bg-destructive/15 hover:text-destructive")}
+      >
+        <X size={16} />
+      </button>
+    </div>
+  {/if}
+{/if}

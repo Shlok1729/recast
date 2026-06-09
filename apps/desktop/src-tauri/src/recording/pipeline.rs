@@ -146,7 +146,18 @@ pub fn spawn_capture_loop(
         .name("recast-capture".into())
         .spawn(move || {
             let mut source = create_capture_source(&target)?;
-            let frame_period = Duration::from_micros(1_000_000_u64 / target_fps.max(1) as u64);
+            let fps = target_fps.max(1) as u64;
+            // Exact per-tick schedule: tick `k` (counting from the pacer's
+            // current anchor) fires at `base + k/fps` seconds, computed in
+            // integer nanoseconds so the 1/fps rounding never accumulates.
+            // The previous `Duration::from_micros(1_000_000/fps)` truncated
+            // (60 fps → 16666 µs instead of 16666.67), making the pacer run
+            // ~0.004 % fast — negligible per second, but ~0.14 s of video-vs-
+            // wall-clock drift per hour of recording, enough to desync the
+            // cursor/audio on a long capture.
+            let tick_at = |base: Instant, k: u64| -> Instant {
+                base + Duration::from_nanos(k.saturating_mul(1_000_000_000) / fps)
+            };
 
             // Wait for the very first frame so the encoder isn't fed an
             // empty pipeline at t=0. DXGI returns the current desktop
@@ -174,7 +185,12 @@ pub fn spawn_capture_loop(
                 height: source.height(),
                 data: last_frame.clone(),
             });
-            let mut next_tick = Instant::now() + frame_period;
+            // Anchor the exact schedule at the warmup frame. `emitted` counts
+            // frames pushed since `pacer_base`; tick `emitted+1` is the next
+            // deadline. Both reset on resume so a paused span is excluded
+            // without being "caught up" as lag.
+            let mut pacer_base = Instant::now();
+            let mut emitted: u64 = 0;
             let mut was_paused = false;
 
             while !stop_flag.load(Ordering::Acquire) {
@@ -187,9 +203,11 @@ pub fn spawn_capture_loop(
                     continue;
                 }
                 if was_paused {
-                    // Resuming: rebase the pacer so the paused span isn't
-                    // treated as lag and "caught up" with a burst of frames.
-                    next_tick = Instant::now() + frame_period;
+                    // Resuming: restart the exact schedule from now so the
+                    // paused span isn't treated as lag and "caught up" with a
+                    // burst of frames.
+                    pacer_base = Instant::now();
+                    emitted = 0;
                     was_paused = false;
                 }
 
@@ -212,6 +230,7 @@ pub fn spawn_capture_loop(
                 }
 
                 let now = Instant::now();
+                let next_tick = tick_at(pacer_base, emitted + 1);
                 if now >= next_tick {
                     pipeline.push(VideoFrame {
                         timestamp_us: clock.elapsed().as_micros() as u64,
@@ -219,7 +238,7 @@ pub fn spawn_capture_loop(
                         height: source.height(),
                         data: last_frame.clone(),
                     });
-                    next_tick += frame_period;
+                    emitted += 1;
                     // If a system stall pushed us more than one period
                     // behind, keep emitting one frame per iteration (no
                     // sleep) until we catch up — the loop body is cheap

@@ -37,6 +37,17 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.5',
+		date: '2026-06-09',
+		changes: [
+			{ kind: 'fixed', summary: 'Exported videos no longer open to a black screen stuck on "media loading" in the in-app player on release builds — the player now streams the file from the start instead of waiting on a tail fetch that never completed, so exports play back immediately.' },
+			{ kind: 'fixed', summary: 'macOS and Linux: the app no longer freezes after a recording finishes. Saving a recording — flushing the encoder, finalizing the file, and the camera pause-trim re-encode — ran on the UI thread and locked the whole window until it completed. It now runs off the main thread. (Windows was unaffected because it renders the UI in a separate process.)' },
+			{ kind: 'fixed', summary: 'macOS and Linux: starting a recording, listing recordings/exports, picking a microphone, and "reveal in file manager" no longer briefly freeze the window — these all moved off the UI thread for the same reason.' },
+			{ kind: 'fixed', summary: 'Long recordings could freeze mid-capture: the encoder\'s FFmpeg progress output filled an OS pipe buffer that was never drained, stalling the encoder and the recording. Its output is now drained continuously.' },
+			{ kind: 'fixed', summary: 'A recording that fails to start partway through no longer leaves orphaned capture/encoder processes running in the background.' },
+		],
+	},
+	{
 		version: '0.2.4',
 		date: '2026-06-07',
 		highlights: [

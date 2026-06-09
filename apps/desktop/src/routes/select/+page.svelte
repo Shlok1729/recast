@@ -24,6 +24,8 @@
     appName?: string;
     thumbnail: string | null;
     resolution?: string;
+    /** Monitor refresh rate in Hz (monitors only); caps the useful capture fps. */
+    refreshHz?: number;
     region?: {
       x: number;
       y: number;
@@ -136,6 +138,7 @@
           label: d.isPrimary ? "Primary Display" : `Display ${i + 1}`,
           thumbnail: d.thumbnail,
           resolution: `${d.width} × ${d.height}`,
+          refreshHz: d.refreshHz || undefined,
         }),
       );
       windows.forEach((w) => {
@@ -443,7 +446,9 @@
                 <div
                   class="mt-0.5 text-[10px] font-mono tabular-nums text-muted-foreground"
                 >
-                  {source.resolution}
+                  {source.resolution}{#if source.refreshHz}
+                    <span class="text-primary/80"> · {source.refreshHz} Hz</span>
+                  {/if}
                 </div>
               {/if}
             </div>

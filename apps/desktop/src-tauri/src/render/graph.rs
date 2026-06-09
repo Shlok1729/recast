@@ -276,6 +276,13 @@ pub fn compute_canvas_geometry(
 pub struct SourceVideoMetadata {
     pub width: u32,
     pub height: u32,
+    /// Source frame rate. The generated background source (`color=`) MUST be
+    /// pinned to this — otherwise FFmpeg defaults the generator to 25 fps and,
+    /// because the background is the BASE of the composite `overlay`, the whole
+    /// export inherits 25 fps. A 60 fps recording then gets frame-dropped to 25,
+    /// which judders every motion (most visibly under a zoom). See
+    /// `build_color_background_filter`.
+    pub fps: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -482,6 +489,7 @@ impl RenderGraph {
                         canvas.comp_x,
                         canvas.comp_y,
                         shadow_input_index,
+                        source.fps,
                     )
                 }
             }
@@ -496,6 +504,7 @@ impl RenderGraph {
                 canvas.comp_x,
                 canvas.comp_y,
                 shadow_input_index,
+                source.fps,
             ),
             None => {
                 if prelude_segments.is_empty() {
@@ -545,6 +554,7 @@ fn build_color_background_filter(
     shadow_overlay_x: u32,
     shadow_overlay_y: u32,
     shadow_input_index: Option<usize>,
+    fps: f64,
 ) -> Option<String> {
     let color = match background.background_type.as_str() {
         "color" => normalize_color(&background.value),
@@ -552,9 +562,19 @@ fn build_color_background_filter(
         _ => "#111111".into(),
     };
 
+    // Pin the generator to the source frame rate. Without `:r=` FFmpeg defaults
+    // `color=` to 25 fps; since this is the BASE of the composite `overlay`, the
+    // entire export would inherit 25 fps and frame-drop a 60 fps recording into
+    // a juddery mess (very visible under a zoom). Fall back to 60 for a bogus
+    // metadata value rather than emitting an invalid rate.
+    let rate = if fps.is_finite() && fps >= 1.0 {
+        fps
+    } else {
+        60.0
+    };
     let mut segments = prelude_segments;
     segments.push(format!(
-        "color=c={color}:s={canvas_width}x{canvas_height}[bg0]"
+        "color=c={color}:s={canvas_width}x{canvas_height}:r={rate}[bg0]"
     ));
     let bg_label = compose_shadow_stage(
         &mut segments,
@@ -1054,6 +1074,7 @@ mod tests {
                 SourceVideoMetadata {
                     width: 1920,
                     height: 1080,
+                    fps: 60.0,
                 },
                 Path::new("."),
                 1,
@@ -1072,6 +1093,7 @@ mod tests {
                 SourceVideoMetadata {
                     width: 1920,
                     height: 1080,
+                    fps: 60.0,
                 },
                 Path::new("."),
                 1,
@@ -1195,6 +1217,42 @@ mod tests {
         assert!(fc.contains("gte(t,6.0000)"), "third region missing: {fc}");
     }
 
+    /// The generated `color=` background MUST carry an explicit `:r=<fps>`.
+    /// Without it FFmpeg defaults the generator to 25 fps, and since it's the
+    /// base of the composite overlay the whole export drops to 25 fps —
+    /// frame-dropping a 60 fps recording into juddery motion (the export-only
+    /// "shake", very visible under a zoom).
+    #[test]
+    fn color_background_pins_source_framerate() {
+        let state = RenderState {
+            background_type: "color".into(),
+            background_value: "#111111".into(),
+            zoom_regions: vec![region(1.0, 4.0, 1.6)],
+            ..RenderState::default()
+        };
+        let plan = RenderGraph::from_state(&state)
+            .build_export_plan_with(
+                SourceVideoMetadata {
+                    width: 1920,
+                    height: 1080,
+                    fps: 60.0,
+                },
+                Path::new("."),
+                1,
+                None,
+                None,
+                None,
+                None,
+                test_canvas(),
+            )
+            .expect("plan");
+        let fc = plan.filter_complex.expect("filter_complex");
+        assert!(
+            fc.contains("color=") && fc.contains(":r=60"),
+            "color background must pin the source fps (got: {fc})"
+        );
+    }
+
     /// A hidden region is a non-destructive mute: it must contribute NOTHING to
     /// the export filter (no scale/crop prelude when it's the only region).
     #[test]
@@ -1293,6 +1351,7 @@ mod tests {
             SourceVideoMetadata {
                 width: 1920,
                 height: 1080,
+                fps: 60.0,
             },
             0.0,
         )];
@@ -1327,6 +1386,7 @@ mod tests {
                 SourceVideoMetadata {
                     width: 1920,
                     height: 1080,
+                    fps: 60.0,
                 },
                 Path::new("."),
                 1,

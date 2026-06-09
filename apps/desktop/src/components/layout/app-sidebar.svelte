@@ -21,6 +21,7 @@
 
   let {
     ref = $bindable(null),
+    variant = "inset",
     ...restProps
   }: ComponentProps<typeof Sidebar.Root> = $props();
 
@@ -51,7 +52,7 @@
   });
 </script>
 
-<Sidebar.Root bind:ref variant="floating" collapsible="icon" {...restProps}>
+<Sidebar.Root bind:ref {variant} collapsible="icon" {...restProps}>
   <Sidebar.Rail class="data-[state=collapsed]:hidden" />
 
   <Sidebar.Header class="gap-3 py-3">

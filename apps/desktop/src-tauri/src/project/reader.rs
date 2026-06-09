@@ -88,6 +88,48 @@ fn extract_entry(archive: &mut ZipArchive<File>, name: &str, path: &Path) -> Res
     Ok(path.to_path_buf())
 }
 
+#[cfg(test)]
+mod backcompat_tests {
+    use super::*;
+
+    /// Load every real `.recast` in `$RECAST_BACKCOMPAT_DIR` through the current
+    /// `open_project` and assert it parses. This is the concrete backward-
+    /// compatibility check: pre-change recasts must still deserialize against
+    /// the present `ProjectMetadata`/`RecordingStats` structs. Skips silently
+    /// when the env var is unset so normal `cargo test` is unaffected.
+    #[test]
+    fn opens_existing_recasts_from_dir() {
+        let Some(dir) = std::env::var_os("RECAST_BACKCOMPAT_DIR") else {
+            eprintln!("RECAST_BACKCOMPAT_DIR unset — skipping backcompat check");
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        let mut checked = 0usize;
+        for entry in fs::read_dir(&dir).expect("read dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("recast") {
+                continue;
+            }
+            let result = open_project(&path)
+                .unwrap_or_else(|e| panic!("FAILED to open {}: {e:#}", path.display()));
+            // Sanity-check the fields the recording-fps changes touch.
+            assert!(result.metadata.video.fps >= 1, "{}", path.display());
+            assert!(result.metadata.stats.nominal_fps >= 1, "{}", path.display());
+            eprintln!(
+                "OK  {}  video.fps={} stats.nominalFps={} {}x{}",
+                path.file_name().unwrap().to_string_lossy(),
+                result.metadata.video.fps,
+                result.metadata.stats.nominal_fps,
+                result.metadata.video.width,
+                result.metadata.video.height,
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no .recast files found in {}", dir.display());
+        eprintln!("Parsed {checked} existing recast(s) with the current schema.");
+    }
+}
+
 /// Try to extract an optional entry from the archive. Returns None if the entry doesn't exist.
 fn try_extract_entry(archive: &mut ZipArchive<File>, name: &str, path: &Path) -> Option<PathBuf> {
     let mut entry = archive.by_name(name).ok()?;

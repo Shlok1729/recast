@@ -37,9 +37,9 @@
     desc: string;
     icon: typeof Video;
   }[] = [
-    { value: "mp4", label: "MP4", desc: "H.264 · universal", icon: Video },
-    { value: "webm", label: "WebM", desc: "VP9 · web-optimized", icon: Film },
-    { value: "gif", label: "GIF", desc: "Animated · palette", icon: ImageIcon },
+    { value: "mp4", label: "MP4", desc: "Universal", icon: Video },
+    { value: "webm", label: "WebM", desc: "Web · VP9", icon: Film },
+    { value: "gif", label: "GIF", desc: "Animated", icon: ImageIcon },
   ];
 
   const qualities: { value: ExportQuality; label: string; desc: string }[] = [
@@ -83,6 +83,32 @@
   function setSpeed(v: ExportSpeed) {
     store.exportSpeed = v;
   }
+  function setFps(v: number | null) {
+    store.exportFps = v;
+  }
+
+  // Frame-rate options derived from the SOURCE recording. We only ever offer
+  // the source rate (default, preserves the original) plus standard lower rates
+  // — never higher, since duplicating frames adds size without smoothness. If
+  // the user's stored choice exceeds the current source (e.g. a different clip),
+  // it falls back to Original at export via the Rust-side clamp.
+  const sourceFps = $derived(Math.max(1, Math.round(store.metadata?.fps ?? 60)));
+  const fpsOptions = $derived([
+    { value: null as number | null, label: "Original", desc: `${sourceFps} fps` },
+    ...[60, 30, 24]
+      .filter((f) => f < sourceFps)
+      .map((f) => ({
+        value: f as number | null,
+        label: `${f} fps`,
+        desc: f === 24 ? "Cinematic" : "Smaller file",
+      })),
+  ]);
+  // Only worth showing when there's an actual choice (source > 24). Uses the
+  // store directly rather than `isGif` (declared further down) to avoid a
+  // use-before-declaration.
+  const showFps = $derived(
+    store.exportFormat !== "gif" && fpsOptions.length > 1,
+  );
 
   function formatTime(seconds: number) {
     if (!Number.isFinite(seconds) || seconds <= 0) return "0:00.00";
@@ -112,9 +138,11 @@
     ditherModes.find((d) => d.value === store.gifSettings.dither),
   );
 
-  // Track viewport so the GIF extras render as a side panel on wide screens
-  // and fall back to an inline accordion on narrow ones. The wrapper flow
-  // dialog auto-morphs to whatever width/height this body declares.
+  // The body lays its option sections out in two columns on roomy viewports
+  // (wider, not taller) and collapses to a single stacked column when there
+  // isn't space. The flow-dialog wrapper observes the width/height this body
+  // reports and morphs its chrome to match — so we just declare the target
+  // width here; the growth is the wrapper's morph.
   let viewportWidth = $state(
     typeof window !== "undefined" ? window.innerWidth : 1280,
   );
@@ -125,18 +153,8 @@
     return () => window.removeEventListener("resize", onResize);
   });
   const isCompact = $derived(viewportWidth < 720);
-  const showSidePanel = $derived(isGif && !isCompact);
-  const showInlinePanel = $derived(isGif && isCompact);
-
-  // Explicit body width. The flow dialog observes this via ResizeObserver
-  // and morphs its chrome to match — so we don't animate the side panel's
-  // own width here; growth is the morph.
   const bodyWidth = $derived(
-    isCompact
-      ? Math.min(440, viewportWidth - 32)
-      : showSidePanel
-        ? 760
-        : 440,
+    isCompact ? Math.min(460, viewportWidth - 32) : 680,
   );
 
   function setLoop(value: "infinite" | "once" | number) {
@@ -388,6 +406,208 @@
   </div>
 {/snippet}
 
+{#snippet formatSection()}
+  <section
+    in:fly={{ y: 8, duration: 240, delay: 110, easing: cubicOut }}
+    class="flex flex-col gap-2.5"
+  >
+    {@render sectionLabel("Format", "How the file is encoded.")}
+    <div class="grid grid-cols-3 gap-1.5">
+      {#each formats as fmt, i (fmt.value)}
+        {@const selected = store.exportFormat === fmt.value}
+        {@const Icon = fmt.icon}
+        <span
+          class="flex"
+          in:scale={{ start: 0.92, duration: 220, delay: 140 + i * 35, easing: cubicOut }}
+        >
+          <button
+            type="button"
+            onclick={() => setFormat(fmt.value)}
+            aria-pressed={selected}
+            class={cn(
+              "group relative flex w-full flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left transition-all duration-200",
+              selected
+                ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
+                : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
+            )}
+          >
+            <span
+              class={cn(
+                "flex items-center gap-1.5 text-[12.5px] font-semibold tracking-tight",
+                selected ? "text-primary" : "text-foreground",
+              )}
+            >
+              <Icon class="size-3.5" />
+              {fmt.label}
+            </span>
+            <span class="text-[10.5px] leading-tight text-muted-foreground">
+              {fmt.desc}
+            </span>
+            {#if selected}
+              <span
+                class="absolute right-2 top-2"
+                in:scale={{ start: 0.5, duration: 180, easing: cubicOut }}
+              >
+                <Check class="size-3 text-primary" />
+              </span>
+            {/if}
+          </button>
+        </span>
+      {/each}
+    </div>
+  </section>
+{/snippet}
+
+{#snippet qualitySection()}
+  <section
+    in:fly={{ y: 8, duration: 240, delay: 170, easing: cubicOut }}
+    class="flex flex-col gap-2.5"
+  >
+    {@render sectionLabel("Quality", "Resolution preset for the export.")}
+    <div class="grid grid-cols-2 gap-1.5">
+      {#each qualities as q, i (q.value)}
+        {@const selected = store.exportQuality === q.value}
+        <span
+          class="flex"
+          in:scale={{ start: 0.92, duration: 220, delay: 200 + i * 35, easing: cubicOut }}
+        >
+          <button
+            type="button"
+            onclick={() => setQuality(q.value)}
+            aria-pressed={selected}
+            class={cn(
+              "group flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all duration-200",
+              selected
+                ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
+                : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
+            )}
+          >
+            <div class="flex min-w-0 flex-col gap-0.5">
+              <span
+                class={cn(
+                  "text-[12.5px] font-semibold tracking-tight",
+                  selected ? "text-primary" : "text-foreground",
+                )}
+              >
+                {q.label}
+              </span>
+              <span
+                class="truncate text-[10.5px] leading-tight text-muted-foreground"
+              >
+                {q.desc}
+              </span>
+            </div>
+            {#if selected}
+              <Check class="size-3 shrink-0 text-primary" />
+            {/if}
+          </button>
+        </span>
+      {/each}
+    </div>
+  </section>
+{/snippet}
+
+{#snippet fpsSection()}
+  <!-- Frame rate: output fps for MP4/WebM. Defaults to Original (the source
+       rate) so exports keep the recording's smoothness; lower rates shrink
+       the file. Hidden for GIF (its own fps control) and when the source is
+       already ≤24 fps (no meaningful choice). -->
+  <section
+    in:fly={{ y: 8, duration: 240, delay: 185, easing: cubicOut }}
+    class="flex flex-col gap-2.5"
+  >
+    {@render sectionLabel("Frame rate", "Original keeps the source rate.")}
+    <div
+      class={cn(
+        "grid gap-1.5",
+        fpsOptions.length === 2 ? "grid-cols-2" : "grid-cols-3",
+      )}
+    >
+      {#each fpsOptions as f, i (f.value ?? "original")}
+        {@const selected = store.exportFps === f.value}
+        <span
+          class="flex"
+          in:scale={{ start: 0.92, duration: 220, delay: 215 + i * 35, easing: cubicOut }}
+        >
+          <button
+            type="button"
+            onclick={() => setFps(f.value)}
+            aria-pressed={selected}
+            title={f.desc}
+            class={cn(
+              "group flex w-full flex-col items-center gap-0.5 rounded-xl border px-2 py-2 text-center transition-all duration-200",
+              selected
+                ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
+                : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
+            )}
+          >
+            <span
+              class={cn(
+                "text-[12.5px] font-semibold tracking-tight",
+                selected ? "text-primary" : "text-foreground",
+              )}
+            >
+              {f.label}
+            </span>
+            <span
+              class="truncate text-[10px] leading-tight text-muted-foreground"
+            >
+              {f.desc}
+            </span>
+          </button>
+        </span>
+      {/each}
+    </div>
+  </section>
+{/snippet}
+
+{#snippet speedSection()}
+  <!-- Speed: encoder effort. Hidden for GIF, which uses a palette 2-pass
+       and ignores these codec preset knobs entirely. -->
+  <section
+    in:fly={{ y: 8, duration: 240, delay: 200, easing: cubicOut }}
+    class="flex flex-col gap-2.5"
+  >
+    {@render sectionLabel("Speed", "Encoder effort — same resolution.")}
+    <div class="grid grid-cols-3 gap-1.5">
+      {#each speeds as s, i (s.value)}
+        {@const selected = store.exportSpeed === s.value}
+        <span
+          class="flex"
+          in:scale={{ start: 0.92, duration: 220, delay: 230 + i * 35, easing: cubicOut }}
+        >
+          <button
+            type="button"
+            onclick={() => setSpeed(s.value)}
+            aria-pressed={selected}
+            title={s.desc}
+            class={cn(
+              "group flex w-full flex-col items-center gap-0.5 rounded-xl border px-2 py-2 text-center transition-all duration-200",
+              selected
+                ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
+                : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
+            )}
+          >
+            <span
+              class={cn(
+                "text-[12.5px] font-semibold tracking-tight",
+                selected ? "text-primary" : "text-foreground",
+              )}
+            >
+              {s.label}
+            </span>
+            <span
+              class="truncate text-[10px] leading-tight text-muted-foreground"
+            >
+              {s.desc}
+            </span>
+          </button>
+        </span>
+      {/each}
+    </div>
+  </section>
+{/snippet}
+
 <div class="flex flex-col" style="width: {bodyWidth}px;">
   <!-- Header -->
   <header
@@ -412,226 +632,89 @@
     </div>
   </header>
 
-  <div class="flex min-h-0">
-    <div
-      class="flex min-w-0 flex-col"
-      style={isCompact
-        ? "flex: 1 1 0; min-width: 0;"
-        : "width: 440px; flex: 0 0 440px;"}
-    >
-      <!-- Stat strip -->
-      <section
-        in:fly={{ y: 8, duration: 240, delay: 70, easing: cubicOut }}
-        class="flex items-stretch divide-x divide-border/40 border-b border-border/40 bg-muted/15 px-5 py-2.5"
+  <!-- Stat strip — full width across the top, above the option columns. -->
+  <section
+    in:fly={{ y: 8, duration: 240, delay: 70, easing: cubicOut }}
+    class="flex items-stretch divide-x divide-border/40 border-b border-border/40 bg-muted/15 px-5 py-2.5"
+  >
+    <div class="flex flex-1 flex-col gap-0.5 pr-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
       >
-        <div class="flex flex-1 flex-col gap-0.5 pr-4">
-          <span
-            class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
-          >
-            Clip
-          </span>
-          <span class="font-mono text-[12px] tabular-nums text-foreground">
-            {formatTime(clipDuration)}
-          </span>
-        </div>
-        <div class="flex flex-1 flex-col gap-0.5 pl-4">
-          <span
-            class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
-          >
-            Range
-          </span>
-          <span class="font-mono text-[12px] tabular-nums text-foreground">
-            {formatTime(store.trimStart)} – {formatTime(clipEnd)}
-          </span>
-        </div>
-      </section>
-      {#if hasTrim}
-        <p
-          class="border-b border-border/40 bg-muted/10 px-5 py-1.5 text-[10.5px] text-muted-foreground"
-          in:fade={{ duration: 200, delay: 200 }}
-        >
-          Source length
-          <span class="ml-1 font-mono tabular-nums text-foreground">
-            {formatTime(sourceDuration)}
-          </span>
-        </p>
-      {/if}
-
-      <!-- Format -->
-      <section
-        in:fly={{ y: 8, duration: 240, delay: 110, easing: cubicOut }}
-        class="flex flex-col gap-2.5 px-5 pt-4"
-      >
-        {@render sectionLabel("Format", "How the file is encoded.")}
-        <div class="grid grid-cols-3 gap-1.5">
-          {#each formats as fmt, i (fmt.value)}
-            {@const selected = store.exportFormat === fmt.value}
-            {@const Icon = fmt.icon}
-            <span
-              class="flex"
-              in:scale={{ start: 0.92, duration: 220, delay: 140 + i * 35, easing: cubicOut }}
-            >
-              <button
-                type="button"
-                onclick={() => setFormat(fmt.value)}
-                aria-pressed={selected}
-                class={cn(
-                  "group relative flex w-full flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left transition-all duration-200",
-                  selected
-                    ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
-                    : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
-                )}
-              >
-                <span
-                  class={cn(
-                    "flex items-center gap-1.5 text-[12.5px] font-semibold tracking-tight",
-                    selected ? "text-primary" : "text-foreground",
-                  )}
-                >
-                  <Icon class="size-3.5" />
-                  {fmt.label}
-                </span>
-                <span class="text-[10.5px] leading-tight text-muted-foreground">
-                  {fmt.desc}
-                </span>
-                {#if selected}
-                  <span
-                    class="absolute right-2 top-2"
-                    in:scale={{ start: 0.5, duration: 180, easing: cubicOut }}
-                  >
-                    <Check class="size-3 text-primary" />
-                  </span>
-                {/if}
-              </button>
-            </span>
-          {/each}
-        </div>
-      </section>
-
-      <!-- Quality -->
-      <section
-        in:fly={{ y: 8, duration: 240, delay: 170, easing: cubicOut }}
-        class="flex flex-col gap-2.5 px-5 pt-4"
-      >
-        {@render sectionLabel("Quality", "Resolution preset for the export.")}
-        <div class="grid grid-cols-2 gap-1.5">
-          {#each qualities as q, i (q.value)}
-            {@const selected = store.exportQuality === q.value}
-            <span
-              class="flex"
-              in:scale={{ start: 0.92, duration: 220, delay: 200 + i * 35, easing: cubicOut }}
-            >
-              <button
-                type="button"
-                onclick={() => setQuality(q.value)}
-                aria-pressed={selected}
-                class={cn(
-                  "group flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all duration-200",
-                  selected
-                    ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
-                    : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
-                )}
-              >
-                <div class="flex min-w-0 flex-col gap-0.5">
-                  <span
-                    class={cn(
-                      "text-[12.5px] font-semibold tracking-tight",
-                      selected ? "text-primary" : "text-foreground",
-                    )}
-                  >
-                    {q.label}
-                  </span>
-                  <span
-                    class="truncate text-[10.5px] leading-tight text-muted-foreground"
-                  >
-                    {q.desc}
-                  </span>
-                </div>
-                {#if selected}
-                  <Check class="size-3 shrink-0 text-primary" />
-                {/if}
-              </button>
-            </span>
-          {/each}
-        </div>
-      </section>
-
-      <!-- Speed: encoder effort. Hidden for GIF, which uses a palette 2-pass
-           and ignores these codec preset knobs entirely. -->
-      {#if !isGif}
-        <section
-          in:fly={{ y: 8, duration: 240, delay: 200, easing: cubicOut }}
-          class="flex flex-col gap-2.5 px-5 pt-4"
-        >
-          {@render sectionLabel("Speed", "Encoder effort — same resolution.")}
-          <div class="grid grid-cols-3 gap-1.5">
-            {#each speeds as s, i (s.value)}
-              {@const selected = store.exportSpeed === s.value}
-              <span
-                class="flex"
-                in:scale={{ start: 0.92, duration: 220, delay: 230 + i * 35, easing: cubicOut }}
-              >
-                <button
-                  type="button"
-                  onclick={() => setSpeed(s.value)}
-                  aria-pressed={selected}
-                  title={s.desc}
-                  class={cn(
-                    "group flex w-full flex-col items-center gap-0.5 rounded-xl border px-2 py-2 text-center transition-all duration-200",
-                    selected
-                      ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
-                      : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
-                  )}
-                >
-                  <span
-                    class={cn(
-                      "text-[12.5px] font-semibold tracking-tight",
-                      selected ? "text-primary" : "text-foreground",
-                    )}
-                  >
-                    {s.label}
-                  </span>
-                  <span
-                    class="truncate text-[10px] leading-tight text-muted-foreground"
-                  >
-                    {s.desc}
-                  </span>
-                </button>
-              </span>
-            {/each}
-          </div>
-        </section>
-      {/if}
-
-      <!-- Compact fallback: GIF settings inline below Quality. -->
-      {#if showInlinePanel}
-        <section
-          in:fade={{ duration: 220, delay: 100 }}
-          class="overflow-hidden"
-        >
-          <div
-            class="mx-5 mt-4 rounded-xl border border-border/50 bg-card/60 shadow-(--shadow-craft-inset) backdrop-blur"
-          >
-            {@render gifSettingsBody()}
-          </div>
-        </section>
-      {/if}
-
-      <div class="px-5 pb-5 pt-4"></div>
+        Clip
+      </span>
+      <span class="font-mono text-[12px] tabular-nums text-foreground">
+        {formatTime(clipDuration)}
+      </span>
     </div>
-
-    <!-- Side panel: wide screens only. No width animation here — the wrapper
-         flow dialog's morph handles it as the body's measured width grows. -->
-    {#if showSidePanel}
-      <aside
-        in:fade={{ duration: 220, delay: 160 }}
-        style="width: 320px;"
-        class="flex h-full flex-col border-l border-border/40 bg-muted/10"
+    <div class="flex flex-1 flex-col gap-0.5 pl-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
       >
-        {@render gifSettingsBody()}
-      </aside>
-    {/if}
-  </div>
+        Range
+      </span>
+      <span class="font-mono text-[12px] tabular-nums text-foreground">
+        {formatTime(store.trimStart)} – {formatTime(clipEnd)}
+      </span>
+    </div>
+  </section>
+  {#if hasTrim}
+    <p
+      class="border-b border-border/40 bg-muted/10 px-5 py-1.5 text-[10.5px] text-muted-foreground"
+      in:fade={{ duration: 200, delay: 200 }}
+    >
+      Source length
+      <span class="ml-1 font-mono tabular-nums text-foreground">
+        {formatTime(sourceDuration)}
+      </span>
+    </p>
+  {/if}
+
+  <!-- GIF settings, wrapped so it reads as one panel in either layout. -->
+  {#snippet gifSettingsCard()}
+    <div
+      class="rounded-xl border border-border/50 bg-card/50 shadow-(--shadow-craft-inset) backdrop-blur"
+    >
+      {@render gifSettingsBody()}
+    </div>
+  {/snippet}
+
+  {#if isCompact}
+    <!-- Narrow viewports: a single stacked column. -->
+    <div class="flex flex-col gap-4 px-5 py-4">
+      {@render formatSection()}
+      {@render qualitySection()}
+      {#if showFps}{@render fpsSection()}{/if}
+      {#if !isGif}{@render speedSection()}{/if}
+      {#if isGif}
+        <section in:fade={{ duration: 220, delay: 100 }}>
+          {@render gifSettingsCard()}
+        </section>
+      {/if}
+    </div>
+  {:else}
+    <!-- Roomy viewports: two columns so the dialog grows wider, not taller.
+         Left = what & resolution (Format, Quality); right = motion & effort
+         (Frame rate, Speed) — or the GIF panel, which replaces the codec
+         knobs GIF doesn't use. items-start keeps each section top-aligned so
+         the shorter column doesn't stretch its cards. -->
+    <div class="grid grid-cols-2 items-start gap-x-6 gap-y-5 px-5 py-5">
+      <div class="flex min-w-0 flex-col gap-5">
+        {@render formatSection()}
+        {@render qualitySection()}
+      </div>
+      <div class="flex min-w-0 flex-col gap-5">
+        {#if isGif}
+          <section in:fade={{ duration: 220, delay: 160 }}>
+            {@render gifSettingsCard()}
+          </section>
+        {:else}
+          {#if showFps}{@render fpsSection()}{/if}
+          {@render speedSection()}
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <!-- Footer -->
   <footer

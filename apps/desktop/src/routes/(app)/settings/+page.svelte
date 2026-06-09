@@ -6,7 +6,20 @@
   import DiagnosticsPanel from "$components/settings/DiagnosticsPanel.svelte";
   import GoogleDriveConnection from "$components/settings/GoogleDriveConnection.svelte";
   import { config } from "$constants/app";
-  import { getOutputDir, setOutputDir } from "$lib/ipc";
+  import {
+    getDisplays,
+    getLastSource,
+    getOutputDir,
+    setOutputDir,
+  } from "$lib/ipc";
+  import { listen } from "@tauri-apps/api/event";
+  import {
+    loadRecordingFps,
+    loadRecordingQuality,
+    persistRecordingFps,
+    persistRecordingQuality,
+    type RecordingQuality,
+  } from "$lib/profiles";
   import {
     ArrowUpRight,
     Cloud,
@@ -21,6 +34,7 @@
     Monitor,
     Moon,
     Navigation,
+    PanelsTopLeft,
     Server,
     Settings as SettingsIcon,
     Shield,
@@ -46,6 +60,11 @@
     experimentalStore,
     type ExperimentalFlag,
   } from "$lib/stores/experimental.svelte";
+  import {
+    LAYOUT_MODES,
+    layoutMode,
+    type LayoutMode,
+  } from "$lib/stores/layout-mode.svelte";
   import { profilesStore } from "$lib/stores/profiles.svelte";
   import {
     recordingCountdown,
@@ -67,6 +86,15 @@
   let editorWindow = $state<EditorBehavior>("navigate");
   let countdown = $state<CountdownSeconds>(3);
   let closeToTray = $state(true);
+  // Capture quality + frame rate (global recording preferences, read by the
+  // recording panel at start time via shared localStorage). `recordingFps`
+  // null = unset → backend default 60.
+  let recordingQuality = $state<RecordingQuality>("balanced");
+  let recordingFps = $state<number>(60);
+  // Highest refresh rate among attached displays — the capture pipeline can't
+  // produce more unique frames/sec than this, so we only offer fps options up
+  // to it. Defaults to 60 until displays are probed.
+  let maxRefreshHz = $state(60);
   // Land on Recording — the daily-use panel (output directory, profiles,
   // editor behavior) — rather than the leftmost General tab, matching how
   // people actually reach for these settings.
@@ -83,7 +111,93 @@
       editorWindow,
     );
     countdown = recordingCountdown.value;
+    recordingQuality = loadRecordingQuality();
+    recordingFps = loadRecordingFps() ?? 60;
+    // Gate the fps options by the refresh of the display that will actually be
+    // recorded (the last-selected source), not just the global max — so the
+    // options reflect the user's real target. Re-sync whenever they change the
+    // source in the picker window.
+    void syncMaxRefresh();
+    const unlistenSource = listen("source-selected", () => void syncMaxRefresh());
+    return () => {
+      unlistenSource.then((fn) => fn());
+    };
   });
+
+  /** Resolve the relevant display refresh: the selected monitor's rate when a
+   *  monitor is the active source, else the highest attached display (windows
+   *  /regions don't pin a single display). Best effort — falls back to 60. */
+  async function syncMaxRefresh() {
+    try {
+      const [displays, last] = await Promise.all([
+        getDisplays(),
+        getLastSource(),
+      ]);
+      const globalMax = displays.reduce(
+        (m, d) => Math.max(m, d.refreshHz || 0),
+        0,
+      );
+      let selected = 0;
+      if (last?.kind === "monitor") {
+        selected = displays.find((d) => d.id === last.id)?.refreshHz ?? 0;
+      }
+      const resolved = selected || globalMax;
+      maxRefreshHz = resolved >= 1 ? resolved : 60;
+    } catch {
+      maxRefreshHz = 60;
+    }
+  }
+
+  function updateRecordingQuality(value: RecordingQuality) {
+    recordingQuality = value;
+    persistRecordingQuality(value);
+  }
+
+  function updateRecordingFps(value: number) {
+    recordingFps = value;
+    // Persist 60 as null (the "unset/default" sentinel) so a fresh install and
+    // an explicit 60 choice behave identically downstream.
+    persistRecordingFps(value === 60 ? null : value);
+  }
+
+  // Frame-rate options gated by detected display refresh. 60 is always
+  // available; 120/144/240 appear only when a monitor can actually present
+  // them (a small tolerance covers 119.88/143.86-style reported rates).
+  const fpsOptions = $derived(
+    [60, 120, 144, 240].filter(
+      (rate) => rate === 60 || maxRefreshHz >= rate - 2,
+    ),
+  );
+
+  // What capture will actually use on the selected display: the user's desired
+  // rate capped to the highest option this display supports. The stored
+  // preference itself is never mutated, so switching back to a high-refresh
+  // display restores the higher rate.
+  const effectiveFps = $derived(
+    Math.min(recordingFps, fpsOptions[fpsOptions.length - 1] ?? 60),
+  );
+
+  const recordingQualityOptions: {
+    value: RecordingQuality;
+    label: string;
+    desc: string;
+  }[] = [
+    {
+      value: "balanced",
+      label: "Balanced",
+      desc: "Fast, low CPU/GPU load. Great default.",
+    },
+    {
+      value: "high",
+      label: "High",
+      desc: "Sharper detail. Slightly more load.",
+    },
+    {
+      value: "pristine",
+      label: "Pristine",
+      desc: "Near-lossless. Needs a strong GPU.",
+    },
+  ];
 
   function toggleProfilesEnabled() {
     const next = !profilesStore.enabled;
@@ -180,6 +294,11 @@
       }
     }
   }
+
+  const layoutModeIcons: Record<LayoutMode, typeof Monitor> = {
+    "os-native": Monitor,
+    recast: PanelsTopLeft,
+  };
 
   const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "Light", icon: Sun },
@@ -370,6 +489,132 @@
                           )}
                         >
                           {o.label}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Capture quality. Global recording preference read by the
+                   recording panel via shared localStorage. Higher tiers raise
+                   fidelity at the cost of real-time encode headroom; if the GPU
+                   can't keep up the result is motion judder, never desync (the
+                   pacer/encoder compensate dropped frames). -->
+              <section id="settings-capture-quality" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <Sparkles class="size-3 text-primary" />
+                    Capture quality
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    How crisp the recorded master is. The editor re-encodes on
+                    export, but detail lost here can't be recovered later.
+                  </p>
+                </div>
+                <div
+                  class="rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Recording quality
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {recordingQualityOptions.find(
+                          (o) => o.value === recordingQuality,
+                        )?.desc}
+                      </div>
+                    </div>
+                    <div
+                      class="flex items-center gap-1 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+                      role="radiogroup"
+                      aria-label="Recording quality"
+                    >
+                      {#each recordingQualityOptions as o (o.value)}
+                        {@const active = recordingQuality === o.value}
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onclick={() => updateRecordingQuality(o.value)}
+                          class={cn(
+                            "flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-all duration-200",
+                            active
+                              ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Capture frame rate. Options are gated by detected display
+                   refresh — capturing above the monitor's refresh only
+                   duplicates frames, so we don't offer rates no display can
+                   present. 60 is always available. -->
+              <section id="settings-capture-fps" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <Video class="size-3 text-primary" />
+                    Frame rate
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    {#if fpsOptions.length > 1}
+                      Higher frame rates capture smoother motion. Your display
+                      supports up to {maxRefreshHz} Hz.
+                    {:else}
+                      Smoother motion needs a higher-refresh display — yours runs
+                      at {maxRefreshHz} Hz, so 60 fps is the max useful rate.
+                    {/if}
+                  </p>
+                </div>
+                <div
+                  class="rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Recording frame rate
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {#if recordingFps > effectiveFps}
+                          Set to {recordingFps} fps, but this display runs at {maxRefreshHz}
+                          Hz — capture uses {effectiveFps} fps here.
+                        {:else}
+                          {recordingFps} fps — bigger files & more encode load at
+                          higher rates.
+                        {/if}
+                      </div>
+                    </div>
+                    <div
+                      class="flex items-center gap-1 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+                      role="radiogroup"
+                      aria-label="Recording frame rate"
+                    >
+                      {#each fpsOptions as rate (rate)}
+                        {@const active = effectiveFps === rate}
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onclick={() => updateRecordingFps(rate)}
+                          class={cn(
+                            "flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold tabular-nums transition-all duration-200",
+                            active
+                              ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {rate}
                         </button>
                       {/each}
                     </div>
@@ -646,6 +891,60 @@
                         >
                           <Icon class="size-3.5" />
                           <span>{t.label}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Layout -->
+              <section id="settings-layout" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    Layout
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    How the window titlebar and controls are arranged.
+                  </p>
+                </div>
+                <div
+                  class="rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Window chrome
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {LAYOUT_MODES.find((m) => m.value === layoutMode.current)
+                          ?.hint}
+                      </div>
+                    </div>
+                    <div
+                      class="flex items-center gap-1 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+                      role="radiogroup"
+                      aria-label="Window chrome layout"
+                    >
+                      {#each LAYOUT_MODES as m (m.value)}
+                        {@const Icon = layoutModeIcons[m.value]}
+                        {@const active = layoutMode.current === m.value}
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onclick={() => (layoutMode.current = m.value)}
+                          class={cn(
+                            "flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-all duration-200",
+                            active
+                              ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <Icon class="size-3.5" />
+                          <span>{m.label}</span>
                         </button>
                       {/each}
                     </div>

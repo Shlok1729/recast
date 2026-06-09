@@ -34,6 +34,8 @@ export interface DisplayInfo {
 	height: number;
 	isPrimary: boolean;
 	thumbnail: string | null;
+	/** Monitor refresh rate in Hz (rounded); 0 if the OS couldn't report it. */
+	refreshHz: number;
 }
 
 export interface WindowInfo {
@@ -217,6 +219,10 @@ export interface RecordingOptions {
 	microphoneDeviceId?: string | null;
 	camera?: boolean;
 	cameraDeviceId?: string | null;
+	/** Capture frame rate. Omitted/out-of-range (24–240) → backend default 60. */
+	fps?: number | null;
+	/** Capture quality tier: "balanced" (default), "high", or "pristine". */
+	quality?: "balanced" | "high" | "pristine" | null;
 }
 
 export interface AudioDeviceInfo {
@@ -268,8 +274,13 @@ export function startRecording(
 	options?: RecordingOptions,
 	region?: RegionRect | null,
 ): Promise<RecordingStartResult> {
-	// No-op unless the user opted into product analytics. No PII — source kind only.
-	analytics.capture("recording_started", { source_kind: targetType });
+	// No-op unless the user opted into product analytics. No PII — source kind,
+	// capture rate, and quality tier only.
+	analytics.capture("recording_started", {
+		source_kind: targetType,
+		fps: options?.fps ?? "default",
+		quality: options?.quality ?? "balanced",
+	});
 	return invoke<RecordingStartResult>("start_recording", {
 		targetType,
 		targetId,
@@ -469,10 +480,12 @@ export function exportVideo(
 	exportId: string,
 	gifSettings?: ExportGifSettings,
 	speed: ExportSpeed = "balanced",
+	/** Output frame rate for MP4/WebM. `null`/omitted keeps the source rate. */
+	fps?: number | null,
 ): Promise<string> {
-	analytics.capture("export_started", { format, quality, speed });
+	analytics.capture("export_started", { format, quality, speed, fps: fps ?? "source" });
 	return invoke<string>("export_video", {
-		request: { exportId, inputPath, format, quality, speed, renderState, gifSettings },
+		request: { exportId, inputPath, format, quality, speed, renderState, gifSettings, fps: fps ?? null },
 	});
 }
 

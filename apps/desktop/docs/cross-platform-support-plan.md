@@ -1,36 +1,95 @@
 # Cross-Platform Support Plan — macOS & Linux
 
-> Status: **Planning** · Created 2026-05-19 · Owner: Kanak
+> Status: **Code-complete, verification-gated** · Created 2026-05-19 ·
+> Last updated 2026-06-08 · Owner: Kanak
 >
-> Today the app is fully functional **only on Windows**. Recording still
-> "works" on macOS/Linux in that a video file is produced, but several
-> capture subsystems silently degrade to stubs (silent audio, no cursor
-> track, camera errors). Linux screen capture is written but unverified.
-> This document inventories what is missing and sequences the work.
+> **Original framing (2026-05-19):** the app was fully functional only on
+> Windows; macOS/Linux produced a file but silently degraded several capture
+> subsystems to stubs (silent audio, no cursor track, camera errors), and
+> Linux screen capture was written but unverified.
+>
+> **Where we are now (2026-06-08):** every capture subsystem — screen, system
+> audio, microphone, camera, cursor, device enumeration — is *implemented* on
+> all three OSes. The remaining distance to production is **runtime
+> verification on real macOS/Linux hardware**, not missing code. macOS is in
+> active testing (a real macOS build surfaced and we fixed a post-recording
+> UI-freeze; see the 2026-06-08 hardening note). Linux has not yet had a
+> hardware pass. See the **[readiness scorecard](#readiness-scorecard--2026-06-08)**
+> for the per-OS gap.
+
+---
+
+<a name="readiness-scorecard--2026-06-08"></a>
+
+## 0. Readiness scorecard — 2026-06-08
+
+"Code complete" = the path is written and compiles in CI for that target.
+"Production-ready" = a real user on that OS can record → edit → export without
+hitting a known-broken path, verified on hardware.
+
+| OS | Code complete | Production-ready | What's actually left |
+|---|---|---|---|
+| **Windows** | 100% | **~100% — shipping** | Verified, in users' hands. The reference platform. |
+| **macOS** | ~95% | **~75%** | (a) Out-of-the-box **system audio** needs BlackHole/virtual driver — native ScreenCaptureKit loopback is implemented but **default-off** behind the `sckit-loopback` Cargo feature (upstream SDK-symbol issue). (b) Hardware verification of capture + the TCC permission flow + Retina/multi-monitor. (c) Deferred capture-read robustness (a stalled device can hang `stop()`). (d) Developer-ID signing + **notarization** (identity task, gates a no-warnings download). (e) First-run permissions UX. |
+| **Linux** | ~90% | **~60%** | (a) **Zero hardware verification yet** — biggest unknown. Portal+PipeWire (Wayland) and XGetImage (X11) are written + audit-fixed (F1) but never run on a real session. (b) Wayland: cursor double-render (`CursorMode::Embedded`) and a portal dialog on every record (no `restore_token` persistence). (c) X11 perf TODOs: XShm fast path unwired, ~4× over-capture (F4); window-occlusion not handled. (d) Functional sign-off on GNOME + KDE + an X11 session. |
+
+**One-line answer to "how far behind?":** Windows is done. **macOS is roughly
+one focused hardware-test + audio-default + notarization cycle from a public
+beta.** **Linux is one hardware bring-up cycle behind macOS** — the code is
+there, but nothing has run on a real Linux session, so confidence is lowest.
+
+### Stability hardening landed 2026-06-08 (cross-cutting, helps macOS/Linux most)
+A pass over the recording IPC surface fixed a class of freeze/hang that only
+*manifests* on macOS/Linux (their in-process WebView renders on the same main
+thread Tauri runs sync commands on; Windows' out-of-process WebView2 masked it):
+
+- `start_recording` / `stop_recording`, `get_audio_devices`,
+  `list_recasts` / `list_exports`, `open_file_location` were **synchronous**
+  commands doing process-spawn / thread-join / device-enum / disk work on the
+  UI thread → converted to `async` + `spawn_blocking`. (`stop_recording` was
+  the post-record freeze a macOS tester reported.)
+- Encoder **stderr-pipe deadlock**: FFmpeg's progress output filled the
+  undrained ~64KB stderr pipe on long recordings → froze the encode
+  mid-capture. Now drained continuously on a side thread.
+- Recording **start-failure orphan cascade**: a partial `start()` failure left
+  capture/encoder threads (and their FFmpeg children) running forever; now torn
+  down on the error path.
+- A compile-time regression guard keeps `start`/`stop_recording` async.
+
+**Still open (deferred, needs on-device validation):** interruptible/timeout
+reads in `capture/platform/macos.rs` and `linux_x11.rs` so a device stall
+(permission revoked mid-record, hung X server) can't block `stop()`.
 
 ---
 
 ## 1. Current state by platform
 
+Legend: ✅ verified on hardware · 🟢 implemented, compiles in CI, **not yet
+hardware-verified** · ⚠️ implemented with a known limitation · ❌ stub/no-op.
+(Updated 2026-06-08 — the rows the original plan marked "❌ empty list" for
+device enumeration are now implemented.)
+
 | Subsystem | Windows | Linux | macOS |
 |---|---|---|---|
-| Screen capture | ✅ DXGI Desktop Duplication | ⚠️ Wayland (portal+PipeWire, F1 fix landed) & X11 written, awaiting hardware test | ✅ FFmpeg AVFoundation (replaces xcap) |
-| System audio (loopback) | ✅ WASAPI | ✅ FFmpeg pulse `.monitor` (silence fallback if no PA) | ⚠️ BlackHole/Soundflower/Loopback/VB-Cable if installed; silence + log otherwise. SCKit native loopback is scaffolded but **deferred pending API verification** (see below) |
-| Microphone | ✅ WASAPI | ✅ FFmpeg pulse `default` | ✅ FFmpeg avfoundation `:0` |
-| Camera / webcam | ✅ FFmpeg DirectShow | ✅ FFmpeg V4L2 | ✅ FFmpeg AVFoundation |
-| Cursor sampling | ✅ Win32 GetCursorPos | ✅ device_query (xcb) | ✅ device_query (CoreGraphics) |
-| Reveal in file manager | ✅ `explorer /select,` | ✅ D-Bus `FileManager1.ShowItems` + xdg-open fallback | ✅ `open -R` |
-| Audio device list | ✅ WASAPI enumerate | ❌ empty list | ❌ empty list |
-| Camera device list | ✅ FFmpeg `-list_devices` | ❌ empty list | ❌ empty list |
-| Window capture-exclusion | ✅ `SetWindowDisplayAffinity` | ❌ no-op | ❌ no-op |
-| Reveal file in explorer | ✅ `explorer /select` | ❌ no-op | ❌ no-op |
-| Video encoding | ✅ FFmpeg (NVENC/x264) | ✅ portable | ✅ portable |
-| Delete to trash | ✅ `trash` crate | ✅ portable | ✅ portable |
+| Screen capture | ✅ DXGI Desktop Duplication | 🟢 Wayland (portal+PipeWire, F1 fix landed) & X11 (XGetImage) — written, awaiting hardware test | 🟢 FFmpeg AVFoundation (replaces xcap) |
+| System audio (loopback) | ✅ WASAPI | 🟢 FFmpeg pulse `.monitor` (silence fallback if no PA) | ⚠️ Default path = BlackHole/Soundflower/Loopback/VB-Cable if installed, else silence + actionable log. Native **ScreenCaptureKit loopback is now implemented** but **default-off** behind the `sckit-loopback` Cargo feature (upstream apple-metal SDK-symbol issue) |
+| Microphone | ✅ WASAPI | 🟢 FFmpeg pulse `default` | 🟢 FFmpeg avfoundation `:0` |
+| Camera / webcam | ✅ FFmpeg DirectShow | 🟢 FFmpeg V4L2 | 🟢 FFmpeg AVFoundation |
+| Cursor sampling | ✅ Win32 GetCursorPos | 🟢 device_query (xcb / XWayland) | 🟢 device_query (CoreGraphics) |
+| Reveal in file manager | ✅ `explorer /select,` | 🟢 D-Bus `FileManager1.ShowItems` + xdg-open fallback | 🟢 `open -R` |
+| Audio device list | ✅ WASAPI enumerate | 🟢 `pactl list short sources` (`.monitor` filtered) | 🟢 AVFoundation listing parsed |
+| Camera device list | ✅ FFmpeg `-list_devices` | 🟢 `/dev/video*` + sysfs V4L2-capture filter | 🟢 AVFoundation listing (screens filtered) |
+| Capture capabilities probe | ✅ `capture_capabilities` | 🟢 `capture_capabilities` | 🟢 `capture_capabilities` |
+| Window capture-exclusion | ✅ `SetWindowDisplayAffinity` | ❌ no-op (deferred) | ❌ no-op (deferred) |
+| Video encoding | ✅ FFmpeg (NVENC/x264) | 🟢 FFmpeg (x264, hw if present) | 🟢 FFmpeg (x264, VideoToolbox if present) |
+| Delete to trash | ✅ `trash` crate | 🟢 `trash` crate | 🟢 `trash` crate |
 
 **Good news:** the architecture already has a clean per-module
 `platform/{windows,fallback,...}.rs` abstraction with `#[cfg]` dispatch, so
 each gap is an additive, isolated file — no refactor required. FFmpeg is the
-codec/format abstraction layer and is already cross-platform.
+codec/format abstraction layer and is already cross-platform. **The 🟢 rows are
+the whole story now: code is written and green in CI on every target; the
+distance to ✅ is a person sitting in front of a Mac / a Linux box.**
 
 ---
 
@@ -114,9 +173,11 @@ panel sends "Default"/empty (matches the Windows path). Listing logic:
   "Capture screen N" pseudo-devices.
 - Linux — picks the lowest-numbered `/dev/video*` node up to 16.
 
-**Not done** (follow-up): wiring `commands/system.rs::get_camera_devices`
-for macOS/Linux so the in-app picker populates instead of leaning on
-the auto-first-device fallback.
+**Follow-up — done (since 2026-05-19):**
+`commands/system.rs::get_camera_devices` now enumerates on macOS (AVFoundation
+listing, "Capture screen" pseudo-devices filtered) and Linux (`/dev/video*` +
+sysfs `V4L2_CAP_VIDEO_CAPTURE` filter), so the in-app picker populates instead
+of leaning on the auto-first-device fallback. (Hardware-unverified.)
 
 ### Phase 4 — Audio capture *(done 2026-05-19, with documented caveat)*
 Landed as one shared file
@@ -130,16 +191,16 @@ samples when not paused. A stop-watcher thread sends FFmpeg a graceful
 **Loopback sources (three-tier resolution chain, top tier deferred):**
 - **macOS — ScreenCaptureKit** (`audio/platform/macos_sckit.rs`): the
   only built-in macOS API for system audio without a virtual driver,
-  and the path every modern recorder uses. **Currently a placeholder
-  that returns `Err` so the chain falls through.** First attempt used
-  the `screencapturekit` crate but the assumed module layout
-  (`sc_content_filter`, `sc_stream`, ...) doesn't match the current
-  crates.io release, and iterating blind from a non-macOS dev host
-  burns CI cycles without signal. The file documents exactly what
-  needs to happen to wire it (verify crate's current API or switch to
-  `objc2-screen-capture-kit`, then implement `try_start` against
-  `SCShareableContent`/`SCStream`/`CMSampleBuffer`). When wired this
-  will share the Screen Recording TCC prompt with Phase 5 video, so
+  and the path every modern recorder uses. **Now implemented** against
+  the `screencapturekit` 6.0 crate (`SCShareableContent` → `SCStream`
+  with an audio handler → `CMSampleBuffer` Float32→s16le, pause
+  semantics matched to WASAPI). **Gated default-off behind the
+  `sckit-loopback` Cargo feature** because the build currently trips an
+  upstream apple-metal SDK-symbol issue on the CI SDK; the file carries
+  a Mac-reviewer smoke-test checklist. Until it's enabled by default,
+  the *effective* macOS loopback is the BlackHole/virtual-driver tier
+  below — **this is the single biggest macOS out-of-the-box gap.** When
+  on, it shares the Screen Recording TCC prompt with Phase 5 video, so
   there is no second permission cost.
 - **macOS — BlackHole / virtual driver** (FFmpeg avfoundation): scans
   for BlackHole / Soundflower / Loopback / VB-Cable and routes through
@@ -154,8 +215,11 @@ user-supplied device id falls through if non-empty/non-"default". Mic
 failure surfaces as an error — there's no silent fallback for an
 explicitly-enabled mic.
 
-**Not done** (follow-up): `commands/system.rs::get_audio_devices` for
-macOS/Linux so the mic picker enumerates instead of always defaulting.
+**Follow-up — done (since 2026-05-19):**
+`commands/system.rs::get_audio_devices` now enumerates on macOS (AVFoundation
+listing) and Linux (`pactl list short sources`, `.monitor` sources filtered
+out), so the mic picker populates instead of always defaulting.
+(Hardware-unverified.)
 
 ### Phase 5 — macOS screen capture *(done 2026-05-19, with planned 5b)*
 Landed as
@@ -246,9 +310,17 @@ download experience.
 and ScreenCaptureKit bring-up (Phase 5). De-risk these early with a spike
 before committing the rest of Phase 4–5.
 
-**Suggested milestones:**
-- **M1 — Linux beta:** Phases 0, 1, 2 (Linux), 3 (Linux), 4 (Linux).
-- **M2 — macOS beta:** Phases 2, 3, 4, 5 (macOS) + 6 + 7.
+**Suggested milestones (re-sequenced 2026-06-08 — all code now landed, so these
+are *verification* milestones, not build milestones):**
+- **M1 — macOS beta** *(now the nearer milestone — macOS is already in active
+  testing):* hardware pass on capture + TCC permissions + Retina/multi-monitor;
+  decide system-audio default (enable `sckit-loopback` once the SDK-symbol issue
+  clears, or ship the BlackHole-guided path with clear in-app messaging); land
+  the deferred capture-read timeout; Developer-ID signing + notarization (Phase
+  7). Ship behind a "macOS preview" label.
+- **M2 — Linux beta:** first real hardware bring-up on GNOME + KDE (Wayland) and
+  an X11 session; fix Wayland cursor double-render + portal-every-record; X11
+  perf (XShm / over-capture) only if a tested display needs it.
 
 ---
 
