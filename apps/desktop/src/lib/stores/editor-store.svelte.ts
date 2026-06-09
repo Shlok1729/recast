@@ -590,7 +590,10 @@ export type EditorWindowBehavior = 'navigate' | 'new-window';
 
 export type PanelTab = 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'extensions' | 'info';
 
-export const WALLPAPERS: WallpaperOption[] = Array.from({ length: 23 }, (_, i) => ({
+// Wallpapers 19–23 were moved into the installable "Waves" extension pack
+// (extensions/packs/waves-wallpapers) — keep the built-in default set at 18 so
+// the extension flow has real background content to exercise.
+export const WALLPAPERS: WallpaperOption[] = Array.from({ length: 18 }, (_, i) => ({
 	id: `wallpaper${i + 1}`,
 	label: `Wallpaper ${i + 1}`,
 }));
