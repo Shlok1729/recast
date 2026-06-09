@@ -640,9 +640,7 @@ impl RecordingManager {
         let recording_fps = resolve_recording_fps(options.fps);
         let recording_quality =
             crate::encoder::RecordingQuality::from_label(options.quality.as_deref());
-        log::info!(
-            "recording config: {recording_fps} fps, quality={recording_quality:?}"
-        );
+        log::info!("recording config: {recording_fps} fps, quality={recording_quality:?}");
         let started_at_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

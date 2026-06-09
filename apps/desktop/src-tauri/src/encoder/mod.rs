@@ -119,25 +119,136 @@ fn recording_codec_args(encoder: &str, quality: RecordingQuality) -> Vec<String>
     use RecordingQuality::*;
     match (encoder, quality) {
         // NVIDIA NVENC — `cq` is constant-quality (lower = better, 0..51).
-        ("h264_nvenc", Balanced) => v(&["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "ll", "-pix_fmt", "yuv420p"]),
-        ("h264_nvenc", High) => v(&["-c:v", "h264_nvenc", "-preset", "p6", "-tune", "hq", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-pix_fmt", "yuv420p"]),
-        ("h264_nvenc", Pristine) => v(&["-c:v", "h264_nvenc", "-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "16", "-b:v", "0", "-pix_fmt", "yuv420p"]),
+        ("h264_nvenc", Balanced) => v(&[
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p5",
+            "-tune",
+            "ll",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        ("h264_nvenc", High) => v(&[
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p6",
+            "-tune",
+            "hq",
+            "-rc",
+            "vbr",
+            "-cq",
+            "21",
+            "-b:v",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        ("h264_nvenc", Pristine) => v(&[
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p7",
+            "-tune",
+            "hq",
+            "-rc",
+            "vbr",
+            "-cq",
+            "16",
+            "-b:v",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
 
         // AMD AMF — `qp_i/qp_p` mirror the NVENC cq range.
-        ("h264_amf", Balanced) => v(&["-c:v", "h264_amf", "-quality", "speed", "-usage", "lowlatency", "-pix_fmt", "yuv420p"]),
-        ("h264_amf", High) => v(&["-c:v", "h264_amf", "-quality", "balanced", "-usage", "transcoding", "-rc", "cqp", "-qp_i", "21", "-qp_p", "21", "-pix_fmt", "yuv420p"]),
-        ("h264_amf", Pristine) => v(&["-c:v", "h264_amf", "-quality", "quality", "-usage", "transcoding", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16", "-pix_fmt", "yuv420p"]),
+        ("h264_amf", Balanced) => v(&[
+            "-c:v",
+            "h264_amf",
+            "-quality",
+            "speed",
+            "-usage",
+            "lowlatency",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        ("h264_amf", High) => v(&[
+            "-c:v",
+            "h264_amf",
+            "-quality",
+            "balanced",
+            "-usage",
+            "transcoding",
+            "-rc",
+            "cqp",
+            "-qp_i",
+            "21",
+            "-qp_p",
+            "21",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        ("h264_amf", Pristine) => v(&[
+            "-c:v",
+            "h264_amf",
+            "-quality",
+            "quality",
+            "-usage",
+            "transcoding",
+            "-rc",
+            "cqp",
+            "-qp_i",
+            "16",
+            "-qp_p",
+            "16",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
 
         // Intel Quick Sync — `global_quality` is its constant-quality knob.
-        ("h264_qsv", Balanced) => v(&["-c:v", "h264_qsv", "-preset", "veryfast", "-pix_fmt", "nv12"]),
-        ("h264_qsv", High) => v(&["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "21", "-pix_fmt", "nv12"]),
-        ("h264_qsv", Pristine) => v(&["-c:v", "h264_qsv", "-preset", "slow", "-global_quality", "16", "-pix_fmt", "nv12"]),
+        ("h264_qsv", Balanced) => v(&[
+            "-c:v", "h264_qsv", "-preset", "veryfast", "-pix_fmt", "nv12",
+        ]),
+        ("h264_qsv", High) => v(&[
+            "-c:v",
+            "h264_qsv",
+            "-preset",
+            "medium",
+            "-global_quality",
+            "21",
+            "-pix_fmt",
+            "nv12",
+        ]),
+        ("h264_qsv", Pristine) => v(&[
+            "-c:v",
+            "h264_qsv",
+            "-preset",
+            "slow",
+            "-global_quality",
+            "16",
+            "-pix_fmt",
+            "nv12",
+        ]),
 
         // libx264 software fallback. Balanced keeps zerolatency/ultrafast so
         // weak CPUs don't drop; higher tiers drop zerolatency and lower CRF.
-        (_, Balanced) => v(&["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]),
-        (_, High) => v(&["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]),
-        (_, Pristine) => v(&["-c:v", "libx264", "-preset", "faster", "-crf", "16", "-pix_fmt", "yuv420p"]),
+        (_, Balanced) => v(&[
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        (_, High) => v(&[
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        ]),
+        (_, Pristine) => v(&[
+            "-c:v", "libx264", "-preset", "faster", "-crf", "16", "-pix_fmt", "yuv420p",
+        ]),
     }
 }
 
@@ -364,15 +475,27 @@ mod tests {
 
     #[test]
     fn recording_quality_parses_with_safe_default() {
-        assert_eq!(RecordingQuality::from_label(Some("high")), RecordingQuality::High);
+        assert_eq!(
+            RecordingQuality::from_label(Some("high")),
+            RecordingQuality::High
+        );
         assert_eq!(
             RecordingQuality::from_label(Some("pristine")),
             RecordingQuality::Pristine
         );
         // Unknown / missing / default → Balanced, never an error.
-        assert_eq!(RecordingQuality::from_label(Some("balanced")), RecordingQuality::Balanced);
-        assert_eq!(RecordingQuality::from_label(Some("garbage")), RecordingQuality::Balanced);
-        assert_eq!(RecordingQuality::from_label(None), RecordingQuality::Balanced);
+        assert_eq!(
+            RecordingQuality::from_label(Some("balanced")),
+            RecordingQuality::Balanced
+        );
+        assert_eq!(
+            RecordingQuality::from_label(Some("garbage")),
+            RecordingQuality::Balanced
+        );
+        assert_eq!(
+            RecordingQuality::from_label(None),
+            RecordingQuality::Balanced
+        );
     }
 
     #[test]
@@ -381,11 +504,29 @@ mod tests {
         // pre-quality-tier encoder args so existing recordings don't change.
         assert_eq!(
             recording_codec_args("h264_nvenc", RecordingQuality::Balanced),
-            ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "ll", "-pix_fmt", "yuv420p"]
+            [
+                "-c:v",
+                "h264_nvenc",
+                "-preset",
+                "p5",
+                "-tune",
+                "ll",
+                "-pix_fmt",
+                "yuv420p"
+            ]
         );
         assert_eq!(
             recording_codec_args("h264_amf", RecordingQuality::Balanced),
-            ["-c:v", "h264_amf", "-quality", "speed", "-usage", "lowlatency", "-pix_fmt", "yuv420p"]
+            [
+                "-c:v",
+                "h264_amf",
+                "-quality",
+                "speed",
+                "-usage",
+                "lowlatency",
+                "-pix_fmt",
+                "yuv420p"
+            ]
         );
         assert_eq!(
             recording_codec_args("h264_qsv", RecordingQuality::Balanced),
@@ -393,12 +534,30 @@ mod tests {
         );
         assert_eq!(
             recording_codec_args("libx264", RecordingQuality::Balanced),
-            ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-pix_fmt",
+                "yuv420p"
+            ]
         );
         // Unknown encoder string falls back to the libx264 software path.
         assert_eq!(
             recording_codec_args("something_else", RecordingQuality::Balanced),
-            ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-pix_fmt",
+                "yuv420p"
+            ]
         );
     }
 
