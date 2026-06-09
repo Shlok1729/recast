@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
     EASE,
-    EASING_PRESETS,
     easingEquals,
     type Easing,
   } from "$lib/easing/cubic-bezier";
+  import { registry } from "$lib/registry";
   import {
     DEFAULT_ZOOM_CENTER,
     DEFAULT_ZOOM_MOTION_BLUR,
@@ -45,6 +45,13 @@
   }
 
   let { store }: Props = $props();
+
+  // Built-in + extension easing presets, from the registry.
+  const easingPresets = $derived(
+    registry
+      .list("easing")
+      .map((e) => ({ id: e.id, label: e.label, value: e.value.value })),
+  );
 
   const selected = $derived<ZoomRegion | null>(
     store.zoomRegions.find((r) => r.id === store.selectedZoomRegionId) ?? null,
@@ -613,7 +620,7 @@
           <Button variant="ghost" size="xs" onclick={resetCurves}>Reset</Button>
         {/snippet}
         <div class="flex flex-wrap gap-1">
-          {#each EASING_PRESETS as preset (preset.id)}
+          {#each easingPresets as preset (preset.id)}
             {@const active =
               easingEquals(region.easeIn, preset.value) &&
               easingEquals(region.easeOut, preset.value)}

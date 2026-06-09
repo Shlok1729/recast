@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { SMOOTHING_PRESETS } from "$lib/cursor/smoothing";
-  import { EASE, EASING_PRESETS, easingEquals } from "$lib/easing/cubic-bezier";
+  import { EASE, easingEquals } from "$lib/easing/cubic-bezier";
   import { registry } from "$lib/registry";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
@@ -46,6 +45,16 @@
 
   const activeStyle = $derived(
     registry.get("cursor", store.cursorSettings.style),
+  );
+
+  // Smoothing + easing presets come from the registry so installed extension
+  // packs surface alongside the built-ins (which register there too), instead
+  // of reading the static built-in arrays directly.
+  const smoothingPresets = $derived(registry.list("smoothing"));
+  const easingPresets = $derived(
+    registry
+      .list("easing")
+      .map((e) => ({ id: e.id, label: e.label, value: e.value.value })),
   );
 
   function updateCursorSettings(
@@ -207,11 +216,11 @@
 
         <!-- Smoothing presets -->
         <div class="flex flex-wrap gap-1">
-          {#each SMOOTHING_PRESETS as preset, i (preset.id)}
+          {#each smoothingPresets as preset, i (preset.id)}
             {@const isActive =
-              store.cursorSettings.smoothing === preset.smoothing &&
-              store.cursorSettings.snapToClicks === preset.snapToClicks &&
-              store.cursorSettings.snapWindowMs === preset.snapWindowMs}
+              store.cursorSettings.smoothing === preset.value.smoothing &&
+              store.cursorSettings.snapToClicks === preset.value.snapToClicks &&
+              store.cursorSettings.snapWindowMs === preset.value.snapWindowMs}
             <span
               class="inline-flex"
               in:scale={{ start: 0.92, duration: 220, delay: 80 + i * 30, easing: cubicOut }}
@@ -222,9 +231,9 @@
                 onclick={() => {
                   store.pushUndoState();
                   store.updateCursorSettings({
-                    smoothing: preset.smoothing,
-                    snapToClicks: preset.snapToClicks,
-                    snapWindowMs: preset.snapWindowMs,
+                    smoothing: preset.value.smoothing,
+                    snapToClicks: preset.value.snapToClicks,
+                    snapWindowMs: preset.value.snapWindowMs,
                   });
                 }}
                 size="xs"
@@ -320,7 +329,7 @@
           {#if store.cursorMotionEasing}
             {@const cur = store.cursorMotionEasing}
             <div class="flex flex-wrap gap-1">
-              {#each EASING_PRESETS as preset (preset.id)}
+              {#each easingPresets as preset (preset.id)}
                 {@const active = easingEquals(cur, preset.value)}
                 <Button
                   type="button"
