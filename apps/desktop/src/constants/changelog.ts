@@ -37,6 +37,25 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.6',
+		date: '2026-06-10',
+		highlights: [
+			'**Recording quality and frame rate are yours to set** — capture at Balanced, High, or Pristine fidelity and pick a frame rate your display can actually deliver, instead of the previous fixed defaults.',
+			'**Export frame rate is configurable too** — keep the source rate or step down for a smaller file, and a long-standing export "shake" on high-frame-rate clips is fixed.',
+			'**More extension packs** — new cursor, easing, smoothing, gradient, and wallpaper packs, and installed packs now appear right in the editor\'s preset pickers.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Recording quality tiers (Balanced / High / Pristine) in Settings → Recording. Balanced reproduces the previous output exactly, so existing recordings are unchanged; High and Pristine trade real-time headroom for higher fidelity.' },
+			{ kind: 'added', summary: 'Recording frame-rate selection (24–240 fps) in Settings → Recording, offering only the rates your monitor can produce based on its detected refresh rate. The chosen rate is now stored in the project, so high-refresh recordings are handled correctly throughout the editor and export.' },
+			{ kind: 'added', summary: 'Export frame-rate control for MP4 and WebM: keep the original source rate (the default) or step down to a lower rate for a smaller file.' },
+			{ kind: 'added', summary: 'New extension packs: Material and Windows 11 cursor styles, a cursor-smoothing preset pack, a motion-easing preset pack, a gradient collection, and a "Waves" wallpaper set.' },
+			{ kind: 'changed', summary: 'Easing and smoothing preset pickers in the Cursor, Focus, and curve editors now read from the extension registry, so presets from installed packs appear alongside the built-ins instead of only the bundled set.' },
+			{ kind: 'changed', summary: 'The window titlebar moved to a full-width, OS-native bar above the sidebar and content, including left-aligned window controls on macOS for a more native feel.' },
+			{ kind: 'changed', summary: 'The export progress, success, cancelled, and error screens now share a consistent spec recap (format · quality · frame rate · duration) and width with the export options step.' },
+			{ kind: 'fixed', summary: 'Exports of high-frame-rate recordings no longer judder or "shake" — a generated background (solid colour, gradient, or image) defaulted FFmpeg to 25 fps and dragged the whole export down to it, frame-dropping 60 fps footage into juddery motion (most visible under a zoom). Generated backgrounds and looped image inputs are now pinned to the recording\'s frame rate.' },
+		],
+	},
+	{
 		version: '0.2.5',
 		date: '2026-06-09',
 		changes: [

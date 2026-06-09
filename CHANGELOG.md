@@ -40,6 +40,27 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 `pnpm release:prepare <version>` consumes pending changesets and the current
 `[Unreleased]` block into a new dated section.
 
+## [0.2.6] — 2026-06-10
+
+### Highlights
+- **Recording quality and frame rate are yours to set** — capture at Balanced, High, or Pristine fidelity and pick a frame rate your display can actually deliver, instead of the previous fixed defaults.
+- **Export frame rate is configurable too** — keep the source rate or step down for a smaller file, and a long-standing export "shake" on high-frame-rate clips is fixed.
+- **More extension packs** — new cursor, easing, smoothing, gradient, and wallpaper packs, and installed packs now appear right in the editor's preset pickers.
+
+### Added
+- Recording quality tiers (Balanced / High / Pristine) in Settings → Recording. Balanced reproduces the previous output exactly, so existing recordings are unchanged; High and Pristine trade real-time headroom for higher fidelity.
+- Recording frame-rate selection (24–240 fps) in Settings → Recording, offering only the rates your monitor can produce based on its detected refresh rate. The chosen rate is now stored in the project, so high-refresh recordings are handled correctly throughout the editor and export.
+- Export frame-rate control for MP4 and WebM: keep the original source rate (the default) or step down to a lower rate for a smaller file.
+- New extension packs: Material and Windows 11 cursor styles, a cursor-smoothing preset pack, a motion-easing preset pack, a gradient collection, and a "Waves" wallpaper set.
+
+### Changed
+- Easing and smoothing preset pickers in the Cursor, Focus, and curve editors now read from the extension registry, so presets from installed packs appear alongside the built-ins instead of only the bundled set.
+- The window titlebar moved to a full-width, OS-native bar above the sidebar and content, including left-aligned window controls on macOS for a more native feel.
+- The export progress, success, cancelled, and error screens now share a consistent spec recap (format · quality · frame rate · duration) and width with the export options step.
+
+### Fixed
+- Exports of high-frame-rate recordings no longer judder or "shake" — a generated background (solid colour, gradient, or image) defaulted FFmpeg to 25 fps and dragged the whole export down to it, frame-dropping 60 fps footage into juddery motion (most visible under a zoom). Generated backgrounds and looped image inputs are now pinned to the recording's frame rate.
+
 ## [0.2.5] — 2026-06-09
 
 ### Fixed
