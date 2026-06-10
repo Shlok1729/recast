@@ -248,6 +248,13 @@ pub async fn get_displays() -> Result<Vec<DisplayInfo>, String> {
                 height: monitor.height().unwrap_or_default(),
                 is_primary: monitor.is_primary().unwrap_or_default(),
                 thumbnail: capture_monitor_thumbnail(monitor),
+                // Round to the nearest whole Hz; 0 if xcap can't report it.
+                refresh_hz: monitor
+                    .frequency()
+                    .ok()
+                    .filter(|hz| hz.is_finite() && *hz >= 1.0)
+                    .map(|hz| hz.round() as u32)
+                    .unwrap_or(0),
             })
             .collect())
     })
@@ -298,8 +305,21 @@ pub struct AudioDeviceInfo {
 }
 
 /// List available audio input (microphone) devices.
+///
+/// `async` + `spawn_blocking` for the same reason as `get_camera_devices`:
+/// enumeration blocks — Linux spawns `pactl list short sources` and waits on
+/// the PulseAudio daemon; macOS spawns FFmpeg on the first (uncached) call;
+/// Windows walks the WASAPI endpoint COM API. Tauri runs sync commands on the
+/// main thread, which on macOS/Linux also renders the WebView, so a slow audio
+/// subsystem would freeze the UI. Push it onto a worker instead.
 #[tauri::command]
-pub fn get_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+pub async fn get_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+    tauri::async_runtime::spawn_blocking(get_audio_devices_blocking)
+        .await
+        .map_err(|e| format!("get_audio_devices join error: {e}"))?
+}
+
+fn get_audio_devices_blocking() -> Result<Vec<AudioDeviceInfo>, String> {
     #[cfg(windows)]
     {
         get_audio_devices_windows()
@@ -975,8 +995,19 @@ mod tests {
     }
 }
 
+// `async` + `spawn_blocking`: the Linux path runs `gdbus ... .status()`, which
+// blocks on a D-Bus round-trip (and its timeout) to the file manager. Sync
+// commands run on the macOS/Linux UI thread, so that round-trip would briefly
+// freeze the window. The Windows/macOS branches only `spawn()` (non-blocking),
+// but routing all three through a worker keeps the command uniformly off-thread.
 #[tauri::command]
-pub fn open_file_location(path: String) -> Result<(), String> {
+pub async fn open_file_location(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || open_file_location_blocking(path))
+        .await
+        .map_err(|e| format!("open_file_location join error: {e}"))?
+}
+
+fn open_file_location_blocking(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         Command::new("explorer")

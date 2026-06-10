@@ -6,6 +6,7 @@
 	  smoothingStrengthToSigmaMs,
 	} from "$lib/cursor/smoothing";
 	import {
+		cursorSpriteHotspot,
 		resolveBackgroundWireValue,
 		resolveCursorDataUrl,
 		resolveCursorSprite,
@@ -119,6 +120,8 @@
 		alpha: number;
 		styleId: import("$lib/stores/editor-store.svelte").StoredCursorId;
 		pressed: boolean;
+		right: boolean; // active press was a right-click (sprite slot)
+		dragging: boolean; // active press is a drag (sprite slot)
 		scale: number; // JS-driven press impact curve — see pressStateAt
 		canvasX: number; // source-pixel space, includes padding offset
 		canvasY: number;
@@ -130,6 +133,8 @@
 		alpha: 0,
 		styleId: "dot",
 		pressed: false,
+		right: false,
+		dragging: false,
 		scale: 1,
 		canvasX: 0,
 		canvasY: 0,
@@ -172,8 +177,15 @@
 		upUs: number;
 		downX: number;
 		downY: number;
+		/** Right button initiated this press (selects the sprite slot only). */
+		right: boolean;
+		/** Cursor moved past DRAG_THRESHOLD_PX (source px) while held. */
+		dragged: boolean;
 	};
 	let pressEvents: PressEvent[] = [];
+	/** Cursor displacement (source px) during a hold beyond which it's a drag.
+	 *  MUST mirror DRAG_THRESHOLD_PX in cursor_anim.rs. */
+	const DRAG_THRESHOLD_PX = 8;
 
 	const PRESS_MIN_HOLD_US = 320_000; // minimum down-window from the click frame
 	const PRESS_LINGER_US = 320_000; // pressed sprite holds this long past release
@@ -202,6 +214,8 @@
 		let downUs = 0;
 		let downX = 0;
 		let downY = 0;
+		let right = false;
+		let maxDisp = 0;
 		for (let i = 0; i < samples.length; i++) {
 			const s = samples[i];
 			const down = s.leftDown || s.rightDown;
@@ -210,9 +224,21 @@
 				downUs = s.timestampUs;
 				downX = s.x;
 				downY = s.y;
+				// Right-click only when right is the sole button down at the edge.
+				right = s.rightDown && !s.leftDown;
+				maxDisp = 0;
+			} else if (down && inPress) {
+				maxDisp = Math.max(maxDisp, Math.hypot(s.x - downX, s.y - downY));
 			} else if (!down && inPress) {
 				inPress = false;
-				pressEvents.push({ downUs, upUs: s.timestampUs, downX, downY });
+				pressEvents.push({
+					downUs,
+					upUs: s.timestampUs,
+					downX,
+					downY,
+					right,
+					dragged: maxDisp > DRAG_THRESHOLD_PX,
+				});
 			}
 		}
 		if (inPress) {
@@ -221,6 +247,8 @@
 				upUs: samples[samples.length - 1].timestampUs,
 				downX,
 				downY,
+				right,
+				dragged: maxDisp > DRAG_THRESHOLD_PX,
 			});
 		}
 	}
@@ -316,6 +344,8 @@
 		pressedSprite: boolean; // swap to the press SVG sprite
 		visibleAlpha: number; // 0..1 boost on top of idleAlpha (overrides idle-hide)
 		scale: number; // applied directly to the sprite transform
+		right: boolean; // active press was a right-click (sprite slot)
+		dragging: boolean; // active press is a drag (sprite slot)
 	} {
 		let bestEv: PressEvent | null = null;
 		let bestHoldEnd = 0;
@@ -348,7 +378,14 @@
 				bestAbsDt = absDt;
 			}
 		}
-		if (!bestEv) return { pressedSprite: false, visibleAlpha: 0, scale: 1 };
+		if (!bestEv)
+			return {
+				pressedSprite: false,
+				visibleAlpha: 0,
+				scale: 1,
+				right: false,
+				dragging: false,
+			};
 
 		// Visibility: smooth ramp in, hold full, smooth ramp out.
 		let visibleAlpha = 1;
@@ -385,7 +422,13 @@
 			}
 		}
 
-		return { pressedSprite, visibleAlpha, scale };
+		return {
+			pressedSprite,
+			visibleAlpha,
+			scale,
+			right: bestEv.right,
+			dragging: bestEv.dragged,
+		};
 	}
 
 	//  Shaders 
@@ -1039,6 +1082,7 @@ void main() {
 	} {
 		const regions = store.zoomRegions;
 		for (const r of regions) {
+			if (r.hidden) continue;
 			if (timeSec <= r.start || timeSec >= r.end) continue;
 			const duration = Math.max(0, r.end - r.start);
 			const half = duration * 0.5;
@@ -1266,6 +1310,8 @@ void main() {
 		let cursorPosX = 0;
 		let cursorPosY = 0;
 		let cursorPressed = false;
+		let cursorRight = false;
+		let cursorDragging = false;
 		let cursorScale = 1;
 		if (cs.enabled && cursorSamples.length > 0) {
 			const ts = Math.max(0, playbackTime) * 1_000_000;
@@ -1304,6 +1350,8 @@ void main() {
 					cursorPosX = posX / meta.width;
 					cursorPosY = posY / meta.height;
 					cursorPressed = press.pressedSprite;
+					cursorRight = press.right;
+					cursorDragging = press.dragging;
 					cursorScale = press.scale;
 				}
 			}
@@ -1358,6 +1406,8 @@ void main() {
 			alpha: cursorAlpha,
 			styleId: cs.style,
 			pressed: cursorPressed,
+			right: cursorRight,
+			dragging: cursorDragging,
 			scale: cursorScale,
 			canvasX: geom.videoX + svgUvX * geom.videoW,
 			canvasY: geom.videoY + svgUvY * geom.videoH,
@@ -1612,12 +1662,15 @@ void main() {
 		</div>
 		{#if svgCursor.visible}
 			{@const style = resolveCursorSprite(svgCursor.styleId)}
-			{@const stateKey = svgCursor.pressed && style?.pressedSvg ? "press" : "rest"}
+			{@const stateKey = svgCursor.pressed
+				? svgCursor.dragging
+					? "drag"
+					: svgCursor.right
+						? "rightPress"
+						: "press"
+				: "rest"}
 			{@const cursorSrc = resolveCursorDataUrl(svgCursor.styleId, stateKey)}{#if style && cursorSrc}
-			{@const hot =
-				stateKey === "press" && style?.pressedHotspot
-					? style.pressedHotspot
-					: (style?.hotspot ?? { x: 32, y: 32 })}
+			{@const hot = cursorSpriteHotspot(style, stateKey)}
 			{@const hotPctX = (hot.x / 64) * 100}
 			{@const hotPctY = (hot.y / 64) * 100}
 			<!-- Custom SVG cursor.

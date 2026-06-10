@@ -53,6 +53,42 @@ interface RecordingProfileV1 {
 export const PROFILES_STORAGE_KEY = "recast-recording-profiles";
 export const PROFILES_ENABLED_STORAGE_KEY = "recast-profiles-enabled";
 
+// ---------- Global capture quality + frame rate ----------
+//
+// Capture rate and quality are capture-WIDE preferences (like the global
+// countdown), not per-device-combo settings, so they live outside the
+// profile records — this keeps them clear of the profile capability
+// fingerprint (`capSig`) and combination cap. Persisted globally and applied
+// to every recording regardless of which profile is active.
+
+export const RECORDING_QUALITY_STORAGE_KEY = "recast-recording-quality";
+export const RECORDING_FPS_STORAGE_KEY = "recast-recording-fps";
+
+/** Capture quality tier — mirrors the Rust `RecordingQuality` enum. */
+export type RecordingQuality = "balanced" | "high" | "pristine";
+
+/** Read the persisted capture quality tier. Defaults to "balanced" (the
+ *  historical behavior); any unrecognized value falls back to it too. */
+export function loadRecordingQuality(): RecordingQuality {
+	const v = safeStorage.get<string>(RECORDING_QUALITY_STORAGE_KEY, "balanced");
+	return v === "high" || v === "pristine" ? v : "balanced";
+}
+
+export function persistRecordingQuality(q: RecordingQuality): void {
+	safeStorage.set(RECORDING_QUALITY_STORAGE_KEY, q);
+}
+
+/** Read the persisted capture frame rate. `null` = "Auto" (backend default
+ *  60). Out-of-range values are coerced back to `null`. */
+export function loadRecordingFps(): number | null {
+	const v = safeStorage.get<number | null>(RECORDING_FPS_STORAGE_KEY, null);
+	return typeof v === "number" && v >= 24 && v <= 240 ? Math.round(v) : null;
+}
+
+export function persistRecordingFps(fps: number | null): void {
+	safeStorage.set(RECORDING_FPS_STORAGE_KEY, fps);
+}
+
 /** Sentinel slot for "use system default at recording time" — distinct from
  *  any specific device id, and distinct from "off". */
 const DEFAULT_SLOT = "default";

@@ -46,8 +46,12 @@ export function registerBuiltins(): void {
 				value: {
 					svg: s.svg,
 					pressedSvg: s.pressedSvg,
+					rightPressedSvg: s.rightPressedSvg,
+					dragSvg: s.dragSvg,
 					hotspot: s.hotspot,
 					pressedHotspot: s.pressedHotspot,
+					rightPressedHotspot: s.rightPressedHotspot,
+					dragHotspot: s.dragHotspot,
 				},
 			}),
 		),

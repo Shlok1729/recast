@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    EASING_PRESETS,
     easingEquals,
     sampleCurve,
     type Easing,
   } from "$lib/easing/cubic-bezier";
+  import { registry } from "$lib/registry";
   import { Input } from "@recast/ui/input";
   import { cn } from "@recast/ui/utils";
 
@@ -51,8 +51,15 @@
       .join(" ");
   });
 
+  // Built-in + extension easing presets, from the registry.
+  const easingPresets = $derived(
+    registry
+      .list("easing")
+      .map((e) => ({ id: e.id, label: e.label, value: e.value.value })),
+  );
+
   const selectedPresetId = $derived(
-    EASING_PRESETS.find((p) => easingEquals(p.value, value))?.id ?? null,
+    easingPresets.find((p) => easingEquals(p.value, value))?.id ?? null,
   );
 
   function svgPoint(e: PointerEvent): { x: number; y: number } | null {
@@ -293,7 +300,7 @@
 
   {#if showPresets}
     <div class="flex flex-wrap gap-1">
-      {#each EASING_PRESETS as preset (preset.id)}
+      {#each easingPresets as preset (preset.id)}
         {@const isActive = selectedPresetId === preset.id}
         <button
           type="button"

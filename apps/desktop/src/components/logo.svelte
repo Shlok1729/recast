@@ -1,21 +1,32 @@
 <script lang="ts">
-  // Logo component configuration
-  import { onMount } from "svelte";
-  import { safeStorage } from "@recast/ui/persisted-state";
-  type Theme = "light" | "dark" | "system";
-
-  let currentTheme = $state<Theme>("system");
-  onMount(() => {
-    // Read-only — mode-watcher owns this key.
-    currentTheme = safeStorage.get<Theme>("mode-watcher-mode", currentTheme);
-  });
+  // Logo mark. Colours follow the *resolved* theme via mode-watcher's `mode`
+  // rune (light/dark, "system" already resolved to the active OS theme), so it
+  // updates reactively when the user toggles the theme — the previous version
+  // read `mode-watcher-mode` from storage once on mount and never resolved
+  // "system", so it stuck on one variant in both modes.
+  import { mode } from "@recast/ui/theme";
+  import type { SVGAttributes } from "svelte/elements";
 
   let {
-    color = currentTheme === "light" ? "white" : "black",
-    fill = currentTheme === "light" ? "black" : "white",
+    color: colorProp,
+    fill: fillProp,
     size = "512",
     ...rest
+  }: SVGAttributes<SVGSVGElement> & {
+    /** Bars colour. Defaults to the theme-appropriate contrast colour. */
+    color?: string;
+    /** Disc background. Defaults to the theme-appropriate contrast colour. */
+    fill?: string;
+    size?: string | number;
   } = $props();
+
+  // `mode.current` is undefined until mode-watcher hydrates; treat that as light.
+  const isDark = $derived(mode.current === "dark");
+
+  // Light mode → black disc with white bars (reads on a light sidebar);
+  // dark mode → the inverse. Explicit props still win.
+  const fill = $derived(fillProp ?? (isDark ? "white" : "black"));
+  const color = $derived(colorProp ?? (isDark ? "black" : "white"));
 </script>
 
 <svg

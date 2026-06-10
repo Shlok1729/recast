@@ -109,6 +109,6 @@ on any change** — edit a pack and re-install without restarting:
 ```bash
 pnpm serve:extensions            # http://localhost:4422 (PORT=<n> to change)
 # In the app → Extensions tab → Install from URL:
-#   http://localhost:4422/recast-cursors.extension.json
+#   http://localhost:4422/classic-cursors.extension.json
 # (or point the browse gallery at http://localhost:4422/index.json)
 ```

@@ -214,7 +214,7 @@ pub fn run() {
             let pending_open_file = parse_open_arg(&cold_open_file);
 
             app.manage(AppState {
-                recording_manager: RecordingManager::default(),
+                recording_manager: std::sync::Arc::new(RecordingManager::default()),
                 last_file_path: Mutex::new(None),
                 config: Mutex::new(config),
                 export_cancel: Mutex::new(HashMap::new()),

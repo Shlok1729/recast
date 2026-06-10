@@ -77,7 +77,14 @@
          showing). media-chrome's controller starts in `user-inactive`, so once
          the clip is playing and the pointer hasn't moved yet the whole bar is
          hidden — reads as "the player has no controls". -->
-    <RecastPlayer {src} title={entry.filename} autoplay autohide={-1} />
+    <!-- preload="auto" (not the player's "metadata" default): exports are
+         written moov-at-end, and over the Tauri asset protocol a metadata-only
+         preload has to range-fetch the tail to find the moov atom before it can
+         decode — which stalls the <video> in NETWORK_LOADING (black frame +
+         "media loading" forever) in release builds. "auto" streams the local
+         file sequentially from byte 0, exactly like the editor preview, which
+         loads the same moov-at-end recordings without issue. -->
+    <RecastPlayer {src} title={entry.filename} preload="auto" autoplay autohide={-1} />
 
     <footer
       class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 text-xs text-muted-foreground"

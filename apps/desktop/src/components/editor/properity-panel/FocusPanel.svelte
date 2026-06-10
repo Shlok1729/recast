@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
     EASE,
-    EASING_PRESETS,
     easingEquals,
     type Easing,
   } from "$lib/easing/cubic-bezier";
+  import { registry } from "$lib/registry";
   import {
     DEFAULT_ZOOM_CENTER,
     DEFAULT_ZOOM_MOTION_BLUR,
@@ -15,7 +15,10 @@
   import { resolveZoomCenter } from "$lib/zoom/auto-apply";
   import {
     Clock,
+    Copy,
     Crosshair,
+    Eye,
+    EyeOff,
     MoveHorizontal,
     MoveVertical,
     Plus,
@@ -42,6 +45,13 @@
   }
 
   let { store }: Props = $props();
+
+  // Built-in + extension easing presets, from the registry.
+  const easingPresets = $derived(
+    registry
+      .list("easing")
+      .map((e) => ({ id: e.id, label: e.label, value: e.value.value })),
+  );
 
   const selected = $derived<ZoomRegion | null>(
     store.zoomRegions.find((r) => r.id === store.selectedZoomRegionId) ?? null,
@@ -79,6 +89,10 @@
   function removeSelected() {
     if (!selected) return;
     store.removeZoomRegion(selected.id);
+  }
+
+  function clearAllRegions() {
+    store.clearZoomRegions();
   }
 
   function updateSelected(updates: Partial<ZoomRegion>, trackUndo = false) {
@@ -196,6 +210,15 @@
           <span class="font-mono text-[10px] tabular-nums text-muted-foreground">
             {store.zoomRegions.length}
           </span>
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-muted-foreground hover:text-destructive"
+            onclick={clearAllRegions}
+          >
+            <Trash2 size={11} />
+            Clear all
+          </Button>
         {/if}
         <Button
           variant="secondary"
@@ -272,22 +295,30 @@
       <div class="flex flex-col gap-1">
         {#each store.zoomRegions as region, i (region.id)}
           {@const isActive = region.id === store.selectedZoomRegionId}
-          <button
-            type="button"
+          {@const isHidden = region.hidden === true}
+          <!-- Card with an absolute-inset select button so the whole row picks
+               the region, while the per-row action buttons sit above it (own
+               z-layer) — nesting <button>s would be invalid markup. -->
+          <div
             in:fly={{ y: 4, duration: 200, delay: i * 25, easing: cubicOut }}
-            onclick={() => (store.selectedZoomRegionId = region.id)}
-            aria-pressed={isActive}
             class={cn(
               "group relative flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-all duration-150",
-              "focus:outline-none focus:ring-2 focus:ring-ring/40",
               isActive
                 ? "border-primary/60 bg-primary/10 shadow-(--shadow-craft-inset)"
                 : "border-border/60 bg-card/60 hover:border-border hover:bg-card",
+              isHidden && "opacity-55",
             )}
           >
+            <button
+              type="button"
+              onclick={() => (store.selectedZoomRegionId = region.id)}
+              aria-pressed={isActive}
+              aria-label={`Select zoom region ${i + 1}`}
+              class="absolute inset-0 z-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/40"
+            ></button>
             <span
               class={cn(
-                "flex h-8 w-12 shrink-0 items-center justify-center rounded-md border transition-colors",
+                "pointer-events-none flex h-8 w-12 shrink-0 items-center justify-center rounded-md border transition-colors",
                 isActive
                   ? "border-primary/40 bg-background/40 text-primary"
                   : "border-border/50 bg-background/40 text-muted-foreground group-hover:text-foreground",
@@ -304,7 +335,7 @@
                 />
               </svg>
             </span>
-            <div class="min-w-0 flex-1">
+            <div class="pointer-events-none min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
                 <span
                   class="truncate text-[11px] font-medium tabular-nums text-foreground"
@@ -321,18 +352,62 @@
                     Auto
                   </span>
                 {/if}
+                {#if isHidden}
+                  <span
+                    class="inline-flex shrink-0 items-center gap-0.5 rounded-sm border border-border bg-muted/60 px-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"
+                  >
+                    <EyeOff size={8} />
+                    Hidden
+                  </span>
+                {/if}
               </div>
               <div class="text-[10px] tabular-nums text-muted-foreground">
                 {(region.end - region.start).toFixed(2)}s duration
               </div>
             </div>
-            {#if isActive}
-              <span
-                aria-hidden="true"
-                class="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_0_1.5px_color-mix(in_srgb,var(--color-background)_85%,transparent)]"
-              ></span>
-            {/if}
-          </button>
+            <!-- Row actions: revealed on hover/focus, always shown for the
+                 active row. Above the select button via z-10. -->
+            <div
+              class={cn(
+                "relative z-10 flex shrink-0 items-center gap-0.5 transition-opacity",
+                isActive
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+              )}
+            >
+              <button
+                type="button"
+                onclick={() => store.setZoomRegionHidden(region.id)}
+                aria-label={isHidden ? "Show region" : "Hide region"}
+                title={isHidden ? "Show" : "Hide"}
+                class="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
+              >
+                {#if isHidden}
+                  <EyeOff size={12} />
+                {:else}
+                  <Eye size={12} />
+                {/if}
+              </button>
+              <button
+                type="button"
+                onclick={() => store.duplicateZoomRegion(region.id)}
+                aria-label="Duplicate region"
+                title="Duplicate"
+                class="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
+              >
+                <Copy size={12} />
+              </button>
+              <button
+                type="button"
+                onclick={() => store.removeZoomRegion(region.id)}
+                aria-label="Delete region"
+                title="Delete"
+                class="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive focus:outline-none focus:ring-2 focus:ring-ring/40"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </div>
         {/each}
       </div>
     {/if}
@@ -355,15 +430,40 @@
             )}
           </p>
         </div>
-        <Button
-          variant="destructive_soft"
-          size="xs"
-          class="shrink-0 gap-1.5"
-          onclick={removeSelected}
-        >
-          <Trash2 size={11} />
-          Delete
-        </Button>
+        <div class="flex shrink-0 items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="xs"
+            class="gap-1.5"
+            onclick={() => store.setZoomRegionHidden(region.id)}
+          >
+            {#if region.hidden}
+              <EyeOff size={11} />
+              Hidden
+            {:else}
+              <Eye size={11} />
+              Hide
+            {/if}
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            class="gap-1.5"
+            onclick={() => store.duplicateZoomRegion(region.id)}
+          >
+            <Copy size={11} />
+            Duplicate
+          </Button>
+          <Button
+            variant="destructive_soft"
+            size="xs"
+            class="gap-1.5"
+            onclick={removeSelected}
+          >
+            <Trash2 size={11} />
+            Delete
+          </Button>
+        </div>
       </div>
 
       <PanelSection title="Zoom">
@@ -520,7 +620,7 @@
           <Button variant="ghost" size="xs" onclick={resetCurves}>Reset</Button>
         {/snippet}
         <div class="flex flex-wrap gap-1">
-          {#each EASING_PRESETS as preset (preset.id)}
+          {#each easingPresets as preset (preset.id)}
             {@const active =
               easingEquals(region.easeIn, preset.value) &&
               easingEquals(region.easeOut, preset.value)}

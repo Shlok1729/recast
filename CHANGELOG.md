@@ -40,7 +40,35 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 `pnpm release:prepare <version>` consumes pending changesets and the current
 `[Unreleased]` block into a new dated section.
 
-## [Unreleased]
+## [0.2.6] — 2026-06-10
+
+### Highlights
+- **Recording quality and frame rate are yours to set** — capture at Balanced, High, or Pristine fidelity and pick a frame rate your display can actually deliver, instead of the previous fixed defaults.
+- **Export frame rate is configurable too** — keep the source rate or step down for a smaller file, and a long-standing export "shake" on high-frame-rate clips is fixed.
+- **More extension packs** — new cursor, easing, smoothing, gradient, and wallpaper packs, and installed packs now appear right in the editor's preset pickers.
+
+### Added
+- Recording quality tiers (Balanced / High / Pristine) in Settings → Recording. Balanced reproduces the previous output exactly, so existing recordings are unchanged; High and Pristine trade real-time headroom for higher fidelity.
+- Recording frame-rate selection (24–240 fps) in Settings → Recording, offering only the rates your monitor can produce based on its detected refresh rate. The chosen rate is now stored in the project, so high-refresh recordings are handled correctly throughout the editor and export.
+- Export frame-rate control for MP4 and WebM: keep the original source rate (the default) or step down to a lower rate for a smaller file.
+- New extension packs: Material and Windows 11 cursor styles, a cursor-smoothing preset pack, a motion-easing preset pack, a gradient collection, and a "Waves" wallpaper set.
+
+### Changed
+- Easing and smoothing preset pickers in the Cursor, Focus, and curve editors now read from the extension registry, so presets from installed packs appear alongside the built-ins instead of only the bundled set.
+- The window titlebar moved to a full-width, OS-native bar above the sidebar and content, including left-aligned window controls on macOS for a more native feel.
+- The export progress, success, cancelled, and error screens now share a consistent spec recap (format · quality · frame rate · duration) and width with the export options step.
+
+### Fixed
+- Exports of high-frame-rate recordings no longer judder or "shake" — a generated background (solid colour, gradient, or image) defaulted FFmpeg to 25 fps and dragged the whole export down to it, frame-dropping 60 fps footage into juddery motion (most visible under a zoom). Generated backgrounds and looped image inputs are now pinned to the recording's frame rate.
+
+## [0.2.5] — 2026-06-09
+
+### Fixed
+- Exported videos no longer open to a black screen stuck on "media loading" in the in-app player on release builds — the player now streams the file from the start instead of waiting on a tail fetch that never completed, so exports play back immediately.
+- macOS and Linux: the app no longer freezes after a recording finishes. Saving a recording — flushing the encoder, finalizing the file, and the camera pause-trim re-encode — ran on the UI thread and locked the whole window until it completed. It now runs off the main thread. (Windows was unaffected because it renders the UI in a separate process.)
+- macOS and Linux: starting a recording, listing recordings/exports, picking a microphone, and "reveal in file manager" no longer briefly freeze the window — these all moved off the UI thread for the same reason.
+- Long recordings could freeze mid-capture: the encoder's FFmpeg progress output filled an OS pipe buffer that was never drained, stalling the encoder and the recording. Its output is now drained continuously.
+- A recording that fails to start partway through no longer leaves orphaned capture/encoder processes running in the background.
 
 ## [0.2.4] — 2026-06-07
 

@@ -6,6 +6,12 @@
 	import { cubicOut } from "svelte/easing";
 	import { blur, fly } from "svelte/transition";
 
+	// Hero preview asset. Pass the polished demo URL from the parent (single
+	// source of truth alongside the before/after proof clips). Falls back to
+	// the static screenshot if no URL is provided, so the hero never breaks
+	// on a missing prop.
+	let { previewSrc = "" }: { previewSrc?: string } = $props();
+
 	// Concrete artifacts the target audience actually makes, ordered so the
 	// loop opens with the broadest noun (demo) and rotates through the
 	// segment-specific outputs (investor walkthrough = founders, launch video
@@ -129,13 +135,29 @@
 					</div>
 				</div>
 				<div class="bg-linear-to-b from-muted/10 to-background p-1.5 sm:p-2">
-					<img
-						src="/product_preview_hero.png"
-						alt="Recast app preview"
-						loading="eager"
-						decoding="async"
-						class="block w-full rounded-xl object-cover ring-1 ring-border-low"
-					/>
+					{#if previewSrc}
+						<!-- Polished demo loop. Always silent — same proof framing as
+						     the before/after pair below the fold; sound would fight
+						     the hero copy and the TextLoop animation. -->
+						<!-- svelte-ignore a11y_media_has_caption -->
+						<video
+							src={previewSrc}
+							autoplay
+							loop
+							muted
+							playsinline
+							preload="metadata"
+							class="block w-full rounded-xl object-cover ring-1 ring-border-low"
+						></video>
+					{:else}
+						<img
+							src="/product_preview_hero.png"
+							alt="Recast app preview"
+							loading="eager"
+							decoding="async"
+							class="block w-full rounded-xl object-cover ring-1 ring-border-low"
+						/>
+					{/if}
 				</div>
 			</div>
 

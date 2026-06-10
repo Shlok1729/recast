@@ -15,7 +15,7 @@ const isTauri =
     (self.location.protocol.includes('tauri') ||
     self.location.hostname.includes('tauri.localhost'));
 // Create a unique cache name for this deployment
-const CACHE = `orbit.nexonauts.cache-${version}`;
+const CACHE = `recast.nexonauts.cache-${version}`;
 
 const ASSETS = [
     ...build, // the app itself

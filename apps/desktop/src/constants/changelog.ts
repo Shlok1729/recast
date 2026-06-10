@@ -37,6 +37,36 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.6',
+		date: '2026-06-10',
+		highlights: [
+			'**Recording quality and frame rate are yours to set** — capture at Balanced, High, or Pristine fidelity and pick a frame rate your display can actually deliver, instead of the previous fixed defaults.',
+			'**Export frame rate is configurable too** — keep the source rate or step down for a smaller file, and a long-standing export "shake" on high-frame-rate clips is fixed.',
+			'**More extension packs** — new cursor, easing, smoothing, gradient, and wallpaper packs, and installed packs now appear right in the editor\'s preset pickers.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Recording quality tiers (Balanced / High / Pristine) in Settings → Recording. Balanced reproduces the previous output exactly, so existing recordings are unchanged; High and Pristine trade real-time headroom for higher fidelity.' },
+			{ kind: 'added', summary: 'Recording frame-rate selection (24–240 fps) in Settings → Recording, offering only the rates your monitor can produce based on its detected refresh rate. The chosen rate is now stored in the project, so high-refresh recordings are handled correctly throughout the editor and export.' },
+			{ kind: 'added', summary: 'Export frame-rate control for MP4 and WebM: keep the original source rate (the default) or step down to a lower rate for a smaller file.' },
+			{ kind: 'added', summary: 'New extension packs: Material and Windows 11 cursor styles, a cursor-smoothing preset pack, a motion-easing preset pack, a gradient collection, and a "Waves" wallpaper set.' },
+			{ kind: 'changed', summary: 'Easing and smoothing preset pickers in the Cursor, Focus, and curve editors now read from the extension registry, so presets from installed packs appear alongside the built-ins instead of only the bundled set.' },
+			{ kind: 'changed', summary: 'The window titlebar moved to a full-width, OS-native bar above the sidebar and content, including left-aligned window controls on macOS for a more native feel.' },
+			{ kind: 'changed', summary: 'The export progress, success, cancelled, and error screens now share a consistent spec recap (format · quality · frame rate · duration) and width with the export options step.' },
+			{ kind: 'fixed', summary: 'Exports of high-frame-rate recordings no longer judder or "shake" — a generated background (solid colour, gradient, or image) defaulted FFmpeg to 25 fps and dragged the whole export down to it, frame-dropping 60 fps footage into juddery motion (most visible under a zoom). Generated backgrounds and looped image inputs are now pinned to the recording\'s frame rate.' },
+		],
+	},
+	{
+		version: '0.2.5',
+		date: '2026-06-09',
+		changes: [
+			{ kind: 'fixed', summary: 'Exported videos no longer open to a black screen stuck on "media loading" in the in-app player on release builds — the player now streams the file from the start instead of waiting on a tail fetch that never completed, so exports play back immediately.' },
+			{ kind: 'fixed', summary: 'macOS and Linux: the app no longer freezes after a recording finishes. Saving a recording — flushing the encoder, finalizing the file, and the camera pause-trim re-encode — ran on the UI thread and locked the whole window until it completed. It now runs off the main thread. (Windows was unaffected because it renders the UI in a separate process.)' },
+			{ kind: 'fixed', summary: 'macOS and Linux: starting a recording, listing recordings/exports, picking a microphone, and "reveal in file manager" no longer briefly freeze the window — these all moved off the UI thread for the same reason.' },
+			{ kind: 'fixed', summary: 'Long recordings could freeze mid-capture: the encoder\'s FFmpeg progress output filled an OS pipe buffer that was never drained, stalling the encoder and the recording. Its output is now drained continuously.' },
+			{ kind: 'fixed', summary: 'A recording that fails to start partway through no longer leaves orphaned capture/encoder processes running in the background.' },
+		],
+	},
+	{
 		version: '0.2.4',
 		date: '2026-06-07',
 		highlights: [

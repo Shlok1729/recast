@@ -11,36 +11,43 @@
   import VideoPreview from "$components/editor/VideoPreview.svelte";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import EditorSkeleton from "$components/skeletons/EditorSkeleton.svelte";
+  import { rasterizeCursorSprites } from "$lib/export/rasterize-cursor";
+  import { expandTextAnnotations } from "$lib/export/rasterize-text";
   import type { ExportStateEvent } from "$lib/ipc";
   import {
     autosaveProject,
     cancelExport,
     clearAutosave,
     createExportId,
+    exportVideo,
     extractWaveform,
     generateThumbnails,
+    listenToExportState,
     loadEditorDocument,
     saveProjectEdits,
+    suggestZoomRegions,
   } from "$lib/ipc";
-  import { generateAutoZoom } from "$lib/services/analysis";
-  import { buildExportRenderState, runExport } from "$lib/services/export";
   import { isShareSupported, shareRecording } from "$lib/share";
   import {
     createEditorStore,
+    framePaddingPixels,
     type VideoMetadata,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
   import { cloudShare } from "$lib/stores/cloudShare.svelte";
+  import { applyAutoZooms } from "$lib/zoom/auto-apply";
   import {
     ArrowLeft,
     CheckCircle2,
+    Circle,
     ExternalLink,
     FlaskConical,
     FolderOpen,
     Cloud,
     HardDriveUpload,
     Link2,
+    LoaderCircle,
     RefreshCw,
     Share2,
     TriangleAlert,
@@ -447,14 +454,37 @@
     if (!cursorPath) return;
     autoZoomRunning = true;
     try {
-      const outcome = await generateAutoZoom(store, cursorPath, {
-        documentPath,
-      });
+      const suggestions = await suggestZoomRegions(cursorPath);
+      const dur = store.metadata?.duration ?? 0;
+      const w = store.metadata?.width ?? 0;
+      const h = store.metadata?.height ?? 0;
+      const bounds = {
+        start: store.inPoint,
+        end: store.outPoint > 0 ? store.outPoint : dur,
+      };
+      if (bounds.end <= bounds.start) {
+        store.autoZoomApplied = true;
+        return;
+      }
+      // Single coalesced undo entry covering all auto-applied regions.
+      store.pushUndoState();
+      const result = applyAutoZooms(store, suggestions, bounds, w, h);
       store.autoZoomApplied = true;
-      if (outcome.reason === "bad-bounds") return;
-      if (outcome.applied > 0) {
+      // Persist immediately so a crash before the 30 s autosave tick doesn't
+      // re-run auto-zoom on next open and double up regions.
+      if (documentPath) {
+        try {
+          await autosaveProject(
+            documentPath,
+            JSON.stringify(store.toRenderState()),
+          );
+        } catch (err) {
+          console.warn("Auto-zoom autosave failed:", err);
+        }
+      }
+      if (result.applied > 0) {
         toast.success(
-          `Added ${outcome.applied} focus moment${outcome.applied === 1 ? "" : "s"}`,
+          `Added ${result.applied} focus moment${result.applied === 1 ? "" : "s"}`,
           {
             description: "Tweak, remove, or turn off in the Focus panel.",
             action: {
@@ -680,20 +710,68 @@
     exportNow = exportStartedAt;
     resetPrep();
 
-    try {
-      // Build the exact payload Rust renders: hybrid-raster passes (text →
-      // PNG, cursor → sprite sheet) plus per-lane enable toggles. The prep
-      // sub-stages drive the "Preparing…" UI via these hooks.
-      const { renderState: finalRenderState, metadata: meta } =
-        await buildExportRenderState(store, {
-          silenceDetectionEnabled: experimentalStore.silenceDetection,
-          hooks: {
-            onText: (s) => (prepText = s),
-            onCursor: (s) => (prepCursor = s),
-            onSending: (s) => (prepSending = s),
-          },
-        });
+    const unlistenExportState = await listenToExportState(
+      exportId,
+      handleExportState,
+    );
+    // Tauri's IPC layer — that round-trip can lag visibly on some systems
 
+    try {
+      // Hybrid-raster pass: replace text annotations with image-kind ones
+      // whose `path` is a base64-encoded PNG. Rust's draw_image consumes
+      // both file paths and `data:` URLs uniformly.
+      const renderState = store.toRenderState();
+      const meta = store.metadata;
+      const paddingPx = framePaddingPixels(renderState.padding ?? 0, meta);
+      const canvasW = meta ? meta.width + paddingPx * 2 : 0;
+      const canvasH = meta ? meta.height + paddingPx * 2 : 0;
+      // Run the two hybrid-raster passes in parallel — they don't depend
+      // on each other and the cursor SVG decode is non-trivial on cold
+      // boot (Image() onload is async even for inline blobs). This trims
+      // perceived "Preparing…" time roughly in half on projects with text.
+      prepText = renderState.annotations.some((a) => a.kind.kind === "text")
+        ? "running"
+        : "done";
+      prepCursor = store.cursorSettings.style !== "dot" ? "running" : "done";
+      const [expandedAnnotations, cursorSprites] = await Promise.all([
+        expandTextAnnotations(renderState.annotations, canvasW, canvasH).then(
+          (r) => {
+            prepText = "done";
+            return r;
+          },
+        ),
+        rasterizeCursorSprites(
+          store.cursorSettings.style,
+          store.cursorSettings.size * 16,
+        ).then((r) => {
+          prepCursor = "done";
+          return r;
+        }),
+      ]);
+      prepSending = "running";
+      // Honor the per-lane "enable" toggles. The underlying data is preserved
+      // on the store; here we just hand the export pipeline the active set,
+      // so toggling a lane off bypasses its effect in the rendered file.
+      const finalRenderState = {
+        ...renderState,
+        annotations: store.annotationsGloballyHidden ? [] : expandedAnnotations,
+        zoomRegions: store.focusEnabled ? renderState.zoomRegions : [],
+        cuts:
+          experimentalStore.silenceDetection && store.cutsEnabled
+            ? renderState.cuts
+            : [],
+        cursorSpriteRest: cursorSprites?.rest,
+        cursorSpritePress: cursorSprites?.press,
+        cursorSpriteRightPress: cursorSprites?.rightPress,
+        cursorSpriteDrag: cursorSprites?.drag,
+        cursorSpriteHotspotRest: cursorSprites?.restHotspot,
+        cursorSpriteHotspotPress: cursorSprites?.pressHotspot,
+        cursorSpriteHotspotRightPress: cursorSprites?.rightPressHotspot,
+        cursorSpriteHotspotDrag: cursorSprites?.dragHotspot,
+        cursorSpriteSizePx: cursorSprites?.pixelSize,
+      };
+
+      prepSending = "done";
       // Capture the exact settings this export ran with — the single most
       // useful line when a user reports "my export looked wrong".
       log.info("export", "export_started", {
@@ -708,17 +786,18 @@
         padding: finalRenderState.padding ?? 0,
         durationSec: meta ? Math.round(meta.duration) : undefined,
       });
-      const path = await runExport({
-        inputPath: documentPath || data.filePath,
-        format: store.exportFormat,
-        quality: store.exportQuality,
-        renderState: finalRenderState,
+      const path = await exportVideo(
+        documentPath || data.filePath,
+        store.exportFormat,
+        store.exportQuality,
+        finalRenderState,
         exportId,
-        gifSettings:
-          store.exportFormat === "gif" ? store.gifSettings : undefined,
-        speed: store.exportSpeed,
-        onState: handleExportState,
-      });
+        store.exportFormat === "gif" ? store.gifSettings : undefined,
+        store.exportSpeed,
+        // GIF carries its own fps in gifSettings; MP4/WebM use the picker
+        // (null = keep source rate).
+        store.exportFormat === "gif" ? undefined : store.exportFps,
+      );
       // Safety net: if the export-state success event was missed, fall back to
       // the Promise result. Don't overwrite if the listener already set it.
       if (!exportResult) {
@@ -746,6 +825,7 @@
         }
       }
     } finally {
+      unlistenExportState();
       if (activeExportId === exportId) {
         activeExportId = null;
       }
@@ -879,21 +959,10 @@
       void goto("/settings");
       return;
     }
-    const path = exportResult.path;
-    const fileName = path.split(/[\\/]/).pop() ?? "Recast";
-    const title = fileName.replace(/\.[^.]+$/, "") || "Recast";
-    // More than one workspace → confirm the upload target first.
-    if (cloudShare.workspaces.length > 1) {
-      workspacePick = { path, title, fileName };
-      return;
-    }
-    await performCloudShare(path, title);
-  }
-
-  /** Upload + create a link for an already-targeted share, then copy it. */
-  async function performCloudShare(path: string, title: string, workspaceId?: string) {
+    const title =
+      exportResult.path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "Recast";
     try {
-      const result = await cloudShare.share(path, title, workspaceId);
+      const result = await cloudShare.share(exportResult.path, title);
       try {
         await navigator.clipboard.writeText(result.shareUrl);
         toast.success("Shared — link copied to clipboard.");
@@ -1381,12 +1450,80 @@
   />
 {/snippet}
 
+{#snippet exportSpecStrip()}
+  {@const fmt = store.exportFormat}
+  {@const isGifFmt = fmt === "gif"}
+  {@const srcFps = Math.max(1, Math.round(store.metadata?.fps ?? 60))}
+  {@const qualityLabel = isGifFmt
+    ? store.gifSettings.quality === "low"
+      ? "Lite"
+      : store.gifSettings.quality === "high"
+        ? "Vivid"
+        : "Standard"
+    : store.exportQuality === "small"
+      ? "720p"
+      : store.exportQuality === "hd"
+        ? "1080p"
+        : store.exportQuality === "4k"
+          ? "2160p"
+          : "Source"}
+  {@const fpsLabel = isGifFmt
+    ? store.gifSettings.fps
+      ? `${store.gifSettings.fps} fps`
+      : "Auto"
+    : store.exportFps
+      ? `${store.exportFps} fps`
+      : `${srcFps} fps`}
+  <!-- Spec recap — carries the committed export settings forward from the
+       options step so every later phase (encoding, done, cancelled, failed)
+       stays anchored to "what you're exporting". Mirrors the options stat
+       strip styling for visual continuity. -->
+  <section
+    class="flex items-stretch divide-x divide-border/40 border-b border-border/40 bg-muted/15 px-5 py-2.5"
+  >
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 pr-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >Format</span
+      >
+      <span class="truncate text-[12px] font-medium tabular-nums text-foreground">
+        {fmt.toUpperCase()}
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 px-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >{isGifFmt ? "Colors" : "Quality"}</span
+      >
+      <span class="truncate text-[12px] font-medium tabular-nums text-foreground">
+        {qualityLabel}
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 px-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >Frame rate</span
+      >
+      <span class="truncate text-[12px] font-medium tabular-nums text-foreground">
+        {fpsLabel}
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-1 flex-col gap-0.5 pl-4">
+      <span
+        class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+        >Duration</span
+      >
+      <span class="truncate font-mono text-[12px] tabular-nums text-foreground">
+        {formatTime(getExportDuration())}
+      </span>
+    </div>
+  </section>
+{/snippet}
+
 {#snippet progress()}
   {@const isPreparing =
     prepSending !== "done" && !exportHasProgress && !exportFinalizing}
   {@const eta = exportEtaMs()}
-  {@const exportDuration = getExportDuration()}
-  {@const exportRange = getExportRangeLabel()}
   {@const ringPct = isPreparing
     ? 0
     : exportFinalizing
@@ -1394,8 +1531,10 @@
       : Math.min(100, Math.max(0, displayPct))}
   {@const RING_R = 52}
 
-  <div class="flex flex-col" style="width: 420px;">
-    <!-- Header: title + live metadata -->
+  <div class="flex flex-col" style="width: 540px;">
+    <!-- Header: phase title + reassuring status line. The encode spec moves to
+         the shared spec strip below so it reads as a continuation of the
+         options step. -->
     <header
       class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
@@ -1419,15 +1558,27 @@
             Encoding video
           {/if}
         </h3>
-        <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
-          · {formatTime(exportDuration)} clip · {exportRange}
+        <p class="mt-0.5 text-[11px] text-muted-foreground">
+          {#if exportCancelling}
+            Stopping and cleaning up the partial file…
+          {:else if exportFinalizing}
+            Writing the finished file to disk…
+          {:else if isPreparing}
+            Getting frames and effects ready…
+          {:else}
+            This can take a moment — you can keep working.
+          {/if}
         </p>
       </div>
     </header>
 
-    <!-- Circular progress ring + stages -->
-    <div class="flex flex-col items-center gap-3 px-5 pt-5 pb-3">
+    {@render exportSpecStrip()}
+
+    <!-- Circular progress ring + stages, centred so the wider spec strip and
+         footer frame it consistently with the other phases. -->
+    <div
+      class="mx-auto flex w-full max-w-xs flex-col items-center gap-3 px-5 pt-5 pb-3"
+    >
       <div class="relative size-32" aria-live="polite">
         <svg
           viewBox="0 0 120 120"
@@ -1574,16 +1725,16 @@
                         >shipping…</span
                       >
                     {:else if s.state === "running"}
-                      <span
-                        class="flex size-2.5 shrink-0 items-center justify-center"
-                      >
-                        <span
-                          class="size-1.5 animate-pulse rounded-full bg-primary"
-                        ></span>
-                      </span>
+                      <LoaderCircle
+                        size={11}
+                        class="shrink-0 animate-spin text-primary"
+                      />
                       <span class="text-foreground">{s.label}</span>
                     {:else}
-                      <span class="size-2.5 shrink-0"></span>
+                      <Circle
+                        size={11}
+                        class="shrink-0 text-muted-foreground/40"
+                      />
                       <span class="text-muted-foreground/60">{s.label}</span>
                     {/if}
                   </li>
@@ -1611,11 +1762,11 @@
 {/snippet}
 
 {#snippet success()}
-  <div class="flex flex-col" style="width: 500px;">
-    <!-- Header: success badge + title + file path as the secondary line.
-         Format/quality is implicit from the export the user just kicked off
-         and drops here in favor of the path the user actually needs to see. -->
-    <header class="flex items-start gap-3 px-5 py-4">
+  <div class="flex flex-col" style="width: 540px;">
+    <!-- Header: success badge + title + file path as the secondary line. The
+         encode spec is recapped in the shared strip below; the path is the
+         thing the user actually needs here, so it stays in the subtitle. -->
+    <header class="flex items-start gap-3 border-b border-border/40 px-5 py-4">
       <div
         class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-success/30 bg-success/10 text-success shadow-(--shadow-craft-inset)"
       >
@@ -1638,6 +1789,8 @@
         {/if}
       </div>
     </header>
+
+    {@render exportSpecStrip()}
 
     {#if successUpload}
       <!-- Drive row: single horizontal row with leading status icon, label,
@@ -1842,7 +1995,7 @@
 {/snippet}
 
 {#snippet cancelled()}
-  <div class="flex flex-col" style="width: 420px;">
+  <div class="flex flex-col" style="width: 540px;">
     <header
       class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
@@ -1859,10 +2012,14 @@
           Export cancelled
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          No file was written.
+          Stopped before finishing — no file was written. Your settings are
+          kept, so you can pick up right where you left off.
         </p>
       </div>
     </header>
+
+    {@render exportSpecStrip()}
+
     <footer
       class="flex items-center justify-end gap-1.5 border-t border-border/40 bg-muted/30 px-3 py-2.5"
     >
@@ -1883,7 +2040,7 @@
 {/snippet}
 
 {#snippet errorPanel()}
-  <div class="flex flex-col" style="width: 500px;">
+  <div class="flex flex-col" style="width: 540px;">
     <header
       class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
@@ -1900,13 +2057,24 @@
           Export failed
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          Something went wrong while encoding.
+          Something went wrong while encoding. Your settings are kept — try
+          again, or adjust them first.
         </p>
       </div>
     </header>
+
+    {@render exportSpecStrip()}
+
+    <!-- Failure detail — the raw FFmpeg/pipeline message, scrollable so a long
+         stack never blows out the dialog height. -->
     <div
       class="max-h-40 overflow-y-auto border-b border-border/40 px-5 py-3"
     >
+      <p
+        class="mb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+      >
+        Details
+      </p>
       {#if exportResult?.kind === "error"}
         <pre
           class="whitespace-pre-wrap wrap-break-word font-mono text-[10px] leading-snug text-destructive">{exportResult.message}</pre>

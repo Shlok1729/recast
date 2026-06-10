@@ -10,8 +10,10 @@ import { log } from "$lib/logger";
 import { registry } from "./registry.svelte";
 import {
 	isExtId,
+	type CursorState,
 	type CursorValue,
 	type EasingValue,
+	type Hotspot,
 	type SmoothingValue,
 } from "./types";
 
@@ -46,6 +48,35 @@ export function resolveCursorSprite(id: string): CursorValue | null {
 	return null;
 }
 
+/** Pick a cursor sprite's SVG for a state, falling back rightPress/drag →
+ *  press → rest so a style that only ships rest (+ press) never renders blank. */
+export function cursorSpriteSvg(v: CursorValue, state: CursorState): string {
+	switch (state) {
+		case "rightPress":
+			return v.rightPressedSvg ?? v.pressedSvg ?? v.svg;
+		case "drag":
+			return v.dragSvg ?? v.pressedSvg ?? v.svg;
+		case "press":
+			return v.pressedSvg ?? v.svg;
+		default:
+			return v.svg;
+	}
+}
+
+/** Hotspot for a state, with the same fallback chain as {@link cursorSpriteSvg}. */
+export function cursorSpriteHotspot(v: CursorValue, state: CursorState): Hotspot {
+	switch (state) {
+		case "rightPress":
+			return v.rightPressedHotspot ?? v.pressedHotspot ?? v.hotspot;
+		case "drag":
+			return v.dragHotspot ?? v.pressedHotspot ?? v.hotspot;
+		case "press":
+			return v.pressedHotspot ?? v.hotspot;
+		default:
+			return v.hotspot;
+	}
+}
+
 /** Cached `data:image/svg+xml,…` URLs (one per id+state) so the preview
  *  overlay `<img>` doesn't re-encode the SVG every frame. */
 const cursorDataUrlCache = new Map<string, string>();
@@ -57,15 +88,14 @@ const cursorDataUrlCache = new Map<string, string>();
  */
 export function resolveCursorDataUrl(
 	id: string,
-	state: "rest" | "press",
+	state: CursorState,
 ): string | null {
 	const key = `${id}:${state}`;
 	const cached = cursorDataUrlCache.get(key);
 	if (cached) return cached;
 	const sprite = resolveCursorSprite(id);
 	if (!sprite) return null;
-	const svg =
-		state === "press" && sprite.pressedSvg ? sprite.pressedSvg : sprite.svg;
+	const svg = cursorSpriteSvg(sprite, state);
 	const url =
 		"data:image/svg+xml;utf8," +
 		encodeURIComponent(svg.trim().replace(/\n\s*/g, " "));
