@@ -80,8 +80,8 @@
 	}
 </script>
 
-<Sidebar.Root variant="floating" collapsible="icon">
-	<Sidebar.Rail />
+<Sidebar.Root variant="inset" collapsible="icon">
+	<Sidebar.Rail class="data-[state=collapsed]:hidden" />
 
 	<Sidebar.Header class="gap-3 py-3">
 		<a

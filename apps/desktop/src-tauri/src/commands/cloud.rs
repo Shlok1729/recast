@@ -585,17 +585,28 @@ pub async fn recast_cloud_list_shares(recast_id: String) -> Result<serde_json::V
 }
 
 /// All locally-recorded cloud uploads, keyed by local export path.
+///
+/// Async + `spawn_blocking`: a plain `fn` Tauri command runs on the main
+/// (UI) thread, so its `std::fs` manifest read would block the webview — the
+/// macOS WKWebView freeze this project has been bitten by. The frontend
+/// already awaits this, so moving the read onto a blocking worker is
+/// transparent to call sites.
 #[tauri::command]
-pub fn recast_cloud_list_uploads(app: AppHandle) -> HashMap<String, CloudUploadRecord> {
-    read_manifest(&app)
+pub async fn recast_cloud_list_uploads(app: AppHandle) -> HashMap<String, CloudUploadRecord> {
+    tauri::async_runtime::spawn_blocking(move || read_manifest(&app))
+        .await
+        .unwrap_or_default()
 }
 
 /// Drop a manifest entry without any network call — for when the user removed
-/// the cloud copy elsewhere, or the local file moved.
+/// the cloud copy elsewhere, or the local file moved. Async + `spawn_blocking`
+/// for the same reason as `recast_cloud_list_uploads`: keep the manifest
+/// read-modify-write off the UI thread.
 #[tauri::command]
-pub fn recast_cloud_forget_upload(app: AppHandle, path: String) -> Result<(), String> {
-    forget_path(&app, &path);
-    Ok(())
+pub async fn recast_cloud_forget_upload(app: AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || forget_path(&app, &path))
+        .await
+        .map_err(|e| format!("Forgetting upload failed: {e}"))
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -24,8 +24,12 @@
 	});
 </script>
 
+<!-- Sticky inside the inset panel: on md+ the panel is inset by `m-2`, so the
+	 header sticks at `top-2` and rounds its top corners to match the panel; on
+	 mobile the panel is full-bleed, so it sticks flush at `top-0` with square
+	 corners. -->
 <header
-	class="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2.5 border-b border-border-low/60 bg-background/80 px-4 backdrop-blur-xl"
+	class="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2.5 border-b border-border-low/60 bg-background/80 px-4 backdrop-blur-xl md:top-2 md:rounded-t-xl"
 >
 	<Sidebar.Trigger
 		class="size-7 rounded-md text-muted-foreground transition-colors hover:bg-foreground/6 hover:text-foreground"
