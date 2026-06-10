@@ -12,7 +12,6 @@
     getOutputDir,
     setOutputDir,
   } from "$lib/ipc";
-  import { listen } from "@tauri-apps/api/event";
   import {
     loadRecordingFps,
     loadRecordingQuality,
@@ -49,6 +48,7 @@
   import * as Tabs from "@recast/ui/tabs";
   import { setMode } from "@recast/ui/theme";
   import { cn } from "@recast/ui/utils";
+  import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
@@ -98,7 +98,7 @@
   // Land on Recording — the daily-use panel (output directory, profiles,
   // editor behavior) — rather than the leftmost General tab, matching how
   // people actually reach for these settings.
-  let activeTab = $state<SettingsTab>("recording");
+  let activeTab = $state<SettingsTab>("general");
 
   onMount(() => {
     fetchSettings();

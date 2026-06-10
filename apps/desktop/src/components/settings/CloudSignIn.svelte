@@ -27,6 +27,12 @@
 		return role ? role[0]!.toUpperCase() + role.slice(1) : "Member";
 	}
 
+	function planLabel(plan: string): string {
+		if (plan === "pro") return "Pro";
+		if (plan === "enterprise") return "Enterprise";
+		return "Free";
+	}
+
 	/**
 	 * "Sign in to Recast Cloud" row. Recast Cloud is the Loom-style sharing
 	 * layer (instant share links, viewer analytics, password protection,
@@ -421,18 +427,35 @@
 							</DropdownMenu.Label>
 							{#each cloudShare.workspaces as ws (ws.id)}
 								{@const selected = active?.id === ws.id}
+								{@const isPaid = ws.plan !== "free"}
 								<DropdownMenu.Item
-									class="gap-2"
+									class="gap-2 py-2"
 									onSelect={() => cloudShare.setWorkspace(ws.id)}
 								>
-									<span class="flex-1 truncate">{ws.name}</span>
-									<span class="text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">
-										{roleLabel(ws.role)}
+									<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+										<span class="flex items-center gap-1.5">
+											<span class="truncate text-[12px] font-medium">{ws.name}</span>
+											<span
+												class={cn(
+													"inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide",
+													isPaid
+														? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/30"
+														: "bg-muted text-muted-foreground ring-1 ring-inset ring-border/50",
+												)}
+											>
+												{#if isPaid}<Crown class="size-2" />{/if}
+												{planLabel(ws.plan)}
+											</span>
+										</span>
+										<span class="text-[10px] text-muted-foreground">
+											{roleLabel(ws.role)} · {ws.recastsCount}
+											{ws.recastsCount === 1 ? "recast" : "recasts"}
+										</span>
 									</span>
 									{#if selected}
-										<Check class="size-3.5 text-primary" />
+										<Check class="size-3.5 shrink-0 text-primary" />
 									{:else}
-										<span class="size-3.5"></span>
+										<span class="size-3.5 shrink-0"></span>
 									{/if}
 								</DropdownMenu.Item>
 							{/each}

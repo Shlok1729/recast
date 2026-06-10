@@ -11,32 +11,27 @@
   import VideoPreview from "$components/editor/VideoPreview.svelte";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import EditorSkeleton from "$components/skeletons/EditorSkeleton.svelte";
-  import { rasterizeCursorSprites } from "$lib/export/rasterize-cursor";
-  import { expandTextAnnotations } from "$lib/export/rasterize-text";
   import type { ExportStateEvent } from "$lib/ipc";
   import {
     autosaveProject,
     cancelExport,
     clearAutosave,
     createExportId,
-    exportVideo,
     extractWaveform,
     generateThumbnails,
-    listenToExportState,
     loadEditorDocument,
     saveProjectEdits,
-    suggestZoomRegions,
   } from "$lib/ipc";
+  import { generateAutoZoom } from "$lib/services/analysis";
+  import { buildExportRenderState, runExport } from "$lib/services/export";
   import { isShareSupported, shareRecording } from "$lib/share";
   import {
     createEditorStore,
-    framePaddingPixels,
     type VideoMetadata,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
   import { cloudShare } from "$lib/stores/cloudShare.svelte";
-  import { applyAutoZooms } from "$lib/zoom/auto-apply";
   import {
     ArrowLeft,
     CheckCircle2,
@@ -454,37 +449,15 @@
     if (!cursorPath) return;
     autoZoomRunning = true;
     try {
-      const suggestions = await suggestZoomRegions(cursorPath);
-      const dur = store.metadata?.duration ?? 0;
-      const w = store.metadata?.width ?? 0;
-      const h = store.metadata?.height ?? 0;
-      const bounds = {
-        start: store.inPoint,
-        end: store.outPoint > 0 ? store.outPoint : dur,
-      };
-      if (bounds.end <= bounds.start) {
-        store.autoZoomApplied = true;
-        return;
-      }
-      // Single coalesced undo entry covering all auto-applied regions.
-      store.pushUndoState();
-      const result = applyAutoZooms(store, suggestions, bounds, w, h);
-      store.autoZoomApplied = true;
-      // Persist immediately so a crash before the 30 s autosave tick doesn't
-      // re-run auto-zoom on next open and double up regions.
-      if (documentPath) {
-        try {
-          await autosaveProject(
-            documentPath,
-            JSON.stringify(store.toRenderState()),
-          );
-        } catch (err) {
-          console.warn("Auto-zoom autosave failed:", err);
-        }
-      }
-      if (result.applied > 0) {
+      // generateAutoZoom latches store.autoZoomApplied itself (it's persisted
+      // document state) on all non-error paths, before its own autosave.
+      const outcome = await generateAutoZoom(store, cursorPath, {
+        documentPath,
+      });
+      if (outcome.reason === "bad-bounds") return;
+      if (outcome.applied > 0) {
         toast.success(
-          `Added ${result.applied} focus moment${result.applied === 1 ? "" : "s"}`,
+          `Added ${outcome.applied} focus moment${outcome.applied === 1 ? "" : "s"}`,
           {
             description: "Tweak, remove, or turn off in the Focus panel.",
             action: {
@@ -710,68 +683,20 @@
     exportNow = exportStartedAt;
     resetPrep();
 
-    const unlistenExportState = await listenToExportState(
-      exportId,
-      handleExportState,
-    );
-    // Tauri's IPC layer — that round-trip can lag visibly on some systems
-
     try {
-      // Hybrid-raster pass: replace text annotations with image-kind ones
-      // whose `path` is a base64-encoded PNG. Rust's draw_image consumes
-      // both file paths and `data:` URLs uniformly.
-      const renderState = store.toRenderState();
-      const meta = store.metadata;
-      const paddingPx = framePaddingPixels(renderState.padding ?? 0, meta);
-      const canvasW = meta ? meta.width + paddingPx * 2 : 0;
-      const canvasH = meta ? meta.height + paddingPx * 2 : 0;
-      // Run the two hybrid-raster passes in parallel — they don't depend
-      // on each other and the cursor SVG decode is non-trivial on cold
-      // boot (Image() onload is async even for inline blobs). This trims
-      // perceived "Preparing…" time roughly in half on projects with text.
-      prepText = renderState.annotations.some((a) => a.kind.kind === "text")
-        ? "running"
-        : "done";
-      prepCursor = store.cursorSettings.style !== "dot" ? "running" : "done";
-      const [expandedAnnotations, cursorSprites] = await Promise.all([
-        expandTextAnnotations(renderState.annotations, canvasW, canvasH).then(
-          (r) => {
-            prepText = "done";
-            return r;
+      // Build the exact payload Rust renders: hybrid-raster passes (text →
+      // PNG, cursor → sprite sheet) plus per-lane enable toggles. The prep
+      // sub-stages drive the "Preparing…" UI via these hooks.
+      const { renderState: finalRenderState, metadata: meta } =
+        await buildExportRenderState(store, {
+          silenceDetectionEnabled: experimentalStore.silenceDetection,
+          hooks: {
+            onText: (s) => (prepText = s),
+            onCursor: (s) => (prepCursor = s),
+            onSending: (s) => (prepSending = s),
           },
-        ),
-        rasterizeCursorSprites(
-          store.cursorSettings.style,
-          store.cursorSettings.size * 16,
-        ).then((r) => {
-          prepCursor = "done";
-          return r;
-        }),
-      ]);
-      prepSending = "running";
-      // Honor the per-lane "enable" toggles. The underlying data is preserved
-      // on the store; here we just hand the export pipeline the active set,
-      // so toggling a lane off bypasses its effect in the rendered file.
-      const finalRenderState = {
-        ...renderState,
-        annotations: store.annotationsGloballyHidden ? [] : expandedAnnotations,
-        zoomRegions: store.focusEnabled ? renderState.zoomRegions : [],
-        cuts:
-          experimentalStore.silenceDetection && store.cutsEnabled
-            ? renderState.cuts
-            : [],
-        cursorSpriteRest: cursorSprites?.rest,
-        cursorSpritePress: cursorSprites?.press,
-        cursorSpriteRightPress: cursorSprites?.rightPress,
-        cursorSpriteDrag: cursorSprites?.drag,
-        cursorSpriteHotspotRest: cursorSprites?.restHotspot,
-        cursorSpriteHotspotPress: cursorSprites?.pressHotspot,
-        cursorSpriteHotspotRightPress: cursorSprites?.rightPressHotspot,
-        cursorSpriteHotspotDrag: cursorSprites?.dragHotspot,
-        cursorSpriteSizePx: cursorSprites?.pixelSize,
-      };
+        });
 
-      prepSending = "done";
       // Capture the exact settings this export ran with — the single most
       // useful line when a user reports "my export looked wrong".
       log.info("export", "export_started", {
@@ -786,18 +711,20 @@
         padding: finalRenderState.padding ?? 0,
         durationSec: meta ? Math.round(meta.duration) : undefined,
       });
-      const path = await exportVideo(
-        documentPath || data.filePath,
-        store.exportFormat,
-        store.exportQuality,
-        finalRenderState,
+      const path = await runExport({
+        inputPath: documentPath || data.filePath,
+        format: store.exportFormat,
+        quality: store.exportQuality,
+        renderState: finalRenderState,
         exportId,
-        store.exportFormat === "gif" ? store.gifSettings : undefined,
-        store.exportSpeed,
+        gifSettings:
+          store.exportFormat === "gif" ? store.gifSettings : undefined,
+        speed: store.exportSpeed,
         // GIF carries its own fps in gifSettings; MP4/WebM use the picker
         // (null = keep source rate).
-        store.exportFormat === "gif" ? undefined : store.exportFps,
-      );
+        fps: store.exportFormat === "gif" ? undefined : store.exportFps,
+        onState: handleExportState,
+      });
       // Safety net: if the export-state success event was missed, fall back to
       // the Promise result. Don't overwrite if the listener already set it.
       if (!exportResult) {
@@ -825,7 +752,6 @@
         }
       }
     } finally {
-      unlistenExportState();
       if (activeExportId === exportId) {
         activeExportId = null;
       }

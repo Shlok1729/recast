@@ -32,9 +32,10 @@ export interface GenerateAutoZoomOptions {
  * Detect focus candidates from a cursor track and place focus regions on the
  * project. Pushes a single coalesced undo entry covering all placed regions.
  *
- * Returns an outcome describing what happened; it does NOT toast, latch
- * `autoZoomApplied`, or guard against concurrent runs — those are UI concerns
- * the caller owns.
+ * Sets the persisted `autoZoomApplied` latch (it's part of the project
+ * document) before the autosave so a crash can't trigger a re-run on reopen.
+ * Returns an outcome describing what happened; it does NOT toast or guard
+ * against concurrent runs — those are UI concerns the caller owns.
  */
 export async function generateAutoZoom(
 	store: EditorStore,
@@ -50,12 +51,18 @@ export async function generateAutoZoom(
 		end: store.outPoint > 0 ? store.outPoint : dur,
 	};
 	if (bounds.end <= bounds.start) {
+		// Nothing to place, but latch the flag so we don't retry every reopen.
+		store.autoZoomApplied = true;
 		return { applied: 0, reason: "bad-bounds" };
 	}
 
 	// Single coalesced undo entry covering all auto-applied regions.
 	store.pushUndoState();
 	const result = applyAutoZooms(store, suggestions, bounds, w, h);
+	// Latch BEFORE the autosave below so the persisted document records that
+	// auto-zoom already ran — otherwise a crash before the next 30s autosave
+	// tick would re-run auto-zoom on reopen and double up regions.
+	store.autoZoomApplied = true;
 
 	if (opts.documentPath) {
 		try {

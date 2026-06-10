@@ -52,6 +52,10 @@ export type CloudWorkspace = {
 	name: string;
 	/** "owner" | "admin" | "member". */
 	role: string;
+	/** "free" | "pro" | "enterprise" — the org's plan. */
+	plan: string;
+	/** Live (non-deleted) recast count in the workspace. */
+	recastsCount: number;
 };
 
 // NOTE: the Rust `auth_status` command returns a struct annotated
@@ -115,6 +119,10 @@ function createCloudShareStore() {
 	const uploads = $state<Record<string, CloudUpload>>({});
 	const uploadHistory = $state<Record<string, CloudUploadRecord>>({});
 
+	// Flips true after the first `init()` completes. The share flow uses it to
+	// avoid a blocking network round-trip on every click — once hydrated, the
+	// cached workspace list opens the picker instantly.
+	let initialized = $state(false);
 	let listenersAttached = false;
 
 	async function attachListeners() {
@@ -240,10 +248,14 @@ function createCloudShareStore() {
 		title: string,
 		workspaceId?: string,
 	): Promise<CloudShareResult> {
-		if (!(await isTauriApp())) throw new Error("not running in Tauri");
-		await attachListeners();
+		// Seed the in-flight entry SYNCHRONOUSLY (before any await) so the
+		// corner "Preparing…" card renders the instant the user clicks Share —
+		// otherwise the awaits below (Tauri probe + dynamic import) leave the
+		// screen looking frozen for a beat.
 		const fileName = path.split(/[\\/]/).pop() ?? path;
 		uploads[path] = { sourcePath: path, fileName, phase: "preparing", status: "uploading" };
+		if (!(await isTauriApp())) throw new Error("not running in Tauri");
+		await attachListeners();
 		// Explicit target wins; otherwise the resolved active workspace (local
 		// pick or server default). `undefined` lets the Rust side fall back to
 		// /api/desktop/profile's defaultWorkspaceId as a last resort.
@@ -312,6 +324,10 @@ function createCloudShareStore() {
 		get signedIn() {
 			return signedIn;
 		},
+		/** True once the first `init()` has resolved (status + workspaces loaded). */
+		get initialized() {
+			return initialized;
+		},
 		get planName() {
 			return planName;
 		},
@@ -346,6 +362,7 @@ function createCloudShareStore() {
 			await attachListeners();
 			await refreshStatus();
 			await refreshHistory();
+			initialized = true;
 		},
 
 		refreshStatus,

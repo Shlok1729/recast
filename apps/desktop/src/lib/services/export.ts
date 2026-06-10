@@ -110,8 +110,12 @@ export async function buildExportRenderState(
 				: [],
 		cursorSpriteRest: cursorSprites?.rest,
 		cursorSpritePress: cursorSprites?.press,
+		cursorSpriteRightPress: cursorSprites?.rightPress,
+		cursorSpriteDrag: cursorSprites?.drag,
 		cursorSpriteHotspotRest: cursorSprites?.restHotspot,
 		cursorSpriteHotspotPress: cursorSprites?.pressHotspot,
+		cursorSpriteHotspotRightPress: cursorSprites?.rightPressHotspot,
+		cursorSpriteHotspotDrag: cursorSprites?.dragHotspot,
 		cursorSpriteSizePx: cursorSprites?.pixelSize,
 	};
 	hooks?.onSending?.("done");

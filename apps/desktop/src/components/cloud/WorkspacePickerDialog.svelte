@@ -48,6 +48,12 @@
 		return role ? role[0]!.toUpperCase() + role.slice(1) : "Member";
 	}
 
+	function planLabel(plan: string): string {
+		if (plan === "pro") return "Pro";
+		if (plan === "enterprise") return "Enterprise";
+		return "Free";
+	}
+
 	function confirm() {
 		if (!chosen) return;
 		onConfirm(chosen, remember);
@@ -72,6 +78,7 @@
 				{#each workspaces as ws (ws.id)}
 					{@const active = chosen === ws.id}
 					{@const isOwner = ws.role === "owner"}
+					{@const isPaid = ws.plan !== "free"}
 					<button
 						type="button"
 						onclick={() => (chosen = ws.id)}
@@ -91,10 +98,27 @@
 							{(ws.name.trim()[0] ?? "?").toUpperCase()}
 						</span>
 						<span class="min-w-0 flex-1">
-							<span class="block truncate font-medium text-foreground">{ws.name}</span>
-							<span class="flex items-center gap-1 text-[10.5px] text-muted-foreground">
-								{#if isOwner}<Crown class="size-2.5" />{/if}
-								{roleLabel(ws.role)}
+							<span class="flex items-center gap-1.5">
+								<span class="truncate font-medium text-foreground">{ws.name}</span>
+								<span
+									class={cn(
+										"inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide",
+										isPaid
+											? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/30"
+											: "bg-muted text-muted-foreground ring-1 ring-inset ring-border/50",
+									)}
+								>
+									{#if isPaid}<Crown class="size-2" />{/if}
+									{planLabel(ws.plan)}
+								</span>
+							</span>
+							<span class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+								<span class="flex items-center gap-1">
+									{#if isOwner}<Crown class="size-2.5" />{/if}
+									{roleLabel(ws.role)}
+								</span>
+								<span class="text-muted-foreground/40">·</span>
+								<span>{ws.recastsCount} {ws.recastsCount === 1 ? "recast" : "recasts"}</span>
 							</span>
 						</span>
 						{#if active}<Check class="size-4 shrink-0 text-primary" />{/if}

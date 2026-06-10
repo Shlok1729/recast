@@ -227,6 +227,11 @@ pub struct Workspace {
     name: String,
     /// "owner" | "admin" | "member" — surfaced as a badge in the picker.
     role: String,
+    /// "free" | "pro" | "enterprise" — the workspace's (org's) plan, shown as
+    /// a badge so the user can tell which team a share lands on.
+    plan: String,
+    /// Live (non-deleted) recast count in this workspace.
+    recasts_count: u64,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -366,6 +371,15 @@ fn parse_profile_body(body: &serde_json::Value) -> AuthStatus {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("member")
                                 .to_string(),
+                            plan: w
+                                .get("plan")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("free")
+                                .to_string(),
+                            recasts_count: w
+                                .get("recastsCount")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0),
                         })
                     })
                     .collect()
