@@ -46,20 +46,71 @@ export type CloudAuth = {
 	};
 };
 
+/** A workspace the user can upload into — mirrors the Rust `Workspace`. */
+export type CloudWorkspace = {
+	id: string;
+	name: string;
+	/** "owner" | "admin" | "member". */
+	role: string;
+};
+
+// NOTE: the Rust `auth_status` command returns a struct annotated
+// `#[serde(rename_all = "camelCase")]`, so Tauri serializes every field as
+// camelCase on the wire — `signedIn`, `defaultWorkspaceId`, `storageBytes`,
+// etc. (NOT the Rust snake_case identifiers). An earlier version of this
+// store read `s.signed_in`, which is always `undefined` over IPC — that's
+// why the signed-in gate silently failed after any status refresh.
 type AuthStatusShape = {
-	signed_in: boolean;
+	signedIn: boolean;
 	plan?: { name?: string } | null;
 	usage?: {
-		active_shares?: number;
-		shares_limit?: number | null;
-		storage_bytes?: number;
+		activeShares?: number;
+		sharesLimit?: number | null;
+		storageBytes?: number;
 	} | null;
+	workspaces?: CloudWorkspace[] | null;
+	defaultWorkspaceId?: string | null;
 };
+
+/**
+ * localStorage key for the user's preferred upload workspace. The value is
+ * the org id; it's validated against the live membership list on every
+ * status refresh and dropped if the user no longer belongs to it (e.g. they
+ * left the team, or signed into a different account). This is a desktop-local
+ * preference — it never mutates the server session's active org, which keeps
+ * the desktop's upload target independent of what the web dashboard shows.
+ */
+const WORKSPACE_PREF_KEY = "recast-cloud-workspace";
+
+function readWorkspacePref(): string | null {
+	try {
+		return globalThis.localStorage?.getItem(WORKSPACE_PREF_KEY) ?? null;
+	} catch {
+		return null;
+	}
+}
+
+function writeWorkspacePref(id: string | null): void {
+	try {
+		if (id) globalThis.localStorage?.setItem(WORKSPACE_PREF_KEY, id);
+		else globalThis.localStorage?.removeItem(WORKSPACE_PREF_KEY);
+	} catch {
+		// Private mode / disabled storage — selection just won't persist
+		// across launches. Non-fatal; the in-memory choice still holds.
+	}
+}
 
 function createCloudShareStore() {
 	let signedIn = $state(false);
 	let planName = $state<string | undefined>(undefined);
 	let usage = $state<CloudAuth["usage"] | undefined>(undefined);
+
+	// Workspace targeting. `workspaces` + `defaultWorkspaceId` come from the
+	// server on each status refresh; `selectedWorkspaceId` is the desktop's
+	// persisted preference (validated against `workspaces` below).
+	let workspaces = $state<CloudWorkspace[]>([]);
+	let defaultWorkspaceId = $state<string | null>(null);
+	let selectedWorkspaceId = $state<string | null>(readWorkspacePref());
 
 	const uploads = $state<Record<string, CloudUpload>>({});
 	const uploadHistory = $state<Record<string, CloudUploadRecord>>({});
@@ -110,24 +161,58 @@ function createCloudShareStore() {
 		);
 	}
 
-	/** Mirror sign-in state + plan/quota from the Rust `auth_status` command. */
+	/** Mirror sign-in state + plan/quota + workspaces from `auth_status`. */
 	async function refreshStatus() {
 		if (!(await isTauriApp())) return;
 		try {
 			const { invoke } = await import("@tauri-apps/api/core");
 			const s = await invoke<AuthStatusShape>("auth_status");
-			signedIn = s.signed_in;
+			signedIn = s.signedIn;
 			planName = s.plan?.name ?? undefined;
 			usage = s.usage
 				? {
-						activeShares: s.usage.active_shares ?? 0,
-						sharesLimit: s.usage.shares_limit ?? null,
-						storageBytes: s.usage.storage_bytes ?? 0,
+						activeShares: s.usage.activeShares ?? 0,
+						sharesLimit: s.usage.sharesLimit ?? null,
+						storageBytes: s.usage.storageBytes ?? 0,
 					}
 				: undefined;
+			applyWorkspaces(s.signedIn ? (s.workspaces ?? []) : [], s.defaultWorkspaceId ?? null);
 		} catch (e) {
 			console.error("[cloud] status check failed", e);
 		}
+	}
+
+	/**
+	 * Reconcile the workspace list + server default with the persisted local
+	 * preference. Signing out (or into an account that lacks the previously
+	 * chosen workspace) clears the stale selection so we never upload into a
+	 * team the user no longer belongs to — the server would reject it anyway,
+	 * but dropping it here keeps the UI honest.
+	 */
+	function applyWorkspaces(list: CloudWorkspace[], serverDefault: string | null) {
+		workspaces = list;
+		defaultWorkspaceId = serverDefault;
+		if (selectedWorkspaceId && !list.some((w) => w.id === selectedWorkspaceId)) {
+			selectedWorkspaceId = null;
+			writeWorkspacePref(null);
+		}
+	}
+
+	/** The workspace uploads will target: the local pick if still valid, else
+	 * the server default. `null` only when the user belongs to none. */
+	function resolveActiveWorkspaceId(): string | null {
+		if (selectedWorkspaceId && workspaces.some((w) => w.id === selectedWorkspaceId)) {
+			return selectedWorkspaceId;
+		}
+		return defaultWorkspaceId;
+	}
+
+	/** Persist the user's preferred upload workspace (or clear to follow the
+	 * server default). No-op if `id` isn't a workspace the user belongs to. */
+	function setWorkspace(id: string | null) {
+		if (id && !workspaces.some((w) => w.id === id)) return;
+		selectedWorkspaceId = id;
+		writeWorkspacePref(id);
 	}
 
 	/** Pull the upload manifest from disk into the in-memory map. */
@@ -150,13 +235,21 @@ function createCloudShareStore() {
 	 * drives subsequent phase updates via events. Resolves with the result or
 	 * rejects (the error event already updated the card).
 	 */
-	async function share(path: string, title: string): Promise<CloudShareResult> {
+	async function share(
+		path: string,
+		title: string,
+		workspaceId?: string,
+	): Promise<CloudShareResult> {
 		if (!(await isTauriApp())) throw new Error("not running in Tauri");
 		await attachListeners();
 		const fileName = path.split(/[\\/]/).pop() ?? path;
 		uploads[path] = { sourcePath: path, fileName, phase: "preparing", status: "uploading" };
+		// Explicit target wins; otherwise the resolved active workspace (local
+		// pick or server default). `undefined` lets the Rust side fall back to
+		// /api/desktop/profile's defaultWorkspaceId as a last resort.
+		const target = workspaceId ?? resolveActiveWorkspaceId() ?? undefined;
 		try {
-			return await recastCloudUpload(path, title);
+			return await recastCloudUpload(path, title, target);
 		} catch (e) {
 			// The Rust side emitted `recast-cloud:error`; ensure the card
 			// reflects it even if the event was missed, then re-throw.
@@ -225,6 +318,19 @@ function createCloudShareStore() {
 		get usage() {
 			return usage;
 		},
+		/** All workspaces the signed-in user belongs to (active-org-first). */
+		get workspaces() {
+			return workspaces;
+		},
+		/** The id uploads will target right now (local pick or server default). */
+		get activeWorkspaceId() {
+			return resolveActiveWorkspaceId();
+		},
+		/** The full workspace object for {@link activeWorkspaceId}, if known. */
+		get activeWorkspace() {
+			const id = resolveActiveWorkspaceId();
+			return id ? (workspaces.find((w) => w.id === id) ?? null) : null;
+		},
 		get uploads() {
 			return uploads;
 		},
@@ -244,6 +350,7 @@ function createCloudShareStore() {
 
 		refreshStatus,
 		refreshHistory,
+		setWorkspace,
 		share,
 		dismiss,
 		deleteCloud,

@@ -214,6 +214,21 @@ pub struct AuthUsage {
     shares_limit: Option<u64>,
 }
 
+/// One workspace (Better Auth `organization`) the signed-in user belongs to.
+/// Mirrors the `workspaces[]` entries `/api/desktop/profile` returns so the
+/// desktop can offer a target picker at share time. Uploads carry an explicit
+/// `workspaceId` and the server re-validates membership on
+/// `/api/uploads/init`, so a stale id fails closed rather than silently
+/// uploading into a team the user was removed from.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Workspace {
+    id: String,
+    name: String,
+    /// "owner" | "admin" | "member" — surfaced as a badge in the picker.
+    role: String,
+}
+
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatus {
@@ -233,6 +248,15 @@ pub struct AuthStatus {
     /// UI should be defensive.
     plan: Option<AuthPlan>,
     usage: Option<AuthUsage>,
+    /// Workspaces the user belongs to (active-org-first ordering from the
+    /// server). Empty on the get-session fallback path — the picker simply
+    /// won't offer a choice until a profile fetch succeeds.
+    workspaces: Vec<Workspace>,
+    /// The server's preferred upload target: the session's active org if the
+    /// user is still a member, else their first workspace. `None` when the
+    /// user belongs to no workspace. The desktop's local preference overrides
+    /// this when set and still valid.
+    default_workspace_id: Option<String>,
 }
 
 /// Parses Better Auth's `/api/auth/get-session` response body into our
@@ -260,6 +284,8 @@ fn parse_session_body(body: &serde_json::Value) -> AuthStatus {
         member_since: None,
         plan: None,
         usage: None,
+        workspaces: Vec::new(),
+        default_workspace_id: None,
     }
 }
 
@@ -321,6 +347,34 @@ fn parse_profile_body(body: &serde_json::Value) -> AuthStatus {
             active_shares: u.get("activeShares").and_then(|v| v.as_u64()).unwrap_or(0),
             shares_limit: u.get("sharesLimit").and_then(|v| v.as_u64()),
         }),
+        workspaces: body
+            .get("workspaces")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|w| {
+                        let id = w.get("id").and_then(|v| v.as_str())?.to_string();
+                        Some(Workspace {
+                            id,
+                            name: w
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Workspace")
+                                .to_string(),
+                            role: w
+                                .get("role")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("member")
+                                .to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        default_workspace_id: body
+            .get("defaultWorkspaceId")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
     }
 }
 

@@ -1,21 +1,31 @@
 <script lang="ts">
 	import {
 	  ArrowUpRight,
+	  Check,
+	  ChevronsUpDown,
 	  Cloud,
 	  Crown,
 	  LoaderCircle,
 	  LogOut,
 	  ShieldAlert,
 	  Sparkles,
+	  Users,
 	  Video,
 	} from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
+	import * as DropdownMenu from "@recast/ui/dropdown-menu";
 	import { toast } from "@recast/ui/sonner";
 	import { cn } from "@recast/ui/utils";
 	import { invoke } from "@tauri-apps/api/core";
 	import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { onDestroy, onMount } from "svelte";
+	import { cloudShare } from "$lib/stores/cloudShare.svelte";
+
+	/** Title-case a workspace role for the badge ("owner" → "Owner"). */
+	function roleLabel(role: string): string {
+		return role ? role[0]!.toUpperCase() + role.slice(1) : "Member";
+	}
 
 	/**
 	 * "Sign in to Recast Cloud" row. Recast Cloud is the Loom-style sharing
@@ -44,8 +54,11 @@
 		activeShares: number;
 		sharesLimit: number | null;
 	};
+	// Field names match the camelCase wire shape Tauri emits for the Rust
+	// `AuthStatus` (it's `#[serde(rename_all = "camelCase")]`) — so `signedIn`,
+	// not `signed_in`. Reading the snake form silently yields `undefined`.
 	type AuthStatus = {
-		signed_in: boolean;
+		signedIn: boolean;
 		email?: string | null;
 		name?: string | null;
 		image?: string | null;
@@ -152,9 +165,12 @@
 	async function loadStatus() {
 		try {
 			const status = await invoke<AuthStatus>("auth_status");
-			view = status.signed_in
+			view = status.signedIn
 				? { kind: "signed-in", ...toProfile(status) }
 				: { kind: "signed-out" };
+			// Keep the shared store (which the share flow reads for workspace
+			// targeting) in sync with what we just fetched.
+			void cloudShare.refreshStatus();
 		} catch (e) {
 			toast.error(`Couldn't check sign-in state: ${e}`);
 			view = { kind: "signed-out" };
@@ -165,7 +181,7 @@
 	async function refreshProfile() {
 		try {
 			const status = await invoke<AuthStatus>("auth_status");
-			if (status.signed_in && view.kind === "signed-in") {
+			if (status.signedIn && view.kind === "signed-in") {
 				view = { kind: "signed-in", ...toProfile(status) };
 			}
 		} catch {
@@ -198,6 +214,8 @@
 			await invoke("auth_sign_out");
 			toast.success("Signed out of Recast Cloud.");
 			view = { kind: "signed-out" };
+			// Drops the cached workspace list + persisted selection.
+			void cloudShare.refreshStatus();
 		} catch (e) {
 			toast.error(`Couldn't sign out: ${e}`);
 		} finally {
@@ -246,6 +264,9 @@
 					// /api/desktop/profile after /device/token returns), so the
 					// payload carries plan + usage — no refetch needed here.
 					view = { kind: "signed-in", ...toProfile(s ?? ({} as AuthStatus)) };
+					// Hydrate the shared store so the workspace selector below and
+					// the share flow both see the freshly-signed-in workspaces.
+					void cloudShare.refreshStatus();
 					toast.success("Signed in to Recast Cloud.");
 				}),
 				listen("auth:denied", () => {
@@ -363,6 +384,62 @@
 					{/if}
 				</Button>
 			</div>
+
+			<!-- Default workspace — only meaningful when the user belongs to
+				 more than one. Uploads target this workspace unless overridden
+				 at share time. Backed by the shared cloudShare store (which the
+				 share flow reads), persisted locally; it never changes the
+				 web session's active org. -->
+			{#if cloudShare.workspaces.length > 1}
+				{@const active = cloudShare.activeWorkspace}
+				<div
+					class="flex items-center justify-between gap-3 border-t border-border/40 px-4 py-3"
+				>
+					<div class="flex min-w-0 items-center gap-2">
+						<Users class="size-3.5 shrink-0 text-muted-foreground" />
+						<div class="min-w-0">
+							<div class="text-[11px] font-semibold text-foreground/85">
+								Upload to
+							</div>
+							<div class="truncate text-[10.5px] text-muted-foreground">
+								New shares are saved here
+							</div>
+						</div>
+					</div>
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class={cn(
+								"inline-flex h-8 max-w-[55%] items-center gap-1.5 rounded-md border border-border/60 bg-background/50 px-2.5 text-[11.5px] font-medium text-foreground transition-colors hover:bg-foreground/4",
+							)}
+						>
+							<span class="truncate">{active?.name ?? "Select workspace"}</span>
+							<ChevronsUpDown class="size-3 shrink-0 text-muted-foreground" />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="end" class="min-w-60">
+							<DropdownMenu.Label class="text-[10px] uppercase tracking-wide text-muted-foreground">
+								Workspaces
+							</DropdownMenu.Label>
+							{#each cloudShare.workspaces as ws (ws.id)}
+								{@const selected = active?.id === ws.id}
+								<DropdownMenu.Item
+									class="gap-2"
+									onSelect={() => cloudShare.setWorkspace(ws.id)}
+								>
+									<span class="flex-1 truncate">{ws.name}</span>
+									<span class="text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+										{roleLabel(ws.role)}
+									</span>
+									{#if selected}
+										<Check class="size-3.5 text-primary" />
+									{:else}
+										<span class="size-3.5"></span>
+									{/if}
+								</DropdownMenu.Item>
+							{/each}
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+				</div>
+			{/if}
 
 			<!-- Usage stats — only render if we got profile data back. The
 				 fallback get-session path leaves `usage` null; rather than

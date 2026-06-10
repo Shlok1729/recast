@@ -38,6 +38,7 @@
   import { gdrive } from "$lib/stores/gdrive.svelte";
   import { cloudShare } from "$lib/stores/cloudShare.svelte";
   import ShareManageDialog from "$components/cloud/ShareManageDialog.svelte";
+  import WorkspacePickerDialog from "$components/cloud/WorkspacePickerDialog.svelte";
   import { isShareSupported, shareRecording } from "$lib/share";
   import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
@@ -66,6 +67,8 @@
   let deleteTarget = $state<RecordingEntry | null>(null);
   let manageTarget = $state<RecordingEntry | null>(null);
   let playTarget = $state<RecordingEntry | null>(null);
+  // Set when a share needs a workspace choice (user is in >1 workspace).
+  let workspacePick = $state<{ path: string; title: string; fileName: string } | null>(null);
 
   // Multi-select: a toolbar "Select" toggle flips the page into selection
   // mode, where clicking a card checks it instead of opening the file.
@@ -206,8 +209,19 @@
       return;
     }
     const title = entry.filename.replace(/\.[^.]+$/, "");
+    // Belongs to more than one workspace → let them confirm the target before
+    // the upload commits. A single workspace (or none) needs no prompt.
+    if (cloudShare.workspaces.length > 1) {
+      workspacePick = { path: entry.path, title, fileName: entry.filename };
+      return;
+    }
+    await performCloudShare(entry.path, title);
+  }
+
+  /** Upload + create a link for an already-targeted share, then copy it. */
+  async function performCloudShare(path: string, title: string, workspaceId?: string) {
     try {
-      const result = await cloudShare.share(entry.path, title);
+      const result = await cloudShare.share(path, title, workspaceId);
       try {
         await navigator.clipboard.writeText(result.shareUrl);
         toast.success("Shared — link copied to clipboard.");
@@ -1012,6 +1026,24 @@
     path={manageTarget.path}
     onOpenChange={(v: boolean) => {
       if (!v) manageTarget = null;
+    }}
+  />
+{/if}
+
+{#if workspacePick}
+  <WorkspacePickerDialog
+    open={true}
+    workspaces={cloudShare.workspaces}
+    activeId={cloudShare.activeWorkspaceId}
+    fileName={workspacePick.fileName}
+    onConfirm={(workspaceId, remember) => {
+      const pick = workspacePick;
+      if (!pick) return;
+      if (remember) cloudShare.setWorkspace(workspaceId);
+      void performCloudShare(pick.path, pick.title, workspaceId);
+    }}
+    onOpenChange={(v: boolean) => {
+      if (!v) workspacePick = null;
     }}
   />
 {/if}
