@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import EditorToolbar from "$components/editor/EditorToolbar.svelte";
   import ExportDialog from "$components/editor/ExportDialog.svelte";
@@ -25,25 +26,27 @@
   import { generateAutoZoom } from "$lib/services/analysis";
   import { buildExportRenderState, runExport } from "$lib/services/export";
   import { isShareSupported, shareRecording } from "$lib/share";
+  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
+  import { cloudShare } from "$lib/stores/cloudShare.svelte";
   import {
     createEditorStore,
     type VideoMetadata,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
-  import { cloudShare } from "$lib/stores/cloudShare.svelte";
   import {
     ArrowLeft,
     CheckCircle2,
     Circle,
+    Cloud,
     ExternalLink,
     FlaskConical,
     FolderOpen,
-    Cloud,
     HardDriveUpload,
     Link2,
     LoaderCircle,
     RefreshCw,
+    Scissors,
     Share2,
     TriangleAlert,
     Upload,
@@ -54,9 +57,7 @@
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { browser } from "$app/environment";
   import { onDestroy, onMount, tick } from "svelte";
-  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
 
   import { log } from "$lib/logger";
   import { cubicOut } from "svelte/easing";
@@ -689,7 +690,6 @@
       // sub-stages drive the "Preparing…" UI via these hooks.
       const { renderState: finalRenderState, metadata: meta } =
         await buildExportRenderState(store, {
-          silenceDetectionEnabled: experimentalStore.silenceDetection,
           hooks: {
             onText: (s) => (prepText = s),
             onCursor: (s) => (prepCursor = s),
@@ -797,6 +797,20 @@
               : null,
   );
   const isExportFlowOpen = $derived(exportPhase !== null);
+
+  // Silence-detection cuts only. Manual ripple deletes (`source: "manual"`) are
+  // a shipped feature — always honoured in preview and export regardless of the
+  // experimental flag — so they must NOT trip the "enable Silence detection"
+  // banner. Only auto-detected silence cuts depend on that flag's lane/UI.
+  const silenceCutCount = $derived(
+    store.cuts.filter((c) => c.source === "silence").length,
+  );
+  // Manual split/cut edits are gated behind the `timelineEditing` experiment.
+  // If a saved project carries them but the flag is off, the cuts are skipped —
+  // surface an opt-in so the work isn't silently lost (parallel to silence).
+  const manualCutCount = $derived(
+    store.cuts.filter((c) => c.source === "manual").length,
+  );
 
   function openExportOptions() {
     if (store.isExporting) return;
@@ -1220,7 +1234,7 @@
        experimental flag is off, so the cut lane is hidden and the cuts will
        be silently ignored on export. Surface that loudly with an inline
        opt-in so users sharing projects across machines don't lose work. -->
-  {#if !isLoading && !error && store.cuts.length > 0 && !experimentalStore.silenceDetection}
+  {#if !isLoading && !error && silenceCutCount > 0 && !experimentalStore.silenceDetection}
     <div
       class="flex items-center gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
       role="status"
@@ -1228,7 +1242,7 @@
       <FlaskConical class="size-3.5 shrink-0" />
       <VolumeX class="size-3.5 shrink-0" />
       <span class="min-w-0 flex-1 truncate">
-        This project has {store.cuts.length} silence cut{store.cuts.length === 1
+        This project has {silenceCutCount} silence cut{silenceCutCount === 1
           ? ""
           : "s"} — currently hidden and skipped on export. Enable
         <span class="font-semibold">Silence detection</span> to use them.
@@ -1239,6 +1253,33 @@
         class="h-6 shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
         onclick={() =>
           experimentalStore.setEnabled("silenceDetection", true)}
+      >
+        Enable
+      </Button>
+    </div>
+  {/if}
+
+  <!-- Manual edits banner: the project has split/cut edits but the opt-in
+       timeline-editing feature is off, so they're hidden and skipped on export.
+       Surface an inline opt-in so the edits aren't silently dropped. -->
+  {#if !isLoading && !error && manualCutCount > 0 && !experimentalStore.timelineEditing}
+    <div
+      class="flex items-center gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+      role="status"
+    >
+      <FlaskConical class="size-3.5 shrink-0" />
+      <Scissors class="size-3.5 shrink-0" />
+      <span class="min-w-0 flex-1 truncate">
+        This project has {manualCutCount} timeline edit{manualCutCount === 1
+          ? ""
+          : "s"} — currently hidden and skipped on export. Enable
+        <span class="font-semibold">Timeline editing</span> to use them.
+      </span>
+      <Button
+        variant="outline"
+        size="xs"
+        class="h-6 shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+        onclick={() => experimentalStore.setEnabled("timelineEditing", true)}
       >
         Enable
       </Button>

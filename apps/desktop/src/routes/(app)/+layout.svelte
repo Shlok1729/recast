@@ -19,7 +19,7 @@
   let { children } = $props();
   let routeKey = $derived(page.url.pathname);
   let section = $derived(
-    routeKey === "/" ? "Home" : routeKey.replace(/^\//, "").split("/")[0]
+    routeKey === "/" ? "Home" : routeKey.replace(/^\//, "").split("/")[0],
   );
 
   // Detected synchronously from the webview UA (same test the shortcuts
@@ -52,7 +52,9 @@
      embedded unified titlebar at the top of the content area. -->
 {#snippet shell()}
   <AppSidebar variant="inset" />
-  <Sidebar.Inset class="@container/layout overflow-hidden md:peer-data-[variant=inset]:ml-0">
+  <Sidebar.Inset
+    class="@container/layout overflow-hidden md:peer-data-[variant=inset]:ml-0"
+  >
     {#if !osNative}
       <CustomTitlebar class="items-center gap-1 px-3">
         <div
@@ -116,50 +118,50 @@
       data-recast-titlebar
       class="bg-sidebar fixed inset-x-0 top-0 z-50 flex h-10 select-none items-center gap-1 px-3"
     >
-    {#if isMac}
-      <WindowControls kind="mac" />
-    {/if}
-    <div
-      class="flex h-full items-center gap-2 font-sans"
-      data-tauri-drag-region
-    >
-      <Sidebar.Trigger
-        class="size-7 rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        title="Pin / unpin sidebar (⌘B)"
-      />
-      <span
-        class="pointer-events-none select-none text-[13px] font-semibold tracking-tight text-foreground/80"
+      {#if isMac}
+        <WindowControls kind="mac" />
+      {/if}
+      <div
+        class="flex h-full items-center gap-2 font-sans"
         data-tauri-drag-region
       >
-        {config.appName}
-      </span>
-      <span
-        class="pointer-events-none select-none text-[11px] font-medium text-muted-foreground/60"
-        data-tauri-drag-region
+        <Sidebar.Trigger
+          class="size-7 rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+          title="Pin / unpin sidebar (⌘B)"
+        />
+        <span
+          class="pointer-events-none select-none text-[13px] font-semibold tracking-tight text-foreground/80"
+          data-tauri-drag-region
+        >
+          {config.appName}
+        </span>
+        <span
+          class="pointer-events-none select-none text-[11px] font-medium text-muted-foreground/60"
+          data-tauri-drag-region
+        >
+          ·
+        </span>
+        <span
+          class="pointer-events-none select-none truncate text-[11px] font-medium capitalize text-muted-foreground/80"
+          data-tauri-drag-region
+        >
+          {section}
+        </span>
+      </div>
+      <div class="h-full flex-1" data-tauri-drag-region></div>
+      <button
+        type="button"
+        onclick={() => shortcutsDialog.show()}
+        onmousedown={(e) => e.stopPropagation()}
+        aria-label="Keyboard shortcuts"
+        title="Keyboard shortcuts (Ctrl + /)"
+        class="group inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground"
       >
-        ·
-      </span>
-      <span
-        class="pointer-events-none select-none truncate text-[11px] font-medium capitalize text-muted-foreground/80"
-        data-tauri-drag-region
-      >
-        {section}
-      </span>
-    </div>
-    <div class="h-full flex-1" data-tauri-drag-region></div>
-    <button
-      type="button"
-      onclick={() => shortcutsDialog.show()}
-      onmousedown={(e) => e.stopPropagation()}
-      aria-label="Keyboard shortcuts"
-      title="Keyboard shortcuts (Ctrl + /)"
-      class="group inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground"
-    >
-      <Keyboard size={15} />
-    </button>
-    {#if !isMac}
-      <WindowControls kind="win" class="shrink-0" />
-    {/if}
+        <Keyboard size={15} />
+      </button>
+      {#if !isMac}
+        <WindowControls kind="win" class="shrink-0" />
+      {/if}
     </header>
 
     {@render shell()}

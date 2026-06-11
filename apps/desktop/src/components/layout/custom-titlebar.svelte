@@ -4,6 +4,7 @@
   import { layoutMode } from "$lib/stores/layout-mode.svelte";
   import { Keyboard } from "@lucide/svelte";
   import { cn } from "@recast/ui/utils";
+  import { platform } from "@tauri-apps/plugin-os";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -17,10 +18,7 @@
   // Detected synchronously from the webview UA (same test the shortcuts
   // registry and the `(app)` shell use) so there's no chrome flash on first
   // paint; false under SSR.
-  const isMac =
-    typeof navigator !== "undefined" &&
-    /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent || "");
-
+  const isMac = ["darwin", "ios"].includes(platform());
   // Mirror the `(app)` shell's chrome modes so the editor titlebar follows the
   // same preference. `os-native` follows the OS — macOS traffic lights lead the
   // bar on the left, min/max/close sit on the right for Windows/Linux. `recast`
@@ -32,7 +30,7 @@
   data-recast-titlebar
   class={cn(
     "group h-10 flex items-center gap-1 border-b border-border/60 bg-background/70 backdrop-blur-xl shrink-0 select-none px-1 py-1 transition-all duration-300",
-    wrapperClass
+    wrapperClass,
   )}
 >
   <!-- macOS · os-native: traffic lights lead the bar, before the content. -->

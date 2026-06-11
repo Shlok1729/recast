@@ -10,6 +10,8 @@ import { log } from '../logger';
 // — which pulls this store's catalogs — can't form an import cycle.
 import { resolveBackgroundWireValue } from '../registry/resolve';
 import { totalCutDuration, type CutSource, type TimelineCut } from '../timeline/cuts';
+import { deriveSegments, planDeleteSegment, planSplit, segmentAt, type Segment } from '../timeline/segments';
+import { experimentalStore } from './experimental.svelte';
 
 export type BackgroundType = 'wallpaper' | 'image' | 'color' | 'gradient';
 
@@ -496,6 +498,10 @@ export interface EditorRenderState {
 	cuts?: TimelineCut[];
 	/** Whether cuts apply in preview/export (false = bypassed but preserved). */
 	cutsEnabled?: boolean;
+	/** Split markers (original-recording seconds) dividing the clip into
+	 *  individually deletable segments. Editor-only — has no export effect on
+	 *  its own; deleting a segment is what produces a cut. */
+	splitPoints?: number[];
 	/** Whether zoom regions apply in preview/export. */
 	focusEnabled?: boolean;
 	/** Whether annotations render in preview/export. Negation of the
@@ -740,6 +746,13 @@ export function createEditorStore() {
 
 	// Silence / manual cuts — removed ranges, in original-recording seconds.
 	let cuts = $state<TimelineCut[]>([]);
+	// Split markers (original-recording seconds) that divide the clip into
+	// individually deletable segments. Purely an editing aid — no export effect
+	// until a segment between two boundaries is ripple-deleted (→ a manual cut).
+	let splitPoints = $state<number[]>([]);
+	// Transient UI selection: the start time of the highlighted clip block, or
+	// null. Not serialized (mirrors selectedZoomRegionId).
+	let selectedClipStart = $state<number | null>(null);
 	// Silence suggestions the user has dismissed. Persisted so a re-scan or a
 	// project reopen doesn't resurface ranges they already rejected.
 	let dismissedSilences = $state<Array<{ start: number; end: number }>>([]);
@@ -919,6 +932,7 @@ export function createEditorStore() {
 			trimEnd,
 			zoomRegions,
 			cuts,
+			splitPoints,
 			autoZoomEnabled,
 			autoZoomApplied,
 			annotations,
@@ -1013,6 +1027,7 @@ export function createEditorStore() {
 		autoZoomEnabled = s.autoZoomEnabled ?? autoZoomEnabled;
 		autoZoomApplied = s.autoZoomApplied ?? autoZoomApplied;
 		cuts = (s.cuts ?? []).map((c: TimelineCut) => ({ ...c }));
+		splitPoints = [...(s.splitPoints ?? [])];
 		// Annotation undo: restore the captured array. Each entry already
 		// carries its own id from the snapshot — we keep them so refs from
 		// `selectedAnnotationId` etc. survive the undo cleanly.
@@ -1415,6 +1430,7 @@ export function createEditorStore() {
 		zoomRegions = [];
 		selectedZoomRegionId = null;
 		cuts = [];
+		splitPoints = [];
 		cutsEnabled = true;
 		focusEnabled = true;
 		dismissedSilences = [];
@@ -1535,6 +1551,114 @@ export function createEditorStore() {
 		cuts = merged;
 	}
 
+	//
+
+	/** The clip's effective kept bounds [start, end] in original seconds. */
+	function clipBounds(): { start: number; end: number } {
+		const d = metadata?.duration ?? 0;
+		return {
+			start: Math.max(0, trimStart),
+			end: trimEnd > 0 ? Math.min(trimEnd, d) : d,
+		};
+	}
+
+	// Split & cut is an experimental, opt-in feature (`timelineEditing`); auto
+	// silence is its own flag (`silenceDetection`). A cut is only "active" — i.e.
+	// shown on the timeline and applied in playback/export — when its source's
+	// flag is on AND the cuts lane is enabled. With both flags off the project's
+	// edits are preserved but ignored, so toggling a flag back on restores them.
+	function cutFlagAllows(c: TimelineCut): boolean {
+		return c.source === 'silence'
+			? experimentalStore.silenceDetection
+			: experimentalStore.timelineEditing;
+	}
+	/** Cuts that actually apply right now (flag-gated + lane-enabled). */
+	function effectiveCutList(): TimelineCut[] {
+		if (!cutsEnabled) return [];
+		return cuts.filter(cutFlagAllows);
+	}
+	/** Split markers only exist as a concept while timeline editing is on. */
+	function activeSplitPoints(): number[] {
+		return experimentalStore.timelineEditing ? splitPoints : [];
+	}
+
+	/** The current clip's kept segments: trim − active cuts, subdivided by
+	 * active splits. Drives both the timeline display and the edit math, so the
+	 * two never disagree. */
+	function currentSegments(): Segment[] {
+		const { start, end } = clipBounds();
+		return deriveSegments({
+			trimStart: start,
+			trimEnd: end,
+			cuts: effectiveCutList(),
+			splitPoints: activeSplitPoints(),
+		});
+	}
+
+	/** Split the clip at original time `t`. Returns true if a split was added. */
+	function splitAt(t: number): boolean {
+		if (!experimentalStore.timelineEditing) return false;
+		const { start, end } = clipBounds();
+		const next = planSplit(t, {
+			trimStart: start,
+			trimEnd: end,
+			cuts: effectiveCutList(),
+			splitPoints,
+		});
+		if (!next) return false;
+		pushUndoState();
+		splitPoints = next;
+		selectedClipStart = null;
+		return true;
+	}
+
+	/** Remove the split marker at (≈) original time `t`, rejoining the clips. */
+	function removeSplit(t: number) {
+		const next = splitPoints.filter((p) => Math.abs(p - t) > 1e-4);
+		if (next.length === splitPoints.length) return;
+		pushUndoState();
+		splitPoints = next;
+	}
+
+	function clearSplits() {
+		if (splitPoints.length === 0) return;
+		pushUndoState();
+		splitPoints = [];
+	}
+
+	/**
+	 * Ripple-delete the segment containing original time `t`: the segment's
+	 * range becomes a manual cut and the gap closes via the cut time-map. Pruned
+	 * split points that bordered it are dropped. Returns the original-time
+	 * "join" (the first kept frame after the deletion) to park the playhead on,
+	 * or null when there's nothing to delete (only one segment, or `t` is not in
+	 * a segment) — the whole recording can't be removed this way.
+	 */
+	function deleteSegmentAt(t: number): number | null {
+		if (!experimentalStore.timelineEditing) return null;
+		const segs = currentSegments();
+		if (segs.length <= 1) return null;
+		const seg = segmentAt(segs, t);
+		if (!seg) return null;
+		pushUndoState();
+		const plan = planDeleteSegment(seg, splitPoints);
+		splitPoints = plan.splitPoints;
+		cuts = [
+			...cuts,
+			{
+				id: generateId(),
+				start: plan.cut.start,
+				end: plan.cut.end,
+				source: 'manual' as CutSource,
+			},
+		].sort((a, b) => a.start - b.start);
+		selectedClipStart = null;
+		// `seg.end` is the first kept frame after the removed range (end-exclusive
+		// cut), so it's a safe spot for the playhead; `seg.start` would land
+		// inside the new cut.
+		return seg.end;
+	}
+
 	/** Record a dismissed silence range so detection won't suggest it again. */
 	function dismissSilence(start: number, end: number) {
 		dismissedSilences = [...dismissedSilences, { start, end }];
@@ -1595,6 +1719,7 @@ export function createEditorStore() {
 			autoZoomApplied,
 			autoZoomEnabled,
 			cuts: cuts.map((cut) => ({ ...cut })),
+			splitPoints: [...splitPoints],
 			cutsEnabled,
 			focusEnabled,
 			annotationsEnabled: !annotationsGloballyHidden,
@@ -1682,6 +1807,7 @@ export function createEditorStore() {
 			end: d.end,
 		}));
 		cutsEnabled = state.cutsEnabled ?? true;
+		splitPoints = [...(state.splitPoints ?? [])];
 		focusEnabled = state.focusEnabled ?? true;
 		if (state.annotationsEnabled !== undefined) {
 			annotationsGloballyHidden = !state.annotationsEnabled;
@@ -1837,8 +1963,11 @@ export function createEditorStore() {
 
 		get zoomRegions() { return zoomRegions; },
 
-		// Silence / manual cuts.
+		// Silence / manual cuts. `cuts` is the raw stored list (used by feature
+		// banners and the silence review); `effectiveCuts` is the flag-gated +
+		// lane-enabled subset that actually applies in playback/export/display.
 		get cuts() { return cuts; },
+		get effectiveCuts() { return effectiveCutList(); },
 		get cutDuration() { return totalCutDuration(cuts); },
 		get dismissedSilences() { return dismissedSilences; },
 
@@ -1846,6 +1975,14 @@ export function createEditorStore() {
 		// while keeping the underlying data intact.
 		get cutsEnabled() { return cutsEnabled; },
 		set cutsEnabled(v: boolean) { cutsEnabled = v; isDirty = true; log.info('feature', 'toggled', { feature: 'cuts', enabled: v }); },
+
+		// Split/segment editing. `segments` is derived (trim − active cuts, sliced
+		// by active splits); `splitPoints` is the marker list the timeline renders
+		// — both empty out when timeline editing is opted off.
+		get segments() { return currentSegments(); },
+		get splitPoints() { return activeSplitPoints(); },
+		get selectedClipStart() { return selectedClipStart; },
+		set selectedClipStart(v: number | null) { selectedClipStart = v; },
 		get focusEnabled() { return focusEnabled; },
 		set focusEnabled(v: boolean) { focusEnabled = v; isDirty = true; log.info('feature', 'toggled', { feature: 'focus', enabled: v }); },
 
@@ -1957,6 +2094,10 @@ export function createEditorStore() {
 		clearCuts,
 		updateCut,
 		mergeCuts,
+		splitAt,
+		removeSplit,
+		clearSplits,
+		deleteSegmentAt,
 		dismissSilence,
 		clearDismissedSilences,
 		addAnnotation,

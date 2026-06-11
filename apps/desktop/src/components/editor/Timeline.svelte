@@ -328,6 +328,29 @@
       if (videoEl) videoEl.currentTime = t;
     }
 
+    // Split / ripple-delete shortcuts only when the opt-in timeline-editing
+    // feature is enabled — otherwise these keys are left for default behaviour.
+    if (experimentalStore.timelineEditing) {
+      // Split the clip at the playhead (NLE razor — "S").
+      if (event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        store.splitAt(store.currentTime);
+      }
+
+      // Ripple-delete the selected clip (or the one under the playhead) and
+      // close the gap. The store returns the original-time join to land on a
+      // kept frame.
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        const target = store.selectedClipStart ?? store.currentTime;
+        const joinAt = store.deleteSegmentAt(target);
+        if (joinAt !== null) {
+          store.currentTime = joinAt;
+          if (videoEl) videoEl.currentTime = joinAt;
+        }
+      }
+    }
+
     // J/K/L transport. K parks playback. L plays forward; consecutive Ls
     // step the playback rate up through SHUTTLE_SPEEDS. J does the same in
     // reverse via a rAF-driven loop (browsers don't reliably support
@@ -581,6 +604,7 @@
     {timeMode}
     hasSelectedRegion={!!store.selectedZoomRegionId}
     onSetTrim={setTrimPoint}
+    onSplit={() => store.splitAt(store.currentTime)}
     onAddFocusRegion={addFocusRegion}
     onResetTrim={resetTrim}
     onZoomTimeline={zoomTimeline}
@@ -678,7 +702,6 @@
           {duration}
           {clipLeft}
           {clipWidth}
-          {hasTrim}
           {thumbnailWidth}
           {timeMode}
           {clientXToTime}

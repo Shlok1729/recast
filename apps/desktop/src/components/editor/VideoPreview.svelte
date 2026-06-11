@@ -18,7 +18,6 @@
 		parseGradient as parseGradientSpec,
 		type EditorStore,
 	} from "$lib/stores/editor-store.svelte";
-	import { experimentalStore } from "$lib/stores/experimental.svelte";
 	import { Spinner } from "@recast/ui/spinner";
 	import { convertFileSrc } from "@tauri-apps/api/core";
 	import { onDestroy, onMount } from "svelte";
@@ -80,6 +79,11 @@
 	 * on top of it at the same rendered rect regardless of letterboxing. */
 	let previewRectEl: HTMLDivElement | null = $state(null);
 	let isReady = $state(false);
+	// Second, internal-only decoder used purely to pre-decode the first frame
+	// after a cut so the visible freeze (the primary element's seek latency) is
+	// masked. It is never played — only seeked once per cut — so it costs one
+	// extra decode per skip, not a continuous parallel stream.
+	let scoutEl = $state<HTMLVideoElement | null>(null);
 
 	let gl: WebGL2RenderingContext | null = null;
 	let program: WebGLProgram | null = null;
@@ -1039,23 +1043,25 @@ void main() {
 		return true;
 	}
 
-	//  Render 
+	//  Render
 	let loggedTexError = false;
-	function uploadVideoFrame() {
-		if (!gl || !videoTex || !videoEl) return false;
-		if (videoEl.readyState < 2 /* HAVE_CURRENT_DATA */) return false;
-		if (videoEl.videoWidth === 0 || videoEl.videoHeight === 0) return false;
+	// Uploads a decoded video frame into the sampling texture. `el` defaults to
+	// the primary playback element but may be the scout during a cut-skip mask.
+	function uploadVideoFrame(el: HTMLVideoElement | null = videoEl) {
+		if (!gl || !videoTex || !el) return false;
+		if (el.readyState < 2 /* HAVE_CURRENT_DATA */) return false;
+		if (el.videoWidth === 0 || el.videoHeight === 0) return false;
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, videoTex);
 		// texImage2D from a video element is hardware-accelerated by the browser
 		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 		try {
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, videoEl);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, el);
 		} catch (err) {
 			if (!loggedTexError) {
 				loggedTexError = true;
 				console.error(
-					`WebGL texImage2D failed for video (src=${videoEl.currentSrc || videoEl.src}):`,
+					`WebGL texImage2D failed for video (src=${el.currentSrc || el.src}):`,
 					err,
 				);
 			}
@@ -1161,6 +1167,35 @@ void main() {
 		if (blurMirrorEl !== mirror) blurMirrorEl = mirror;
 	}
 
+	// Target time of an in-flight cut-skip seek. draw() issues each skip ONCE
+	// rather than re-assigning currentTime every frame while the decoder is
+	// still seeking (which thrashes it into a multi-second stall).
+	let cutSkipTarget: number | null = null;
+	// Time the scout element is currently seeking/seeked to, so we don't
+	// re-issue the same pre-decode seek every frame.
+	let scoutSeekTarget: number | null = null;
+
+	// How early (s) to start pre-decoding the post-cut frame on the SCOUT
+	// element, and how early to actually jump the primary. The scout window is
+	// larger so the post-cut frame is decoded and ready by the time we reach
+	// the boundary — that decoded frame masks the primary's seek latency.
+	const SCOUT_PRESEEK_LOOKAHEAD = 0.6;
+	const CUT_JUMP_LOOKAHEAD = 0.12;
+	// How close the scout's landed time must be to the cut end to treat its
+	// frame as a valid stand-in (a seek may land a frame or two off target).
+	const SCOUT_READY_EPS = 0.1;
+
+	/** True when the scout has the post-cut frame decoded and ready to sample. */
+	function scoutReadyAt(t: number): boolean {
+		return (
+			!!scoutEl &&
+			!scoutEl.seeking &&
+			scoutEl.readyState >= 2 &&
+			scoutEl.videoWidth > 0 &&
+			Math.abs(scoutEl.currentTime - t) < SCOUT_READY_EPS
+		);
+	}
+
 	function draw() {
 		if (!gl || !program || !canvasEl || !store.metadata) return;
 		if (!resizeCanvas()) return;
@@ -1177,34 +1212,66 @@ void main() {
 		// (shouldn't happen inside draw but keeps the types honest).
 		const playbackTime = videoEl ? videoEl.currentTime : store.currentTime;
 
-		// Skip over removed (silence) cut ranges during forward playback. A
-		// lookahead window initiates the seek *before* the playhead reaches
-		// the cut, which hides the video element's seek latency — without it
-		// the user sees a brief lag right at the cut boundary as the decoder
-		// jumps. Scrubbing into a cut is still allowed (this block only
-		// fires during `isPlaying`) so the user can inspect what was removed.
-		// Toggling `cutsEnabled` off bypasses the skip entirely.
-		const CUT_SKIP_LOOKAHEAD = 0.15;
-		if (
-			videoEl &&
-			store.isPlaying &&
-			experimentalStore.silenceDetection &&
-			store.cutsEnabled &&
-			store.cuts.length > 0
-		) {
-			const cut = store.cuts.find(
+		// Skip over removed cut ranges — manual split/delete AND accepted
+		// silence — during forward playback. Two decoders leapfrog the gap:
+		//   1. As the playhead nears a cut, the SCOUT pre-decodes the first
+		//      post-cut frame (cut.end), well ahead of the boundary.
+		//   2. At the boundary the PRIMARY jumps to cut.end (keeps store time &
+		//      audio correct) — but the primary's seek latency would freeze the
+		//      picture, so for the frames where the primary is still settling we
+		//      sample the scout's already-decoded frame instead. The swap is
+		//      seamless because both land on the same time/content.
+		// The seek is issued ONCE per cut: re-assigning currentTime every render
+		// frame while a seek is pending thrashes the decoder into a multi-second
+		// stall. Scrubbing into a cut is still allowed (gated on isPlaying) so the
+		// user can inspect what was removed; `cutsEnabled` off bypasses it.
+		let frameEl: HTMLVideoElement | null = videoEl;
+		const activeCuts = store.effectiveCuts;
+		if (videoEl && store.isPlaying && activeCuts.length > 0) {
+			const cut = activeCuts.find(
 				(c) =>
-					playbackTime + CUT_SKIP_LOOKAHEAD >= c.start &&
+					playbackTime + SCOUT_PRESEEK_LOOKAHEAD >= c.start &&
 					playbackTime < c.end - 0.02,
 			);
 			if (cut) {
-				videoEl.currentTime = cut.end;
-				return;
+				// (1) Pre-decode the post-cut frame on the scout, ahead of the jump.
+				if (scoutEl && scoutSeekTarget !== cut.end) {
+					scoutSeekTarget = cut.end;
+					try {
+						scoutEl.currentTime = cut.end;
+					} catch {
+						/* scout not ready to seek yet; retried next frame */
+					}
+				}
+				// (2) At the boundary, jump the primary and mask its seek with the
+				//     scout's pre-decoded frame.
+				if (playbackTime + CUT_JUMP_LOOKAHEAD >= cut.start) {
+					if (cutSkipTarget !== cut.end && !videoEl.seeking) {
+						cutSkipTarget = cut.end;
+						videoEl.currentTime = cut.end;
+					}
+					if (scoutReadyAt(cut.end)) {
+						// Draw the scout's frame this tick — no visible freeze.
+						frameEl = scoutEl;
+					} else {
+						// Scout not ready (e.g. sparse keyframes): hold the last
+						// frame until the primary settles, as before.
+						return;
+					}
+				} else {
+					// Approaching but not yet at the boundary — keep playing the
+					// primary normally; the jump hasn't happened.
+					cutSkipTarget = null;
+				}
+			} else {
+				// Outside any cut window — clear so the next cut can fire.
+				cutSkipTarget = null;
+				scoutSeekTarget = null;
 			}
 		}
 
 		// Make sure the latest video frame is in the texture before sampling
-		if (!uploadVideoFrame()) return;
+		if (!uploadVideoFrame(frameEl)) return;
 
 		// Make sure background texture is current (fire-and-forget if it changed)
 		void loadBackgroundIfNeeded();
@@ -1734,6 +1801,19 @@ void main() {
 			oncanplay={handleLoadedData}
 			onseeked={handleSeeked}
 			onerror={onError}
+			class="pointer-events-none absolute h-px w-px opacity-0"
+			style="visibility: hidden;"
+			playsinline
+			preload="auto"
+			muted
+		></video>
+		<!-- Scout decoder: never played, only seeked to pre-decode the first
+		     post-cut frame so the primary's seek latency is masked (see draw()). -->
+		<!-- svelte-ignore a11y_media_has_caption -->
+		<video
+			bind:this={scoutEl}
+			src={videoSrc}
+			crossorigin="anonymous"
 			class="pointer-events-none absolute h-px w-px opacity-0"
 			style="visibility: hidden;"
 			playsinline

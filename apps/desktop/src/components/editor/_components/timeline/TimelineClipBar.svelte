@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
+  import { experimentalStore } from "$lib/stores/experimental.svelte";
+  import { Trash2 } from "@lucide/svelte";
   import { fade } from "svelte/transition";
   import {
     formatTimeByMode,
@@ -22,7 +24,6 @@
     duration: number;
     clipLeft: number;
     clipWidth: number;
-    hasTrim: boolean;
     thumbnailWidth: number;
     timeMode: TimeMode;
     clientXToTime: (clientX: number) => number;
@@ -35,11 +36,62 @@
     duration,
     clipLeft,
     clipWidth,
-    hasTrim,
     thumbnailWidth,
     timeMode,
     clientXToTime,
   }: Props = $props();
+
+  // The clip lane renders one block per kept segment (split by the user or
+  // carved out by cuts), so a split visibly produces two adjacent clips. All
+  // positions are absolute timeline coordinates, derived from the parent's
+  // clip box (clipLeft = inPoint·pps, clipWidth = clipDuration·pps), so blocks
+  // stay pixel-aligned with the playhead and other lanes. `stripOffset` shifts
+  // the shared thumbnail strip so each block shows its own slice.
+  const clipDuration = $derived(Math.max(0.0001, store.outPoint - store.inPoint));
+  const pps = $derived(clipWidth / clipDuration);
+  const clipBlocks = $derived(
+    store.segments.map((seg) => ({
+      key: seg.start,
+      start: seg.start,
+      end: seg.end,
+      left: clipLeft + (seg.start - store.inPoint) * pps,
+      // -2px leaves a thin seam between adjacent clips so a split reads as two.
+      width: Math.max(2, (seg.end - seg.start) * pps - 2),
+      stripOffset: -(seg.start - store.inPoint) * pps,
+    })),
+  );
+  const splitMarkers = $derived(
+    store.splitPoints
+      .filter((p) => p > store.inPoint && p < store.outPoint)
+      .map((p) => ({ time: p, x: clipLeft + (p - store.inPoint) * pps })),
+  );
+  const removedBands = $derived(
+    store.effectiveCuts
+      .map((c) => {
+        const start = Math.max(c.start, store.inPoint);
+        const end = Math.min(c.end, store.outPoint);
+        return {
+          id: c.id,
+          source: c.source,
+          left: clipLeft + (start - store.inPoint) * pps,
+          width: Math.max(2, (end - start) * pps),
+          valid: end > start,
+        };
+      })
+      .filter((b) => b.valid),
+  );
+  const inHandleLeft = $derived(clipLeft);
+  const outHandleLeft = $derived(clipLeft + clipWidth);
+
+  // Ripple-delete the clip block spanning [start, end]: its midpoint is always
+  // inside it, so `deleteSegmentAt` targets exactly this segment. Park the
+  // playhead on the join so the preview lands on a kept frame.
+  function deleteSegment(start: number, end: number) {
+    const joinAt = store.deleteSegmentAt((start + end) / 2);
+    if (joinAt === null) return;
+    store.currentTime = joinAt;
+    if (videoEl) videoEl.currentTime = joinAt;
+  }
 
   let activeTrimHandle = $state<"in" | "out" | null>(null);
 
@@ -146,14 +198,29 @@
   }
 </script>
 
-<div class="relative h-12 rounded-md border border-border/60 bg-background">
-  <div
-    class="absolute inset-y-0 rounded-md border border-primary/40 bg-primary/5"
-    style="left: {clipLeft}px; width: {clipWidth}px;"
-  >
-    <div class="absolute inset-0 overflow-hidden rounded-md">
+<div class="relative h-12">
+  <!-- One block per kept segment. Splitting divides the clip into two adjacent
+       blocks; deleting a block ripple-closes the gap. Each block shows its own
+       slice of the shared thumbnail strip (shifted via stripOffset). -->
+  {#each clipBlocks as block (block.key)}
+    {@const selected =
+      store.selectedClipStart !== null &&
+      Math.abs(store.selectedClipStart - block.start) < 1e-4}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div
+      role="button"
+      tabindex="-1"
+      onclick={() => (store.selectedClipStart = block.start)}
+      class="group/clip absolute inset-y-0 cursor-pointer overflow-hidden rounded-md border bg-primary/5 transition-[box-shadow,border-color] {selected
+        ? 'border-primary ring-2 ring-primary/50'
+        : 'border-primary/40 hover:border-primary/70'}"
+      style="left: {block.left}px; width: {block.width}px;"
+    >
       {#if store.thumbnailStrip.length > 0}
-        <div class="flex h-full">
+        <div
+          class="flex h-full"
+          style="width: {clipWidth}px; margin-left: {block.stripOffset}px;"
+        >
           {#each store.thumbnailStrip as frame, index (frame + index)}
             <img
               in:fade={{ duration: 180 }}
@@ -172,81 +239,129 @@
           Generating thumbnails…
         </div>
       {/if}
-    </div>
 
-    <!-- Export-status badge. Anchored top-right so it doesn't fight the
-         outer "Clip" lane label, which sits top-left. -->
-    <div
-      class="absolute right-2 top-1 rounded border border-border bg-background/80 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground backdrop-blur"
-    >
-      {hasTrim ? "This part exports" : "Full clip"}
-    </div>
-
-    <!--
-      Trim drag handles. Each is a narrow vertical bar with a larger
-      invisible hit area (±6 px either side) so grabbing is easy.
-      Pointer events stop propagation so we don't fight the timeline's
-      click-to-seek / playhead-scrub handlers.
-    -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      role="slider"
-      tabindex="0"
-      aria-label="In point"
-      aria-valuemin={0}
-      aria-valuemax={duration}
-      aria-valuenow={store.inPoint}
-      aria-valuetext={formatTimecode(store.inPoint, fps)}
-      onpointerdown={(e) => startTrimDrag(e, "in")}
-      onkeydown={(e) => handleTrimHandleKey(e, "in")}
-      class="group absolute inset-y-0 left-0 z-10 w-2 -translate-x-1 cursor-ew-resize focus-visible:outline-none"
-    >
-      <div
-        class="mx-auto h-full w-1 rounded-l-md bg-primary transition-all group-hover:w-1.5 group-hover:ring-2 group-hover:ring-primary/30"
-      ></div>
-      {#if activeTrimHandle === "in" && trimDragContext}
-        {@const delta = store.inPoint - trimDragContext.originalAt}
-        <div
-          class="pointer-events-none absolute bottom-full left-1/2 mb-1 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border bg-popover px-1.5 py-0.5 font-mono text-[9px] text-foreground shadow-sm"
+      <!-- Per-clip ripple delete (only when there's more than one clip — the
+           trim handles, not this, remove the whole recording). Ripple-delete is
+           part of the opt-in timeline-editing feature, so the affordance is
+           hidden unless that's enabled (a silence-only split could otherwise
+           expose it). -->
+      {#if clipBlocks.length > 1 && experimentalStore.timelineEditing}
+        <!-- svelte-ignore a11y_consider_explicit_label -->
+        <button
+          type="button"
+          onpointerdown={(e) => e.stopPropagation()}
+          onclick={() => deleteSegment(block.start, block.end)}
+          title="Delete this clip and close the gap"
+          class="absolute right-1 top-1 z-7 flex size-4 items-center justify-center rounded bg-background/80 text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:bg-destructive hover:text-destructive-foreground group-hover/clip:opacity-100"
         >
-          <span>In {formatTimeByMode(store.inPoint, timeMode, fps)}</span>
-          {#if delta !== 0}
-            <span class="text-muted-foreground"
-              >{delta > 0 ? "+" : ""}{Math.round(delta * fps)} f</span
-            >
-          {/if}
-        </div>
+          <Trash2 class="size-2.5" />
+        </button>
       {/if}
     </div>
+  {/each}
+
+  <!-- Removed sections (ripple-deleted / cut ranges). Click to restore. -->
+  {#each removedBands as band (band.id)}
+    {@const isSilence = band.source === "silence"}
+    <!-- svelte-ignore a11y_consider_explicit_label -->
+    <!-- Deleted clips (manual) read as a SOLID block; auto-detected silence as a
+         diagonal hatch — so the two kinds of removal are visually distinct. -->
+    <button
+      type="button"
+      onpointerdown={(e) => e.stopPropagation()}
+      onclick={() => store.removeCut(band.id)}
+      title={isSilence
+        ? "Silence (auto-detected) — click to restore"
+        : "Deleted clip — click to restore"}
+      class="absolute inset-y-0 z-5 rounded-sm border border-destructive/60 bg-destructive/25"
+      style="left: {band.left}px; width: {band.width}px;{isSilence
+        ? ' background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, color-mix(in srgb, var(--destructive) 28%, transparent) 5px, color-mix(in srgb, var(--destructive) 28%, transparent) 10px);'
+        : ''}"
+    ></button>
+  {/each}
+
+  <!-- Split seams between adjacent clips. Double-click to rejoin. -->
+  {#each splitMarkers as marker (marker.time)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      role="slider"
-      tabindex="0"
-      aria-label="Out point"
-      aria-valuemin={0}
-      aria-valuemax={duration}
-      aria-valuenow={store.outPoint}
-      aria-valuetext={formatTimecode(store.outPoint, fps)}
-      onpointerdown={(e) => startTrimDrag(e, "out")}
-      onkeydown={(e) => handleTrimHandleKey(e, "out")}
-      class="group absolute inset-y-0 right-0 z-10 w-2 translate-x-1 cursor-ew-resize focus-visible:outline-none"
+      role="presentation"
+      onpointerdown={(e) => e.stopPropagation()}
+      ondblclick={() => store.removeSplit(marker.time)}
+      title="Split — double-click to rejoin"
+      class="group/split absolute inset-y-0 z-6 w-2 -translate-x-1/2 cursor-pointer"
+      style="left: {marker.x}px;"
     >
       <div
-        class="mx-auto h-full w-1 rounded-r-md bg-primary transition-all group-hover:w-1.5 group-hover:ring-2 group-hover:ring-primary/30"
+        class="mx-auto h-full w-px bg-warning transition-all group-hover/split:w-0.5"
       ></div>
-      {#if activeTrimHandle === "out" && trimDragContext}
-        {@const delta = store.outPoint - trimDragContext.originalAt}
-        <div
-          class="pointer-events-none absolute bottom-full left-1/2 mb-1 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border bg-popover px-1.5 py-0.5 font-mono text-[9px] text-foreground shadow-sm"
-        >
-          <span>Out {formatTimeByMode(store.outPoint, timeMode, fps)}</span>
-          {#if delta !== 0}
-            <span class="text-muted-foreground"
-              >{delta > 0 ? "+" : ""}{Math.round(delta * fps)} f</span
-            >
-          {/if}
-        </div>
-      {/if}
     </div>
+  {/each}
+
+  <!--
+    Trim drag handles, anchored to the in/out points. Each is a narrow vertical
+    bar with a larger invisible hit area so grabbing is easy. Pointer events
+    stop propagation so we don't fight the timeline's click-to-seek scrub.
+  -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    role="slider"
+    tabindex="0"
+    aria-label="In point"
+    aria-valuemin={0}
+    aria-valuemax={duration}
+    aria-valuenow={store.inPoint}
+    aria-valuetext={formatTimecode(store.inPoint, fps)}
+    onpointerdown={(e) => startTrimDrag(e, "in")}
+    onkeydown={(e) => handleTrimHandleKey(e, "in")}
+    class="group absolute inset-y-0 z-10 w-2 -translate-x-1 cursor-ew-resize focus-visible:outline-none"
+    style="left: {inHandleLeft}px;"
+  >
+    <div
+      class="mx-auto h-full w-1 rounded-l-md bg-primary transition-all group-hover:w-1.5 group-hover:ring-2 group-hover:ring-primary/30"
+    ></div>
+    {#if activeTrimHandle === "in" && trimDragContext}
+      {@const delta = store.inPoint - trimDragContext.originalAt}
+      <div
+        class="pointer-events-none absolute bottom-full left-1/2 mb-1 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border bg-popover px-1.5 py-0.5 font-mono text-[9px] text-foreground shadow-sm"
+      >
+        <span>In {formatTimeByMode(store.inPoint, timeMode, fps)}</span>
+        {#if delta !== 0}
+          <span class="text-muted-foreground"
+            >{delta > 0 ? "+" : ""}{Math.round(delta * fps)} f</span
+          >
+        {/if}
+      </div>
+    {/if}
+  </div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    role="slider"
+    tabindex="0"
+    aria-label="Out point"
+    aria-valuemin={0}
+    aria-valuemax={duration}
+    aria-valuenow={store.outPoint}
+    aria-valuetext={formatTimecode(store.outPoint, fps)}
+    onpointerdown={(e) => startTrimDrag(e, "out")}
+    onkeydown={(e) => handleTrimHandleKey(e, "out")}
+    class="group absolute inset-y-0 z-10 w-2 -translate-x-1 cursor-ew-resize focus-visible:outline-none"
+    style="left: {outHandleLeft}px;"
+  >
+    <div
+      class="mx-auto h-full w-1 rounded-r-md bg-primary transition-all group-hover:w-1.5 group-hover:ring-2 group-hover:ring-primary/30"
+    ></div>
+    {#if activeTrimHandle === "out" && trimDragContext}
+      {@const delta = store.outPoint - trimDragContext.originalAt}
+      <div
+        class="pointer-events-none absolute bottom-full left-1/2 mb-1 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border bg-popover px-1.5 py-0.5 font-mono text-[9px] text-foreground shadow-sm"
+      >
+        <span>Out {formatTimeByMode(store.outPoint, timeMode, fps)}</span>
+        {#if delta !== 0}
+          <span class="text-muted-foreground"
+            >{delta > 0 ? "+" : ""}{Math.round(delta * fps)} f</span
+          >
+        {/if}
+      </div>
+    {/if}
   </div>
 </div>

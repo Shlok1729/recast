@@ -38,10 +38,6 @@ export interface ExportPrepHooks {
 }
 
 export interface BuildExportRenderStateOptions {
-	/** Whether silence-cut lanes should be included. Mirrors the experimental
-	 *  `silenceDetection` flag — passed in rather than imported so this service
-	 *  stays decoupled from UI singletons. */
-	silenceDetectionEnabled: boolean;
 	hooks?: ExportPrepHooks;
 }
 
@@ -62,7 +58,7 @@ export interface ExportRenderStatePayload {
  */
 export async function buildExportRenderState(
 	store: EditorStore,
-	opts: BuildExportRenderStateOptions,
+	opts: BuildExportRenderStateOptions = {},
 ): Promise<ExportRenderStatePayload> {
 	const { hooks } = opts;
 	const renderState = store.toRenderState();
@@ -104,10 +100,12 @@ export async function buildExportRenderState(
 		...renderState,
 		annotations: store.annotationsGloballyHidden ? [] : expandedAnnotations,
 		zoomRegions: store.focusEnabled ? renderState.zoomRegions : [],
-		cuts:
-			opts.silenceDetectionEnabled && store.cutsEnabled
-				? renderState.cuts
-				: [],
+		// Cuts only export when their feature is opted in: manual splits/ripple
+		// deletes require the experimental `timelineEditing` flag, auto silence
+		// requires `silenceDetection`, and both honor the cuts-lane toggle. With
+		// the feature off the cut data is preserved on the store but never reaches
+		// the Rust pipeline, so the export is identical to an un-edited clip.
+		cuts: store.effectiveCuts,
 		cursorSpriteRest: cursorSprites?.rest,
 		cursorSpritePress: cursorSprites?.press,
 		cursorSpriteRightPress: cursorSprites?.rightPress,

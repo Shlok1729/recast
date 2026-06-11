@@ -12,7 +12,10 @@
 
 import { PersistedState } from "@recast/ui/persisted-state";
 
-export type ExperimentalFlag = "silenceDetection" | "selfHosting";
+export type ExperimentalFlag =
+	| "timelineEditing"
+	| "silenceDetection"
+	| "selfHosting";
 
 interface FlagMeta {
 	key: ExperimentalFlag;
@@ -21,6 +24,12 @@ interface FlagMeta {
 }
 
 export const FLAG_META: FlagMeta[] = [
+	{
+		key: "timelineEditing",
+		label: "Timeline editing (split & cut)",
+		description:
+			"Split clips and ripple-delete sections directly on the timeline. Early and still rough — opt in to try it. When off, the tools are hidden and any splits/cuts are ignored in playback and export.",
+	},
 	{
 		key: "silenceDetection",
 		label: "Silence detection & cuts",
@@ -36,6 +45,7 @@ export const FLAG_META: FlagMeta[] = [
 ];
 
 const DEFAULTS: Record<ExperimentalFlag, boolean> = {
+	timelineEditing: false,
 	silenceDetection: false,
 	selfHosting: false,
 };
@@ -51,6 +61,9 @@ function createExperimentalStore() {
 	const flags = new PersistedState<Record<ExperimentalFlag, boolean>>(STORAGE_KEY, DEFAULTS);
 
 	return {
+		get timelineEditing() {
+			return flags.current.timelineEditing;
+		},
 		get silenceDetection() {
 			return flags.current.silenceDetection;
 		},

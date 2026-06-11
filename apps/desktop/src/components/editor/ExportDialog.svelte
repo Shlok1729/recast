@@ -7,6 +7,7 @@
     GifDither,
     GifQuality,
   } from "$lib/stores/editor-store.svelte";
+  import { totalCutDuration } from "$lib/timeline/cuts";
   import {
     Check,
     Circle,
@@ -123,6 +124,24 @@
   );
   const clipDuration = $derived(Math.max(0, clipEnd - store.trimStart));
   const sourceDuration = $derived(store.metadata?.duration ?? 0);
+  // Time removed by cuts (manual deletes + accepted silence) that fall inside
+  // the trim — clamped to the trim window and merged so overlaps don't double
+  // count. Mirrors the Rust export's collect_export_cuts.
+  const removedDuration = $derived.by(() => {
+    // `effectiveCuts` already drops cuts whose feature is opted off, so the
+    // figure matches exactly what the export pipeline will remove.
+    if (store.effectiveCuts.length === 0) return 0;
+    const clamped = store.effectiveCuts
+      .map((c) => ({
+        ...c,
+        start: Math.max(c.start, store.trimStart),
+        end: Math.min(c.end, clipEnd),
+      }))
+      .filter((c) => c.end > c.start);
+    return totalCutDuration(clamped);
+  });
+  // The actual exported length: trimmed clip minus the cuts inside it.
+  const outputDuration = $derived(Math.max(0, clipDuration - removedDuration));
   const hasTrim = $derived(
     store.trimStart > 0 ||
       (sourceDuration > 0 &&
@@ -641,10 +660,10 @@
       <span
         class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
       >
-        Clip
+        Output
       </span>
       <span class="font-mono text-[12px] tabular-nums text-foreground">
-        {formatTime(clipDuration)}
+        {formatTime(outputDuration)}
       </span>
     </div>
     <div class="flex flex-1 flex-col gap-0.5 pl-4">
@@ -658,6 +677,18 @@
       </span>
     </div>
   </section>
+  {#if removedDuration > 0.05}
+    <p
+      class="border-b border-border/40 bg-muted/10 px-5 py-1.5 text-[10.5px] text-muted-foreground"
+      in:fade={{ duration: 200, delay: 190 }}
+    >
+      Cuts remove
+      <span class="mx-1 font-mono tabular-nums text-foreground">
+        {formatTime(removedDuration)}
+      </span>
+      from the {formatTime(clipDuration)} trimmed clip
+    </p>
+  {/if}
   {#if hasTrim}
     <p
       class="border-b border-border/40 bg-muted/10 px-5 py-1.5 text-[10.5px] text-muted-foreground"
