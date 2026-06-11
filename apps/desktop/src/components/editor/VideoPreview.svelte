@@ -1808,18 +1808,22 @@ void main() {
 			muted
 		></video>
 		<!-- Scout decoder: never played, only seeked to pre-decode the first
-		     post-cut frame so the primary's seek latency is masked (see draw()). -->
-		<!-- svelte-ignore a11y_media_has_caption -->
-		<video
-			bind:this={scoutEl}
-			src={videoSrc}
-			crossorigin="anonymous"
-			class="pointer-events-none absolute h-px w-px opacity-0"
-			style="visibility: hidden;"
-			playsinline
-			preload="auto"
-			muted
-		></video>
+		     post-cut frame so the primary's seek latency is masked (see draw()).
+		     Only mounted when the clip actually has active cuts to skip, so the
+		     default no-cut session never pays for a second decode pipeline. -->
+		{#if store.effectiveCuts.length > 0}
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video
+				bind:this={scoutEl}
+				src={videoSrc}
+				crossorigin="anonymous"
+				class="pointer-events-none absolute h-px w-px opacity-0"
+				style="visibility: hidden;"
+				playsinline
+				preload="auto"
+				muted
+			></video>
+		{/if}
 	{/if}
 
 	{#if !isReady}
