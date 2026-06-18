@@ -103,6 +103,12 @@
   // countdown and recording phases. Treating "starting" as "recording" keeps
   // the morph a single countdown→recording crossfade.
   let isStarting = $state(false);
+  // Stop IPC in-flight. On macOS, `stop_recording` joins the capture/encoder
+  // threads and finalizes the muxer, which can take a beat — without this
+  // guard a second click fired another `stopRecording()` (the first await
+  // hadn't resolved, so `isRecording` was still true), racing the backend's
+  // `guard.take()` and surfacing a bogus "recording is not running" error.
+  let isStopping = $state(false);
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
 
@@ -818,7 +824,11 @@
       beginRecording();
       return;
     }
+    // A stop is already in flight — ignore repeat clicks so we don't fire a
+    // second `stopRecording()` that races the first and errors out.
+    if (isStopping) return;
     try {
+      isStopping = true;
       await stopRecording();
     } catch (e) {
       // Show the actual error, not a misleading "ffmpeg not installed"
@@ -847,6 +857,7 @@
       // Back to "idle" phase — the ResizeObserver → Tween effect expands the
       // bar back out to the full control set (centered in the fixed window).
       isRecording = false;
+      isStopping = false;
     }
   }
 
@@ -1156,6 +1167,7 @@
         <Button
           onclick={toggleRecording}
           onmousedown={(e: MouseEvent) => e.stopPropagation()}
+          disabled={isStopping}
           size="sm"
           variant="destructive_soft"
           title="Stop Recording"

@@ -51,11 +51,14 @@
 //!   but is a cross-platform optimization, not a macOS-specific one.
 
 use std::io::Read;
-use std::process::{Child, Command, Stdio};
-use std::sync::OnceLock;
+use std::process::{Child, ChildStderr, Command, Stdio};
+use std::sync::mpsc::{sync_channel, Receiver};
+use std::sync::{Arc, OnceLock};
+use std::thread;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use parking_lot::Mutex;
 
 use xcap::Monitor;
 
@@ -94,11 +97,22 @@ pub fn create_source(target: &CaptureTarget) -> Result<Box<dyn CaptureSource>> {
 }
 
 struct MacosCaptureSource {
+    /// The FFmpeg process. Kept for graceful-stop (`q` on stdin) + kill in
+    /// `Drop`; its stdout/stderr are owned by the reader thread.
     child: Child,
     width: u32,
     height: u32,
-    frame_bytes: usize,
-    buf: Vec<u8>,
+    /// Freshest decoded frames. Bounded (see `start`) so a momentarily-slow
+    /// consumer applies backpressure to FFmpeg instead of buffering unbounded
+    /// 8 MB frames.
+    rx: Receiver<Vec<u8>>,
+    /// Reader thread pulling whole frames off FFmpeg's stdout. Joined in `Drop`
+    /// after the child dies (which EOFs its stdout).
+    reader: Option<thread::JoinHandle<()>>,
+    /// Set by the reader thread when FFmpeg exits/errors, so `capture_next` can
+    /// report the real cause (typically a missing Screen Recording grant)
+    /// instead of a generic channel disconnect.
+    error: Arc<Mutex<Option<String>>>,
 }
 
 impl MacosCaptureSource {
@@ -153,62 +167,126 @@ impl MacosCaptureSource {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         crate::ffmpeg::configure_silent_command(&mut command);
-        let child = command
+        let mut child = command
             .spawn()
             .context("failed to spawn FFmpeg avfoundation screen capture")?;
         let frame_bytes = (width as usize) * (height as usize) * 4;
-        // Pre-allocate the frame buffer once. `capture_next` reads into
-        // this slice and clones it on success; the alloc cost stays out
-        // of the per-frame hot path.
+
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("avfoundation FFmpeg stdout pipe missing"))?;
+        let mut stderr = child.stderr.take();
+
+        // Small bounded buffer: the pacer drains several frames per tick, so a
+        // depth of 2 keeps the freshest pixels available without letting a
+        // warmup stall pile up hundreds of MB of frames. A full buffer blocks
+        // the reader's `send`, which backpressures FFmpeg's stdout pipe.
+        let (tx, rx) = sync_channel::<Vec<u8>>(2);
+        let error = Arc::new(Mutex::new(None));
+
+        // Read whole frames on a dedicated thread so `capture_next` is a
+        // cancellable channel `recv` rather than a blocking pipe read. The old
+        // in-line blocking read IGNORED its timeout and never re-checked the
+        // stop flag mid-read, so when FFmpeg produced no frames (missing Screen
+        // Recording permission) the capture thread hung and `stop()`'s `join()`
+        // hung with it — the Stop button looked dead and the user mashed it.
+        let reader = {
+            let error = error.clone();
+            thread::Builder::new()
+                .name("recast-macos-capture-reader".into())
+                .spawn(move || {
+                    let mut buf = vec![0u8; frame_bytes];
+                    loop {
+                        let mut read = 0usize;
+                        while read < frame_bytes {
+                            match stdout.read(&mut buf[read..]) {
+                                Ok(0) => {
+                                    // EOF. Mid-frame ⇒ FFmpeg died unexpectedly;
+                                    // on a frame boundary it's usually a clean
+                                    // stop (Drop killed it), but surface stderr
+                                    // either way so a permission denial that
+                                    // prints-then-exits isn't swallowed.
+                                    let msg = read_stderr(&mut stderr);
+                                    if read != 0 {
+                                        *error.lock() = Some(format!(
+                                            "avfoundation capture exited mid-frame \
+                                             ({read}/{frame_bytes} bytes): {}",
+                                            if msg.is_empty() {
+                                                "<no stderr — check Screen \
+                                                 Recording permission>"
+                                                    .to_string()
+                                            } else {
+                                                msg
+                                            }
+                                        ));
+                                    } else if !msg.is_empty() {
+                                        *error.lock() =
+                                            Some(format!("avfoundation capture ended: {msg}"));
+                                    }
+                                    return;
+                                }
+                                Ok(n) => read += n,
+                                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                                Err(e) => {
+                                    *error.lock() =
+                                        Some(format!("avfoundation stdout read failed: {e}"));
+                                    return;
+                                }
+                            }
+                        }
+                        // Full frame. `send` blocks while the bounded buffer is
+                        // full (backpressure) and errors once the receiver is
+                        // dropped (capture stopped) — either way we stop cleanly.
+                        if tx.send(buf.clone()).is_err() {
+                            return;
+                        }
+                    }
+                })
+                .context("failed to spawn avfoundation reader thread")?
+        };
+
         Ok(Self {
             child,
             width,
             height,
-            frame_bytes,
-            buf: vec![0u8; frame_bytes],
+            rx,
+            reader: Some(reader),
+            error,
         })
+    }
+
+    /// The reason the reader thread ended, if it recorded one — otherwise a
+    /// generic permission-hint fallback.
+    fn ended_error(&self) -> anyhow::Error {
+        let msg = self.error.lock().take();
+        anyhow!(msg.unwrap_or_else(|| {
+            "avfoundation capture ended unexpectedly — grant Screen Recording in \
+             System Settings → Privacy & Security, then record again"
+                .to_string()
+        }))
     }
 }
 
 impl CaptureSource for MacosCaptureSource {
-    fn capture_next(&mut self, _timeout: Duration) -> Result<Option<Vec<u8>>> {
-        // Same shape as `X11CaptureSource::capture_next` — the pacer's
-        // `MAX_DRAIN` cap keeps us from over-capturing, so we just do a
-        // blocking `read_exact`-style pull of one whole frame.
-        let stdout = self
-            .child
-            .stdout
-            .as_mut()
-            .ok_or_else(|| anyhow!("avfoundation FFmpeg stdout pipe missing"))?;
-        let mut read = 0usize;
-        while read < self.frame_bytes {
-            match stdout.read(&mut self.buf[read..]) {
-                Ok(0) => {
-                    // FFmpeg closed stdout mid-frame — fetch stderr for
-                    // the actual error before propagating.
-                    let stderr = read_child_stderr(&mut self.child);
-                    return Err(anyhow!(
-                        "avfoundation capture exited mid-frame ({}/{} bytes read): {}",
-                        read,
-                        self.frame_bytes,
-                        if stderr.is_empty() {
-                            "<no stderr — check Screen Recording permission>".to_string()
-                        } else {
-                            stderr
-                        }
-                    ));
-                }
-                Ok(n) => read += n,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(anyhow!("avfoundation stdout read failed: {e}")),
+    fn capture_next(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>> {
+        use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
+        // A disconnected channel means the reader thread ended (FFmpeg
+        // exited/errored), so we surface its recorded reason instead of
+        // blocking. `timeout == 0` is the pacer's non-blocking drain.
+        if timeout.is_zero() {
+            match self.rx.try_recv() {
+                Ok(frame) => Ok(Some(frame)),
+                Err(TryRecvError::Empty) => Ok(None),
+                Err(TryRecvError::Disconnected) => Err(self.ended_error()),
+            }
+        } else {
+            match self.rx.recv_timeout(timeout) {
+                Ok(frame) => Ok(Some(frame)),
+                Err(RecvTimeoutError::Timeout) => Ok(None),
+                Err(RecvTimeoutError::Disconnected) => Err(self.ended_error()),
             }
         }
-        // Clone so the buffer can be reused for the next read while the
-        // pipeline owns this frame. The alloc dominates 1080p frame
-        // cost (~8 MB) but the underlying frame copy was already
-        // unavoidable — FFmpeg writes into our slice, we hand a Vec
-        // downstream.
-        Ok(Some(self.buf.clone()))
     }
 
     fn width(&self) -> u32 {
@@ -222,28 +300,38 @@ impl CaptureSource for MacosCaptureSource {
 
 impl Drop for MacosCaptureSource {
     fn drop(&mut self) {
-        // Mirror the camera backend's graceful-stop: write `q` to ask
-        // FFmpeg to exit cleanly, escalate to kill if it doesn't.
+        // Mirror the camera backend's graceful-stop: write `q` to ask FFmpeg to
+        // exit cleanly, escalate to kill if it doesn't.
         if let Some(mut stdin) = self.child.stdin.take() {
             use std::io::Write;
             let _ = stdin.write_all(b"q");
             let _ = stdin.flush();
         }
+        let mut exited = false;
         for _ in 0..40 {
             if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
+                exited = true;
+                break;
             }
-            std::thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(50));
         }
-        log::warn!("avfoundation capture did not exit gracefully — killing");
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if !exited {
+            log::warn!("avfoundation capture did not exit gracefully — killing");
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        // The child is dead, so its stdout is at EOF. Drain any buffered frames
+        // first to release a reader parked on a full `send`, then join it.
+        if let Some(handle) = self.reader.take() {
+            while self.rx.try_recv().is_ok() {}
+            let _ = handle.join();
+        }
     }
 }
 
-fn read_child_stderr(child: &mut Child) -> String {
+fn read_stderr(stderr: &mut Option<ChildStderr>) -> String {
     let mut s = String::new();
-    if let Some(ref mut e) = child.stderr {
+    if let Some(ref mut e) = stderr {
         let _ = e.read_to_string(&mut s);
     }
     if s.len() > 500 {

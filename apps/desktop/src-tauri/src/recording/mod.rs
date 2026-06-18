@@ -632,6 +632,15 @@ impl RecordingManager {
             return Err(anyhow!("recording is already running"));
         }
 
+        // macOS gates screen capture behind the Screen Recording TCC permission,
+        // which is SEPARATE from the Accessibility grant the cursor tracker
+        // needs. Without it FFmpeg avfoundation spawns but yields zero frames —
+        // the old behaviour was a silently-empty recording the user only
+        // discovered at stop(), with the UI timer ticking the whole time. Fail
+        // fast here (and trigger the system prompt) so the timer never starts on
+        // a dead capture. No-op on Windows/Linux.
+        crate::permissions::ensure_screen_recording()?;
+
         std::fs::create_dir_all(&output_dir)?;
         // Resolve the capture rate + quality tier up front. Both the pacer and
         // the encoder must agree on `recording_fps` (the encoder declares it as
@@ -677,6 +686,17 @@ impl RecordingManager {
         let pipeline = RecordingPipeline::new(queue_capacity);
         let mut warnings = Vec::new();
 
+        // Cursor sampling needs Accessibility on macOS; recording works without
+        // it, so warn rather than block — the track just has gaps until granted.
+        if !crate::permissions::cursor_tracking_authorized() {
+            warnings.push(
+                "Cursor tracking is off — grant Recast in System Settings → \
+                 Privacy & Security → Accessibility to capture cursor movement \
+                 and clicks."
+                    .to_string(),
+            );
+        }
+
         let first_frame_offset_us = Arc::new(AtomicU64::new(0));
         let capture_handle = spawn_capture_loop(
             target.clone(),
@@ -718,28 +738,52 @@ impl RecordingManager {
         // virtual-desktop (`crop.x`, `crop.y`). Without this remap, every
         // sample lives outside the [0..frame] range whenever the user
         // records a secondary monitor or a region.
-        let cursor_handle = match spawn_cursor_capture(
-            stop_flag.clone(),
-            clock.clone(),
-            CursorCaptureFrame {
-                origin_x: target.crop.x,
-                origin_y: target.crop.y,
-                width: target.crop.width,
-                height: target.crop.height,
-                // macOS samples the cursor in logical points but the video is
-                // physical pixels; lift samples by the display's scale so they
-                // line up. 1.0 on Windows/Linux (already physical) → unchanged.
-                scale: target.scale_factor,
-            },
-        ) {
-            Ok(handle) => handle,
-            Err(e) => {
-                // Capture + encoder are already live; tear both down so a failed
-                // start doesn't orphan them.
-                stop_flag.store(true, Ordering::Release);
-                let _ = capture_handle.join();
-                let _ = encoder_handle.join();
-                return Err(e);
+        // Only sample the cursor when the OS actually permits it. On macOS,
+        // `device_query`'s CoreGraphics access re-triggers the "control this
+        // computer using accessibility features" prompt EVERY recording when
+        // Accessibility isn't granted — the repeated-prompt complaint. Gating
+        // on the (non-prompting) trust check means we never poke that API
+        // unless it'll succeed; otherwise we substitute an empty track (the
+        // user already got the warning above). Always-true off macOS.
+        let cursor_handle = if crate::permissions::cursor_tracking_authorized() {
+            match spawn_cursor_capture(
+                stop_flag.clone(),
+                clock.clone(),
+                CursorCaptureFrame {
+                    origin_x: target.crop.x,
+                    origin_y: target.crop.y,
+                    width: target.crop.width,
+                    height: target.crop.height,
+                    // macOS samples the cursor in logical points but the video is
+                    // physical pixels; lift samples by the display's scale so they
+                    // line up. 1.0 on Windows/Linux (already physical) → unchanged.
+                    scale: target.scale_factor,
+                },
+            ) {
+                Ok(handle) => handle,
+                Err(e) => {
+                    // Capture + encoder are already live; tear both down so a failed
+                    // start doesn't orphan them.
+                    stop_flag.store(true, Ordering::Release);
+                    let _ = capture_handle.join();
+                    let _ = encoder_handle.join();
+                    return Err(e);
+                }
+            }
+        } else {
+            // No-op placeholder so the session shape (and `stop()`'s join) is
+            // unchanged; it yields an empty cursor track immediately.
+            match std::thread::Builder::new()
+                .name("recast-cursor-disabled".into())
+                .spawn(CursorTrack::default)
+            {
+                Ok(handle) => handle,
+                Err(e) => {
+                    stop_flag.store(true, Ordering::Release);
+                    let _ = capture_handle.join();
+                    let _ = encoder_handle.join();
+                    return Err(anyhow!("failed to spawn cursor placeholder thread: {e}"));
+                }
             }
         };
 

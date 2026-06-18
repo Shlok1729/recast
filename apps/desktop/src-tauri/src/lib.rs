@@ -9,6 +9,7 @@ mod commands;
 mod cursor;
 mod encoder;
 pub mod ffmpeg;
+mod permissions;
 mod project;
 mod recording;
 mod render;
