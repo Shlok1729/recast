@@ -109,6 +109,40 @@ impl RecordingQuality {
             _ => Self::Balanced,
         }
     }
+
+    /// Resolve the frontend's tier *including* the `"auto"` sentinel (the new
+    /// default). Explicit tiers (`balanced`/`high`/`pristine`) are honored as
+    /// chosen via [`Self::from_label`]. `"auto"` (or a missing value) picks the
+    /// best tier the detected `encoder` can sustain in real time: hardware
+    /// encoders (NVENC/AMF/QSV/VideoToolbox) have ample headroom at 60fps, so
+    /// they default to `High` (near-visually-lossless ~cq 21). The capture
+    /// master is what every export re-encodes from, so a sharp master raises
+    /// the quality ceiling for the whole pipeline — there's no reason a GPU
+    /// machine records at the low-latency `Balanced` tier. Pure software
+    /// (`libx264`) stays `Balanced` so a weak CPU with no GPU doesn't drop
+    /// frames during capture.
+    pub fn resolve(label: Option<&str>, encoder: &str) -> Self {
+        match label {
+            Some("auto") | None => {
+                if is_hardware_encoder(encoder) {
+                    Self::High
+                } else {
+                    Self::Balanced
+                }
+            }
+            other => Self::from_label(other),
+        }
+    }
+}
+
+/// Whether the FFmpeg encoder name is a GPU/hardware encoder (vs the `libx264`
+/// software fallback). Hardware encoders can sustain a higher quality tier
+/// during live capture without dropping frames, so `"auto"` defaults them up.
+fn is_hardware_encoder(encoder: &str) -> bool {
+    matches!(
+        encoder,
+        "h264_nvenc" | "h264_amf" | "h264_qsv" | "h264_videotoolbox"
+    )
 }
 
 /// Build the codec + rate-control args (from `-c:v` onward) for a live
@@ -495,6 +529,46 @@ mod tests {
         assert_eq!(
             RecordingQuality::from_label(None),
             RecordingQuality::Balanced
+        );
+    }
+
+    #[test]
+    fn resolve_auto_picks_high_on_hardware_and_balanced_on_software() {
+        // Every hardware encoder has real-time headroom → default `auto`/unset
+        // up to High (sharp master), regardless of how the label arrives.
+        for enc in ["h264_nvenc", "h264_amf", "h264_qsv", "h264_videotoolbox"] {
+            assert_eq!(
+                RecordingQuality::resolve(Some("auto"), enc),
+                RecordingQuality::High,
+                "auto on {enc}"
+            );
+            assert_eq!(
+                RecordingQuality::resolve(None, enc),
+                RecordingQuality::High,
+                "unset on {enc}"
+            );
+        }
+        // Pure software fallback stays Balanced so weak CPUs don't drop frames.
+        assert_eq!(
+            RecordingQuality::resolve(Some("auto"), "libx264"),
+            RecordingQuality::Balanced
+        );
+        assert_eq!(
+            RecordingQuality::resolve(None, "libx264"),
+            RecordingQuality::Balanced
+        );
+        // An explicit tier is always honored, even on hardware that could do more.
+        assert_eq!(
+            RecordingQuality::resolve(Some("balanced"), "h264_nvenc"),
+            RecordingQuality::Balanced
+        );
+        assert_eq!(
+            RecordingQuality::resolve(Some("high"), "libx264"),
+            RecordingQuality::High
+        );
+        assert_eq!(
+            RecordingQuality::resolve(Some("pristine"), "libx264"),
+            RecordingQuality::Pristine
         );
     }
 

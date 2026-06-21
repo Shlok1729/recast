@@ -887,7 +887,10 @@ export function createEditorStore() {
 
 	// Export
 	let exportFormat = $state<ExportFormat>('mp4');
-	let exportQuality = $state<ExportQuality>('hd');
+	// Default to the recording's own resolution — for a screen recorder, the
+	// source is usually 1080p+ and downscaling to a fixed "HD" needlessly
+	// softens sharp text/UI. Users can still pick Small/HD/4K in the dialog.
+	let exportQuality = $state<ExportQuality>('source');
 	let exportSpeed = $state<ExportSpeed>('balanced');
 	// Output frame rate for MP4/WebM. `null` = keep the source recording's rate
 	// (the quality-preserving default). A number requests a clean downsample to
@@ -1485,7 +1488,7 @@ export function createEditorStore() {
 			defaultPlacement: cameraPlacementFromPreset('bottom-right'),
 			motionSegments: [],
 		};
-		exportQuality = 'hd';
+		exportQuality = 'source';
 		exportSpeed = 'balanced';
 		exportFps = null;
 		undoStack = [];

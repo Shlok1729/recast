@@ -436,9 +436,10 @@ pub struct RecordingOptions {
     /// UI gates the offered options by the detected display refresh.
     #[serde(default)]
     pub fps: Option<u32>,
-    /// Capture quality tier — `"balanced"` (default), `"high"`, or
-    /// `"pristine"`. Unknown values fall back to balanced. See
-    /// [`crate::encoder::RecordingQuality`].
+    /// Capture quality tier — `"auto"` (default), `"balanced"`, `"high"`, or
+    /// `"pristine"`. `"auto"`/unknown resolve against the detected encoder
+    /// (hardware → high, software → balanced). See
+    /// [`crate::encoder::RecordingQuality::resolve`].
     #[serde(default)]
     pub quality: Option<String>,
 }
@@ -647,8 +648,12 @@ impl RecordingManager {
         // `-framerate`, the pacer emits exactly that many frames/sec), and the
         // chosen rate is persisted into the project metadata at stop().
         let recording_fps = resolve_recording_fps(options.fps);
-        let recording_quality =
-            crate::encoder::RecordingQuality::from_label(options.quality.as_deref());
+        // `"auto"` (the default) resolves against the probed encoder: hardware
+        // → High, software → Balanced. Explicit tiers pass through unchanged.
+        let recording_quality = crate::encoder::RecordingQuality::resolve(
+            options.quality.as_deref(),
+            crate::ffmpeg::preferred_h264_encoder(),
+        );
         log::info!("recording config: {recording_fps} fps, quality={recording_quality:?}");
         let started_at_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)

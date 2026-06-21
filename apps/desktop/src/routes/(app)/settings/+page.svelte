@@ -89,7 +89,7 @@
   // Capture quality + frame rate (global recording preferences, read by the
   // recording panel at start time via shared localStorage). `recordingFps`
   // null = unset → backend default 60.
-  let recordingQuality = $state<RecordingQuality>("balanced");
+  let recordingQuality = $state<RecordingQuality>("auto");
   let recordingFps = $state<number>(60);
   // Highest refresh rate among attached displays — the capture pipeline can't
   // produce more unique frames/sec than this, so we only offer fps options up
@@ -183,9 +183,14 @@
     desc: string;
   }[] = [
     {
+      value: "auto",
+      label: "Auto",
+      desc: "Best quality your hardware can record in real time.",
+    },
+    {
       value: "balanced",
       label: "Balanced",
-      desc: "Fast, low CPU/GPU load. Great default.",
+      desc: "Fast, low CPU/GPU load. Use on weak machines.",
     },
     {
       value: "high",

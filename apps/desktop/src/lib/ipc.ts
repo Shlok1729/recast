@@ -221,8 +221,9 @@ export interface RecordingOptions {
 	cameraDeviceId?: string | null;
 	/** Capture frame rate. Omitted/out-of-range (24–240) → backend default 60. */
 	fps?: number | null;
-	/** Capture quality tier: "balanced" (default), "high", or "pristine". */
-	quality?: "balanced" | "high" | "pristine" | null;
+	/** Capture quality tier: "auto" (default — backend picks high on a hardware
+	 *  encoder, balanced on software), or explicit "balanced"/"high"/"pristine". */
+	quality?: "auto" | "balanced" | "high" | "pristine" | null;
 }
 
 export interface AudioDeviceInfo {
@@ -279,7 +280,7 @@ export function startRecording(
 	analytics.capture("recording_started", {
 		source_kind: targetType,
 		fps: options?.fps ?? "default",
-		quality: options?.quality ?? "balanced",
+		quality: options?.quality ?? "auto",
 	});
 	return invoke<RecordingStartResult>("start_recording", {
 		targetType,
