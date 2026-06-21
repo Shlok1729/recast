@@ -574,7 +574,16 @@ impl RecordingManager {
                         })
                         .unwrap_or(false);
 
-                    if can_extend {
+                    // Bound memory + serialized project size on long sessions
+                    // with sustained camera movement: once the segment list hits
+                    // the cap, fold further moves into the last segment (same as
+                    // the extend path) instead of growing the Vec without limit.
+                    // 4096 deliberate moves is far beyond any real session given
+                    // the 0.45 s drag-coalescing window above.
+                    const MAX_MOTION_SEGMENTS: usize = 4096;
+                    let at_cap = tracker.overlay.motion_segments.len() >= MAX_MOTION_SEGMENTS;
+
+                    if can_extend || at_cap {
                         if let Some(segment) = tracker.overlay.motion_segments.last_mut() {
                             segment.end = now_secs.max(segment.start + 0.001);
                             segment.to_x = placement.x;
@@ -875,15 +884,27 @@ impl RecordingManager {
 
         session.stop_flag.store(true, Ordering::Release);
 
-        session
-            .capture_handle
-            .join()
-            .map_err(|_| anyhow!("capture thread panicked"))??;
+        // Reap ALL capture threads and OS sessions before propagating any error.
+        // `session` is already out of the session mutex, so anything we skip
+        // tearing down here (because an earlier `?` returned) is orphaned for the
+        // process lifetime — a spinning thread plus, for audio/camera, a live
+        // FFmpeg child or capture device. So join every thread and stop every
+        // session first, then surface the first failure.
+        let capture_join = session.capture_handle.join();
+        let cursor_join = session.cursor_handle.join();
+        let encoder_join = session.encoder_handle.join();
 
-        let mut cursor_track = session
-            .cursor_handle
-            .join()
-            .map_err(|_| anyhow!("cursor thread panicked"))?;
+        // Stop the system-audio / mic / camera OS sessions regardless of how the
+        // threads fared — each reaps its own FFmpeg child / releases its device.
+        let audio_stop = session.audio_session.map(|s| s.stop());
+        let microphone_stop = session.microphone_session.map(|s| s.stop());
+        let camera_stop = session.camera_session.map(|s| s.stop());
+
+        // Everything is reaped — now surface fatal thread failures.
+        capture_join.map_err(|_| anyhow!("capture thread panicked"))??;
+        let mut cursor_track = cursor_join.map_err(|_| anyhow!("cursor thread panicked"))?;
+        encoder_join.map_err(|_| anyhow!("encoder thread panicked"))??;
+
         // Re-base the cursor track onto the video clock: the capture-source
         // warmup means video frame 0 is wall-clock `first_frame_offset_us`, not
         // 0, while the cursor track has been ticking since recording start.
@@ -893,52 +914,41 @@ impl RecordingManager {
         shift_cursor_track(&mut cursor_track, cursor_offset_us);
         write_cursor_track(&session.cursor_path, &cursor_track)?;
 
-        session
-            .encoder_handle
-            .join()
-            .map_err(|_| anyhow!("encoder thread panicked"))??;
-
-        // Stop system audio capture. Write silence fallback if unavailable.
-        let audio_path = if let Some(audio_session) = session.audio_session {
-            match audio_session.stop() {
-                Ok(path) => path,
-                Err(e) => {
-                    log::warn!("audio capture stop failed, writing silence: {e}");
-                    let duration = session.clock.effective_elapsed().as_secs_f64();
-                    crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
-                    session.audio_path
-                }
+        // Resolve the system-audio path: the captured file, else a silence
+        // fallback so downstream always has a track to mux.
+        let audio_path = match audio_stop {
+            Some(Ok(path)) => path,
+            Some(Err(e)) => {
+                log::warn!("audio capture stop failed, writing silence: {e}");
+                let duration = session.clock.effective_elapsed().as_secs_f64();
+                crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
+                session.audio_path.clone()
             }
-        } else {
-            let duration = session.clock.effective_elapsed().as_secs_f64();
-            crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
-            session.audio_path
+            None => {
+                let duration = session.clock.effective_elapsed().as_secs_f64();
+                crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
+                session.audio_path.clone()
+            }
         };
 
-        // Stop microphone capture if it was running.
-        let microphone_path = if let Some(mic_session) = session.microphone_session {
-            match mic_session.stop() {
-                Ok(path) => Some(path),
-                Err(e) => {
-                    log::warn!("microphone capture stop failed: {e}");
-                    None
-                }
+        // Microphone path if its capture succeeded.
+        let microphone_path = match microphone_stop {
+            Some(Ok(path)) => Some(path),
+            Some(Err(e)) => {
+                log::warn!("microphone capture stop failed: {e}");
+                None
             }
-        } else {
-            None
+            None => None,
         };
 
-        // Stop camera capture if it was running.
-        let camera_path = if let Some(cam_session) = session.camera_session {
-            match cam_session.stop() {
-                Ok(path) => Some(path),
-                Err(e) => {
-                    log::warn!("camera capture stop failed: {e}");
-                    None
-                }
+        // Camera path if its capture succeeded.
+        let camera_path = match camera_stop {
+            Some(Ok(path)) => Some(path),
+            Some(Err(e)) => {
+                log::warn!("camera capture stop failed: {e}");
+                None
             }
-        } else {
-            None
+            None => None,
         };
 
         // The camera records continuously through pauses; cut the paused

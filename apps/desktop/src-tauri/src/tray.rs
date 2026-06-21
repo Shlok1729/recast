@@ -59,10 +59,14 @@ struct RecentExport {
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app)?;
 
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .expect("default window icon set in tauri.conf.json");
+    // The default icon is configured in tauri.conf.json so this should always
+    // be present — but a missing icon is a recoverable degradation (the app
+    // works without a tray), not a reason to abort startup. Skip the tray and
+    // let the caller log it.
+    let Some(icon) = app.default_window_icon().cloned() else {
+        log::warn!("no default window icon; skipping system tray");
+        return Ok(());
+    };
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)

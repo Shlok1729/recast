@@ -6,8 +6,6 @@ contributor follows, **human or AI agent**. It is intentionally tool-agnostic (w
 agent that reads `AGENTS.md`). Read it before writing code; treat the RULES as hard
 requirements, not suggestions.
 
-> Companion docs: the deep backend audit + refactor plan lives in
-> [`apps/desktop/src-tauri/ARCHITECTURE_REFACTOR_PROMPT.md`](apps/desktop/src-tauri/ARCHITECTURE_REFACTOR_PROMPT.md).
 > Per-area `AGENTS.md` files may refine (never contradict) this one.
 
 ---

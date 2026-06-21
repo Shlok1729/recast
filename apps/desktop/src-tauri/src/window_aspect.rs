@@ -17,7 +17,12 @@
 mod imp {
     use std::collections::HashMap;
     use std::ffi::c_void;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
+
+    // `parking_lot::Mutex` can't poison — a panic in the `WM_SIZING` subclass
+    // callback while holding this lock would otherwise poison it and abort the
+    // process on the next aspect-ratio operation.
+    use parking_lot::Mutex;
 
     use tauri::AppHandle;
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -86,7 +91,7 @@ mod imp {
         };
 
         let first = {
-            let mut reg = registry().lock().unwrap();
+            let mut reg = registry().lock();
             let first = !reg.contains_key(&hwnd_raw);
             reg.insert(hwnd_raw, constraint);
             first
@@ -168,7 +173,7 @@ mod imp {
         match msg {
             WM_SIZING => {
                 let key = hwnd.0 as isize;
-                let constraint = registry().lock().unwrap().get(&key).copied();
+                let constraint = registry().lock().get(&key).copied();
                 if let Some(c) = constraint {
                     // lParam is an LPRECT the OS uses as the new window bounds.
                     // We edit it in place, then still chain to tao's proc so its
@@ -184,7 +189,7 @@ mod imp {
                 // Drop our entry and detach the subclass before the window
                 // goes away (documented best practice — the chain is otherwise
                 // freed for us, but this keeps the registry from leaking).
-                registry().lock().unwrap().remove(&(hwnd.0 as isize));
+                registry().lock().remove(&(hwnd.0 as isize));
                 let _ = RemoveWindowSubclass(hwnd, Some(subclass_proc), SUBCLASS_ID);
                 DefSubclassProc(hwnd, msg, wparam, lparam)
             }

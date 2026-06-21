@@ -138,7 +138,7 @@ fn fingerprint(name: &str, message: &str) -> String {
 /// stance; the anonymous id keeps it ungrouped rather than wrong.
 fn read_consent(app: &AppHandle) -> (bool, String) {
     if let Some(state) = app.try_state::<AppState>() {
-        let config = state.config.lock();
+        let config = state.config.read();
         let id = config
             .install_id
             .clone()

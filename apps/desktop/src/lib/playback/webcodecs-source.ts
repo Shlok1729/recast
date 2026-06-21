@@ -1,0 +1,218 @@
+/**
+ * WebCodecsVideoSource — frame-accurate video decode for the editor preview.
+ *
+ * This is the piece that fixes "playback freezes at a cut". The old preview
+ * used an HTML `<video>` element as its frame source, so jumping over a cut
+ * meant `video.currentTime = cut.end` — a native seek whose latency (decode
+ * from the nearest keyframe) is the visible stall. We can't control that seek.
+ *
+ * Here we own the decode pipeline instead, the way Cap does in Rust:
+ *   - mp4box.js demuxes the recording into encoded H.264 samples + the avcC
+ *     config, with a presentation-time index.
+ *   - a WebCodecs `VideoDecoder` decodes on demand into `VideoFrame`s, which
+ *     WebGL can upload directly (`texImage2D(..., videoFrame)`), same as a
+ *     `<video>` element but without the element.
+ *   - decoded frames live in a bounded cache (cf. Cap's 90-frame cache) so the
+ *     frames around the playhead — and across an upcoming cut — are already in
+ *     memory. A "seek" becomes a cache lookup + a short decode from the
+ *     keyframe, scheduled ahead of time, not a black-box stall.
+ *
+ * Threading: the demux, decoder, and decode-ahead scheduling all run in a
+ * dedicated worker (`webcodecs-worker.ts`). This class is the main-thread
+ * proxy — it owns the bounded decoded-frame cache (frames are transferred from
+ * the worker) and answers the render loop synchronously, while telling the
+ * worker where the playhead is so it can decode ahead. That keeps the WebView
+ * main thread doing only the cheap work: the cache lookup + the WebGL upload.
+ *
+ * Ownership: `frameAt()` returns a frame owned by the cache. The caller uploads
+ * it synchronously and must NOT close it. Frames are closed on eviction and on
+ * `dispose()`. `VideoFrame`s are GPU-backed and refcounted — leaking them
+ * exhausts the decoder, so every cached frame has exactly one close path.
+ */
+
+import type { FromWorker, ToWorker } from "./webcodecs-protocol";
+
+/** Decoded-frame cache window around the playhead, in seconds. */
+const BACK_WINDOW_S = 0.5;
+const FWD_WINDOW_S = 1.5;
+/** Hard cap on cached frames regardless of window (GPU-memory backstop). */
+const MAX_CACHED_FRAMES = 48;
+
+export class WebCodecsVideoSource {
+	#worker: Worker;
+	/** Decoded frames, keyed by ctsUs. */
+	#cache = new Map<number, VideoFrame>();
+	/** Last requested presentation time (µs) — drives eviction. */
+	#currentUs = 0;
+	#disposed = false;
+
+	readonly width: number;
+	readonly height: number;
+	readonly durationSec: number;
+	readonly fps: number;
+
+	/**
+	 * Called after a newly-decoded frame lands in the cache. The render loop is
+	 * driven by playback, so while PAUSED (a scrub) nothing would repaint when
+	 * the worker finishes decoding the seeked-to frame — wire this to a redraw.
+	 */
+	onFrame: (() => void) | null = null;
+
+	private constructor(
+		worker: Worker,
+		meta: { width: number; height: number; durationSec: number; fps: number },
+	) {
+		this.#worker = worker;
+		this.width = meta.width;
+		this.height = meta.height;
+		this.durationSec = meta.durationSec;
+		this.fps = meta.fps;
+		// Take over message handling for the steady state (frames + late errors).
+		this.#worker.onmessage = (e: MessageEvent<FromWorker>) =>
+			this.#onMessage(e.data);
+	}
+
+	/**
+	 * Spawn the decode worker, demux `url`, and resolve once the source can
+	 * answer `frameAt`. Rejects if the file has no decodable video track or the
+	 * codec/WebView isn't supported by WebCodecs — the caller should fall back
+	 * to the `<video>` path.
+	 */
+	static async create(url: string): Promise<WebCodecsVideoSource> {
+		if (typeof Worker === "undefined" || typeof VideoFrame === "undefined") {
+			throw new Error("WebCodecs/Worker unavailable in this WebView");
+		}
+		const worker = new Worker(
+			new URL("./webcodecs-worker.ts", import.meta.url),
+			{ type: "module" },
+		);
+		try {
+			const meta = await new Promise<{
+				width: number;
+				height: number;
+				durationSec: number;
+				fps: number;
+			}>((resolve, reject) => {
+				worker.onmessage = (e: MessageEvent<FromWorker>) => {
+					const msg = e.data;
+					if (msg.type === "ready") {
+						resolve(msg);
+					} else if (msg.type === "error") {
+						reject(new Error(msg.message));
+					} else if (msg.type === "frame") {
+						// A frame arriving before `ready` shouldn't happen; don't leak it.
+						msg.frame.close();
+					}
+				};
+				worker.onerror = (e) => reject(new Error(e.message || "worker error"));
+				worker.postMessage({ type: "init", url } satisfies ToWorker);
+			});
+			return new WebCodecsVideoSource(worker, meta);
+		} catch (err) {
+			worker.terminate();
+			throw err;
+		}
+	}
+
+	#post(msg: ToWorker): void {
+		this.#worker.postMessage(msg);
+	}
+
+	#onMessage(msg: FromWorker): void {
+		if (msg.type === "frame") {
+			if (this.#disposed) {
+				msg.frame.close();
+				return;
+			}
+			const ts = msg.frame.timestamp;
+			this.#cache.get(ts)?.close(); // never leak a replaced frame
+			this.#cache.set(ts, msg.frame);
+			this.#evict();
+			this.onFrame?.();
+		} else if (msg.type === "error") {
+			console.error("WebCodecs worker error:", msg.message);
+		}
+	}
+
+	/**
+	 * The decoded frame to show at original-media time `originalSec`, or null if
+	 * nothing close enough is decoded yet (caller should hold the previous
+	 * frame). Nudges the worker to decode toward the requested time.
+	 *
+	 * The returned frame is owned by the cache — upload it, don't close it.
+	 */
+	frameAt(originalSec: number): VideoFrame | null {
+		if (this.#disposed) return null;
+		const tUs = Math.max(0, Math.round(originalSec * 1e6));
+		this.#currentUs = tUs;
+		this.#post({ type: "request", originalSec });
+		return this.#bestCached(tUs);
+	}
+
+	/**
+	 * Pre-decode the GOP at `originalSec` without moving the playhead — used to
+	 * warm the frames just after a cut so the jump is seamless.
+	 */
+	prefetch(originalSec: number): void {
+		if (this.#disposed) return;
+		this.#post({ type: "prefetch", originalSec });
+	}
+
+	/** Best cached frame with ctsUs ≤ tUs (the one on screen at tUs). */
+	#bestCached(tUs: number): VideoFrame | null {
+		let best: VideoFrame | null = null;
+		let bestTs = -Infinity;
+		for (const [ts, frame] of this.#cache) {
+			if (ts <= tUs && ts > bestTs) {
+				bestTs = ts;
+				best = frame;
+			}
+		}
+		// Nothing at-or-before (e.g. just after a backward seek): fall back to the
+		// closest frame at all so the screen isn't blank.
+		if (!best) {
+			let bestDist = Infinity;
+			for (const [ts, frame] of this.#cache) {
+				const d = Math.abs(ts - tUs);
+				if (d < bestDist) {
+					bestDist = d;
+					best = frame;
+				}
+			}
+		}
+		return best;
+	}
+
+	/** Drop frames outside the window around the playhead, closing each. */
+	#evict(): void {
+		const backUs = this.#currentUs - BACK_WINDOW_S * 1e6;
+		const fwdUs = this.#currentUs + FWD_WINDOW_S * 1e6;
+		for (const [ts, frame] of this.#cache) {
+			if (ts < backUs || ts > fwdUs) {
+				frame.close();
+				this.#cache.delete(ts);
+			}
+		}
+		if (this.#cache.size > MAX_CACHED_FRAMES) {
+			const sorted = [...this.#cache.keys()].sort(
+				(a, b) =>
+					Math.abs(b - this.#currentUs) - Math.abs(a - this.#currentUs),
+			);
+			for (const ts of sorted) {
+				if (this.#cache.size <= MAX_CACHED_FRAMES) break;
+				this.#cache.get(ts)?.close();
+				this.#cache.delete(ts);
+			}
+		}
+	}
+
+	dispose(): void {
+		if (this.#disposed) return;
+		this.#disposed = true;
+		this.#post({ type: "dispose" });
+		for (const frame of this.#cache.values()) frame.close();
+		this.#cache.clear();
+		// The worker self-closes on dispose; terminate as a backstop.
+		this.#worker.terminate();
+	}
+}

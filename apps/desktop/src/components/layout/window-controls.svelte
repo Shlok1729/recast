@@ -1,7 +1,7 @@
 <script module lang="ts">
   // Windows/Linux control button — same look as the editor titlebar.
   const winBtn =
-    "group inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground";
+    "group cursor-pointer inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground";
 </script>
 
 <script lang="ts">
@@ -76,7 +76,7 @@
         onclick={close}
         aria-label="Close"
         title="Close"
-        class="flex size-3 items-center justify-center rounded-full bg-[#ff5f57] ring-1 ring-inset ring-black/15"
+        class="cursor-pointer inline-flex size-3 items-center justify-center rounded-full bg-[#ff5f57] ring-1 ring-inset ring-black/15"
       >
         <X
           size={8}
@@ -89,7 +89,7 @@
         onclick={minimize}
         aria-label="Minimize"
         title="Minimize"
-        class="flex size-3 items-center justify-center rounded-full bg-[#febc2e] ring-1 ring-inset ring-black/15"
+        class="cursor-pointer inline-flex size-3 items-center justify-center rounded-full bg-[#febc2e] ring-1 ring-inset ring-black/15"
       >
         <Minus
           size={8}
@@ -102,7 +102,7 @@
         onclick={toggleMaximize}
         aria-label={isMaximized ? "Restore" : "Zoom"}
         title={isMaximized ? "Restore" : "Zoom"}
-        class="flex size-3 items-center justify-center rounded-full bg-[#28c840] ring-1 ring-inset ring-black/15"
+        class="cursor-pointer inline-flex size-3 items-center justify-center rounded-full bg-[#28c840] ring-1 ring-inset ring-black/15"
       >
         <Plus
           size={8}
@@ -114,7 +114,7 @@
   {:else}
     <div
       class={cn(
-        "flex items-center gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border/40",
+        "cursor-pointer inline-flex items-center gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border/40",
         className
       )}
       onmousedown={(e) => e.stopPropagation()}

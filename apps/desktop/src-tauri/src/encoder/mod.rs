@@ -2,8 +2,13 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{ChildStderr, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
+
+// `parking_lot::Mutex` can't poison, so the stderr-tail sink keeps being
+// retained even if a holder ever panics (a poisoned `std` Mutex would silently
+// drop the diagnostic tail exactly when something is going wrong).
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
@@ -33,23 +38,22 @@ fn pump_stderr_tail(stderr: ChildStderr, sink: Arc<Mutex<String>>) {
         match reader.read(&mut chunk) {
             Ok(0) => break, // EOF — FFmpeg closed stderr (i.e. exited).
             Ok(n) => {
-                if let Ok(mut tail) = sink.lock() {
-                    tail.push_str(&String::from_utf8_lossy(&chunk[..n]));
-                    if tail.len() > STDERR_TAIL_LIMIT {
-                        let mut cut = tail.len() - STDERR_TAIL_LIMIT;
-                        // Prefer a newline boundary so the tail starts on a
-                        // clean line; fall back to the raw offset.
-                        if let Some(nl) = tail[cut..].find('\n') {
-                            cut += nl + 1;
-                        }
-                        // `drain` panics on a non-char boundary (lossy decoding
-                        // can leave multi-byte chars straddling chunks), so back
-                        // off to the nearest boundary first.
-                        while cut < tail.len() && !tail.is_char_boundary(cut) {
-                            cut += 1;
-                        }
-                        tail.drain(..cut);
+                let mut tail = sink.lock();
+                tail.push_str(&String::from_utf8_lossy(&chunk[..n]));
+                if tail.len() > STDERR_TAIL_LIMIT {
+                    let mut cut = tail.len() - STDERR_TAIL_LIMIT;
+                    // Prefer a newline boundary so the tail starts on a
+                    // clean line; fall back to the raw offset.
+                    if let Some(nl) = tail[cut..].find('\n') {
+                        cut += nl + 1;
                     }
+                    // `drain` panics on a non-char boundary (lossy decoding
+                    // can leave multi-byte chars straddling chunks), so back
+                    // off to the nearest boundary first.
+                    while cut < tail.len() && !tail.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    tail.drain(..cut);
                 }
             }
             Err(_) => break,
@@ -67,9 +71,7 @@ fn collect_stderr_tail(
     if let Some(handle) = pump.take() {
         let _ = handle.join();
     }
-    sink.lock()
-        .map(|t| t.trim().to_string())
-        .unwrap_or_default()
+    sink.lock().trim().to_string()
 }
 
 /// Capture-time quality tier for the live recorder.

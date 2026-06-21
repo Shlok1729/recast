@@ -21,7 +21,11 @@
 	import { Spinner } from "@recast/ui/spinner";
 	import { convertFileSrc } from "@tauri-apps/api/core";
 	import { onDestroy, onMount } from "svelte";
-	import { CAMERA_OVERLAY_UI_ENABLED } from "$lib/feature-flags";
+	import {
+		CAMERA_OVERLAY_UI_ENABLED,
+		WEBCODECS_PREVIEW_ENABLED,
+	} from "$lib/feature-flags";
+	import { WebCodecsVideoSource } from "$lib/playback/webcodecs-source";
 	import AnnotationOverlay from "./_components/AnnotationOverlay.svelte";
 	import AnnotationStatusRail from "./_components/AnnotationStatusRail.svelte";
 	import CameraOverlay from "./_components/CameraOverlay.svelte";
@@ -91,6 +95,16 @@
 	let bgTex: WebGLTexture | null = null;
 	let bgTexReady = false;
 	let lastBgKey = "";
+
+	// WebCodecs preview engine (behind WEBCODECS_PREVIEW_ENABLED). When active,
+	// the composite samples a frame WE decode for the current playback time —
+	// not the <video> element's pixels — so jumping over a cut never waits on
+	// the element's native seek. The <video> element still drives the clock and
+	// audio sync (hybrid); the full clock swap comes later. Not $state — read
+	// only from the imperative draw loop.
+	let wcSource: WebCodecsVideoSource | null = null;
+	let wcReady = false;
+	let loadedWcSrc = "";
 
 	// Uniform locations
 	const uniforms: Record<string, WebGLUniformLocation | null> = {};
@@ -1070,6 +1084,27 @@ void main() {
 		return true;
 	}
 
+	// Uploads a WebCodecs-decoded VideoFrame into the sampling texture. A
+	// VideoFrame is a TexImageSource, so texImage2D accepts it directly (same
+	// hardware-accelerated path as a <video> element). The frame is owned by the
+	// source's cache — we only read it, never close it.
+	function uploadFrameObject(frame: VideoFrame): boolean {
+		if (!gl || !videoTex) return false;
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, videoTex);
+		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+		try {
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+		} catch (err) {
+			if (!loggedTexError) {
+				loggedTexError = true;
+				console.error("WebGL texImage2D failed for VideoFrame:", err);
+			}
+			return false;
+		}
+		return true;
+	}
+
 	// Smoothly-eased zoom scale at `timeSec`. Returns 1.0 outside every
 	// region; inside a region, ramps 1.0 → `region.scale` across `rampIn`
 	// seconds shaped by `easeIn`, holds at `region.scale`, then ramps back
@@ -1234,34 +1269,50 @@ void main() {
 					playbackTime < c.end - 0.02,
 			);
 			if (cut) {
-				// (1) Pre-decode the post-cut frame on the scout, ahead of the jump.
-				if (scoutEl && scoutSeekTarget !== cut.end) {
-					scoutSeekTarget = cut.end;
-					try {
-						scoutEl.currentTime = cut.end;
-					} catch {
-						/* scout not ready to seek yet; retried next frame */
-					}
-				}
-				// (2) At the boundary, jump the primary and mask its seek with the
-				//     scout's pre-decoded frame.
-				if (playbackTime + CUT_JUMP_LOOKAHEAD >= cut.start) {
-					if (cutSkipTarget !== cut.end && !videoEl.seeking) {
-						cutSkipTarget = cut.end;
-						videoEl.currentTime = cut.end;
-					}
-					if (scoutReadyAt(cut.end)) {
-						// Draw the scout's frame this tick — no visible freeze.
-						frameEl = scoutEl;
+				if (WEBCODECS_PREVIEW_ENABLED && wcSource) {
+					// WebCodecs path: warm the post-cut GOP, then jump the clock at
+					// the boundary. The picture is decoded by US (sampled below at
+					// the jumped time), so there is NO native seek to freeze on —
+					// no scout element and no "hold the last frame" stall.
+					wcSource.prefetch(cut.end);
+					if (playbackTime + CUT_JUMP_LOOKAHEAD >= cut.start) {
+						if (cutSkipTarget !== cut.end && !videoEl.seeking) {
+							cutSkipTarget = cut.end;
+							videoEl.currentTime = cut.end;
+						}
 					} else {
-						// Scout not ready (e.g. sparse keyframes): hold the last
-						// frame until the primary settles, as before.
-						return;
+						cutSkipTarget = null;
 					}
 				} else {
-					// Approaching but not yet at the boundary — keep playing the
-					// primary normally; the jump hasn't happened.
-					cutSkipTarget = null;
+					// (1) Pre-decode the post-cut frame on the scout, ahead of the jump.
+					if (scoutEl && scoutSeekTarget !== cut.end) {
+						scoutSeekTarget = cut.end;
+						try {
+							scoutEl.currentTime = cut.end;
+						} catch {
+							/* scout not ready to seek yet; retried next frame */
+						}
+					}
+					// (2) At the boundary, jump the primary and mask its seek with the
+					//     scout's pre-decoded frame.
+					if (playbackTime + CUT_JUMP_LOOKAHEAD >= cut.start) {
+						if (cutSkipTarget !== cut.end && !videoEl.seeking) {
+							cutSkipTarget = cut.end;
+							videoEl.currentTime = cut.end;
+						}
+						if (scoutReadyAt(cut.end)) {
+							// Draw the scout's frame this tick — no visible freeze.
+							frameEl = scoutEl;
+						} else {
+							// Scout not ready (e.g. sparse keyframes): hold the last
+							// frame until the primary settles, as before.
+							return;
+						}
+					} else {
+						// Approaching but not yet at the boundary — keep playing the
+						// primary normally; the jump hasn't happened.
+						cutSkipTarget = null;
+					}
 				}
 			} else {
 				// Outside any cut window — clear so the next cut can fire.
@@ -1270,8 +1321,16 @@ void main() {
 			}
 		}
 
-		// Make sure the latest video frame is in the texture before sampling
-		if (!uploadVideoFrame(frameEl)) return;
+		// Get the frame into the texture. With the WebCodecs engine we sample a
+		// frame WE decoded for playbackTime (no <video> seek latency); fall back
+		// to the <video> element while the source is still demuxing or if a frame
+		// isn't ready yet, so the preview is never blank.
+		let uploadedWcFrame = false;
+		if (WEBCODECS_PREVIEW_ENABLED && wcSource && wcReady) {
+			const f = wcSource.frameAt(Math.max(0, playbackTime));
+			if (f) uploadedWcFrame = uploadFrameObject(f);
+		}
+		if (!uploadedWcFrame && !uploadVideoFrame(frameEl)) return;
 
 		// Make sure background texture is current (fire-and-forget if it changed)
 		void loadBackgroundIfNeeded();
@@ -1533,7 +1592,26 @@ void main() {
 		cancelVideoFrameCallback?: (handle: number) => void;
 	};
 
+	// rAF handle for the WebCodecs playback loop (see startVideoFrameLoop).
+	let wcRafHandle: number | null = null;
+
 	function startVideoFrameLoop() {
+		if (WEBCODECS_PREVIEW_ENABLED) {
+			// WebCodecs path: drive the loop with rAF, NOT the <video> element's
+			// requestVideoFrameCallback. rVFC fires only when the element presents
+			// a new frame, which STALLS during the seek we issue at a cut — the
+			// very moment we need to keep painting. The clock is still
+			// videoEl.currentTime, which updates continuously during play and
+			// jumps instantly when we set it at the boundary, so an rAF loop
+			// reading it stays smooth across the cut.
+			if (wcRafHandle !== null) return;
+			const loop = () => {
+				draw();
+				wcRafHandle = requestAnimationFrame(loop);
+			};
+			wcRafHandle = requestAnimationFrame(loop);
+			return;
+		}
 		const v = videoEl as VideoElWithRVFC | null;
 		if (!v || typeof v.requestVideoFrameCallback !== "function") {
 			// Fallback: drive via RAF whenever the video advances
@@ -1547,6 +1625,10 @@ void main() {
 	}
 
 	function stopVideoFrameLoop() {
+		if (wcRafHandle !== null) {
+			cancelAnimationFrame(wcRafHandle);
+			wcRafHandle = null;
+		}
 		if (rvfcHandle === null) return;
 		const v = videoEl as VideoElWithRVFC | null;
 		if (v && typeof v.cancelVideoFrameCallback === "function") {
@@ -1608,11 +1690,47 @@ void main() {
 	onDestroy(() => {
 		stopVideoFrameLoop();
 		if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+		wcSource?.dispose();
+		wcSource = null;
 		if (gl) {
 			if (videoTex) gl.deleteTexture(videoTex);
 			if (bgTex) gl.deleteTexture(bgTex);
 			if (program) gl.deleteProgram(program);
 		}
+	});
+
+	// WebCodecs frame source (re)create when the media src changes. Owns its own
+	// worker + decoder; disposed and rebuilt per source. A demux/codec failure
+	// leaves wcSource null so draw() falls back to the <video> element.
+	$effect(() => {
+		const src = videoSrc;
+		if (!WEBCODECS_PREVIEW_ENABLED || !src) return;
+		if (src === loadedWcSrc) return;
+		loadedWcSrc = src;
+		wcReady = false;
+		wcSource?.dispose();
+		wcSource = null;
+		let cancelled = false;
+		WebCodecsVideoSource.create(src)
+			.then((source) => {
+				if (cancelled) {
+					source.dispose();
+					return;
+				}
+				source.onFrame = () => requestRedraw();
+				wcSource = source;
+				wcReady = true;
+				requestRedraw();
+			})
+			.catch((err) => {
+				console.warn(
+					"WebCodecs source unavailable; using <video> fallback:",
+					err,
+				);
+			});
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	// Cursor track (re)load when path changes

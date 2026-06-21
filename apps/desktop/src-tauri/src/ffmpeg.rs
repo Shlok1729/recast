@@ -185,6 +185,102 @@ pub fn configure_silent_command(cmd: &mut Command) {
     }
 }
 
+/// Maximum stderr tail retained for diagnostics. The fatal line is always at
+/// the end (codec error, disk full, etc.); FFmpeg's startup chatter is noise.
+const STDERR_TAIL_LIMIT: usize = 8192;
+
+/// A side-thread that continuously drains a long-lived FFmpeg child's stderr to
+/// a bounded tail.
+///
+/// This is **load-bearing, not just diagnostic**: FFmpeg writes its banner and
+/// periodic `frame=… fps=…` progress to stderr. If nobody reads it, the ~64 KB
+/// OS pipe buffer fills on a long capture, FFmpeg blocks on the stderr
+/// `write()`, stops producing frames, and any graceful `q`→wait stalls until it
+/// has to be force-killed (corrupt MP4). Any FFmpeg child that lives longer than
+/// a single short invocation and pipes stderr MUST be wrapped in one of these at
+/// spawn time. Mirrors the encoder's private pump; shared so capture backends
+/// don't each re-derive it.
+pub struct StderrTail {
+    handle: Option<std::thread::JoinHandle<()>>,
+    sink: std::sync::Arc<parking_lot::Mutex<String>>,
+}
+
+impl StderrTail {
+    /// Spawn the drain thread for `stderr`. Returns immediately; the thread runs
+    /// for the whole life of the process and exits at EOF (i.e. when FFmpeg
+    /// closes stderr on exit).
+    pub fn spawn(stderr: std::process::ChildStderr) -> Self {
+        let sink = std::sync::Arc::new(parking_lot::Mutex::new(String::new()));
+        let sink_clone = sink.clone();
+        let handle = std::thread::Builder::new()
+            .name("recast-ffmpeg-stderr".into())
+            .spawn(move || pump_stderr_tail(stderr, sink_clone))
+            .ok();
+        Self { handle, sink }
+    }
+
+    /// A snapshot of the tail retained so far, without consuming the pump. Safe
+    /// to call while the child is still alive (e.g. on an early-exit error path).
+    pub fn snapshot(&self) -> String {
+        self.sink.lock().clone()
+    }
+
+    /// Join the drain thread and return the retained tail. The pump only exits
+    /// once FFmpeg closes stderr, so the child must already be exiting/exited
+    /// before this is called (it is, after `graceful_stop`/`wait`).
+    pub fn collect(mut self) -> String {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        self.sink.lock().clone()
+    }
+}
+
+impl Drop for StderrTail {
+    fn drop(&mut self) {
+        // If `collect()` was already called the handle is gone. Otherwise detach
+        // the thread — the child has closed stderr by the time a `StderrTail` is
+        // dropped on an error path, so the pump reaches EOF and exits on its own.
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn pump_stderr_tail(
+    stderr: std::process::ChildStderr,
+    sink: std::sync::Arc<parking_lot::Mutex<String>>,
+) {
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(stderr);
+    let mut chunk = [0u8; 4096];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break, // EOF — FFmpeg closed stderr (i.e. exited).
+            Ok(n) => {
+                let mut tail = sink.lock();
+                tail.push_str(&String::from_utf8_lossy(&chunk[..n]));
+                if tail.len() > STDERR_TAIL_LIMIT {
+                    let mut cut = tail.len() - STDERR_TAIL_LIMIT;
+                    // Prefer a newline boundary so the tail starts on a clean
+                    // line; fall back to the raw offset.
+                    if let Some(nl) = tail[cut..].find('\n') {
+                        cut += nl + 1;
+                    }
+                    // `drain` panics on a non-char boundary (lossy decoding can
+                    // leave multi-byte chars straddling chunks), so back off to
+                    // the nearest boundary first.
+                    while cut < tail.len() && !tail.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    tail.drain(..cut);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+}
+
 /// Get the resolved path to the ffmpeg binary.
 pub fn ffmpeg_path() -> &'static PathBuf {
     &resolve().ffmpeg

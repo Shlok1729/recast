@@ -507,9 +507,13 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
         }
     }
 
-    // Best-effort removal of the now-empty per-invocation subdir. Ignore
-    // failure (parallel invocations or filesystem races can leave stragglers).
-    let _ = fs::remove_dir(&temp_dir);
+    // Best-effort *recursive* removal of the per-invocation subdir. `remove_dir`
+    // (non-recursive) silently fails when image2 emits ±1 extra frame past
+    // `count` or the loop breaks early, leaking the whole dir until the next
+    // startup sweep — on a long editor session that's gigabytes of orphaned
+    // JPEGs. `remove_dir_all` takes the stragglers with it. Ignore failure
+    // (parallel invocations / filesystem races).
+    let _ = fs::remove_dir_all(&temp_dir);
 
     // Persist the strip so the next open of this recording skips the decode.
     // Only cache a complete strip — a partial/failed run shouldn't be pinned.
@@ -561,7 +565,7 @@ fn extract_single_thumbnail(
         .filter(|o| o.status.success())
         .and_then(|_| fs::read(&thumb_path).ok());
     let _ = fs::remove_file(&thumb_path);
-    let _ = fs::remove_dir(&temp_dir);
+    let _ = fs::remove_dir_all(&temp_dir);
     result
 }
 
@@ -607,7 +611,7 @@ fn extract_poster_webp(media_path: &Path, timestamp: f64, scale_width: u32) -> O
         .filter(|o| o.status.success())
         .and_then(|_| fs::read(&out_path).ok());
     let _ = fs::remove_file(&out_path);
-    let _ = fs::remove_dir(&temp_dir);
+    let _ = fs::remove_dir_all(&temp_dir);
     result
 }
 

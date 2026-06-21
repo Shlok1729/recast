@@ -27,7 +27,7 @@
 //! Token storage uses `keyring` — DPAPI on Windows, Keychain on macOS,
 //! SecretService on Linux. Service name is the bundle identifier.
 
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use std::time::{Duration, Instant};
 
 use keyring::Entry;
@@ -73,7 +73,7 @@ pub(crate) fn normalize_api_url(raw: &str) -> Option<String> {
 /// Seed the in-process override from persisted config at startup. Called once
 /// during app setup after the config is loaded.
 pub(crate) fn init_cloud_api_override(value: Option<String>) {
-    *CLOUD_API_OVERRIDE.write().unwrap() = value;
+    *CLOUD_API_OVERRIDE.write() = value;
 }
 
 /// Resolves the cloud API base URL. Resolution order:
@@ -88,7 +88,7 @@ pub(crate) fn init_cloud_api_override(value: Option<String>) {
 ///   3. The bundled default endpoint.
 /// Trailing slashes are stripped at every layer.
 pub(crate) fn cloud_api_url() -> String {
-    if let Some(raw) = CLOUD_API_OVERRIDE.read().unwrap().clone() {
+    if let Some(raw) = CLOUD_API_OVERRIDE.read().clone() {
         if let Some(valid) = normalize_api_url(&raw) {
             return valid;
         }
@@ -752,7 +752,7 @@ pub struct CloudApiConfig {
 /// Read the current cloud endpoint configuration for the Settings UI.
 #[tauri::command]
 pub fn get_cloud_api_config(state: State<'_, AppState>) -> CloudApiConfig {
-    let override_url = state.config.lock().cloud_api_url.clone();
+    let override_url = state.config.read().cloud_api_url.clone();
     let effective = cloud_api_url();
     CloudApiConfig {
         is_custom: effective != DEFAULT_CLOUD_API_URL,
@@ -790,11 +790,12 @@ pub fn set_cloud_api_url(
 
     let previous_effective = cloud_api_url();
 
-    {
-        let mut config = state.config.lock();
+    let snapshot = {
+        let mut config = state.config.write();
         config.cloud_api_url = normalized.clone();
-        save_config(&app, &config);
-    }
+        config.clone()
+    };
+    save_config(&app, &snapshot);
     init_cloud_api_override(normalized.clone());
 
     // If the endpoint actually moved, drop the old server's token locally so

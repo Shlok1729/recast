@@ -21,3 +21,24 @@
  * in `apps/desktop/docs/camera-recording-todo.md`.
  */
 export const CAMERA_OVERLAY_UI_ENABLED = false;
+
+/**
+ * WebCodecs-based preview playback engine.
+ *
+ * When ON, the editor preview drops the HTML `<video>` element entirely and
+ * drives playback from a JS master clock (`$lib/playback/clock`) plus a
+ * WebCodecs `VideoDecoder` frame source (`$lib/playback/webcodecs-source`).
+ * The audio `<audio>` tracks slave to the clock instead of to the video
+ * element. This is what removes the freeze when playback crosses a cut/split:
+ * frames are decoded from our own GOP cache rather than via the `<video>`
+ * element's slow native seek.
+ *
+ * When OFF (default while this lands), the proven `<video>`-element path is
+ * used unchanged — the two implementations live side by side so the new engine
+ * can be validated against real recordings before it becomes the default.
+ *
+ * Requires a WebView with WebCodecs (`VideoDecoder`): WebView2 on Windows and
+ * WKWebView (Safari 16.4+) on macOS. If the source codec isn't supported the
+ * engine throws at load and the caller falls back to the `<video>` path.
+ */
+export const WEBCODECS_PREVIEW_ENABLED = true;

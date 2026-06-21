@@ -25,13 +25,37 @@ export default defineConfig({
 		},
 
 	},
+	// The `@recast/*` packages ship SOURCE (their exports map points at ./src),
+	// so this app compiles their `.svelte`/`.ts` files itself. That means it must
+	// resolve the leaf libs those files statically import (bits-ui, clsx, etc.).
+	// Under pnpm those libs live in each package's own node_modules, not this
+	// app's root, so vite can't resolve them from here unless they're real deps
+	// of this app — hence they're declared in package.json AND pre-bundled here
+	// (which also avoids first-request "new dep optimized, reloading" reloads).
+	// Mirrors apps/web's working config.
+	//
+	// posthog-js is deliberately NOT here: it stays scoped to @recast/analytics
+	// and is only ever reached via a dynamic `import("posthog-js")` once analytics
+	// consent stands the provider up. Vite resolves that lazily at runtime from
+	// the analytics package's own node_modules, so it's never pulled into this
+	// app's bundle — listing it would just fail to pre-bundle (not a dep here)
+	// and emit a spurious "failed to resolve" warning.
 	optimizeDeps: {
-		// posthog-js is a transitive (dynamically-imported) dep of
-		// @recast/analytics; pre-bundle it so the first capture in the webview
-		// doesn't trigger a dep-optimize reload. Keep the workspace package itself
-		// out so edits hot-reload.
-		include: ['@recast/analytics'],
-		// exclude: ['@recast/analytics'],
+		include: [
+			'@lucide/svelte',
+			'bits-ui',
+			'clsx',
+			'mode-watcher',
+			'svelte-sonner',
+			'tailwind-merge',
+			'tailwind-variants',
+		],
+		exclude: [
+			'@recast/ui',
+			'@recast/design',
+			'@recast/player',
+			'@recast/analytics',
+		],
 	},
 	// Env variables starting with the item of `envPrefix` are exposed to the
 	// webview via `import.meta.env`. We use the `PUBLIC_` prefix (matching the

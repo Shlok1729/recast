@@ -68,16 +68,18 @@ fn parse_open_arg(argv: &[String]) -> Option<PathBuf> {
 /// regardless of how it was created.
 #[cfg(target_os = "linux")]
 fn enable_webview_media(webview: &tauri::Webview) {
+    use parking_lot::Mutex;
     use std::collections::HashSet;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
 
     static CONFIGURED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     // Connecting the signal twice would stack handlers across reloads, so
-    // configure each webview exactly once.
+    // configure each webview exactly once. `parking_lot::Mutex` can't poison —
+    // a panic here would otherwise abort the app rather than just leaving media
+    // unconfigured for one webview.
     if !CONFIGURED
         .get_or_init(|| Mutex::new(HashSet::new()))
         .lock()
-        .expect("webview media-config set poisoned")
         .insert(webview.label().to_string())
     {
         return;
@@ -217,7 +219,7 @@ pub fn run() {
             app.manage(AppState {
                 recording_manager: std::sync::Arc::new(RecordingManager::default()),
                 last_file_path: Mutex::new(None),
-                config: Mutex::new(config),
+                config: parking_lot::RwLock::new(config),
                 export_cancel: Mutex::new(HashMap::new()),
                 auth_poller: Mutex::new(None),
                 pending_open_file: Mutex::new(pending_open_file),
@@ -265,7 +267,7 @@ pub fn run() {
 
             // Startup: clean up stale temp files and orphaned session artifacts.
             let state = app.state::<AppState>();
-            let output_dir = state.config.lock().output_dir.clone();
+            let output_dir = state.config.read().output_dir.clone();
             if let Some(dir) = output_dir {
                 project::autosave::cleanup_stale_sessions(std::path::Path::new(&dir));
             }
@@ -402,7 +404,7 @@ pub fn run() {
                 if label == "main" {
                     let hide_to_tray = app_handle
                         .try_state::<AppState>()
-                        .map(|state| state.config.lock().close_to_tray)
+                        .map(|state| state.config.read().close_to_tray)
                         .unwrap_or(true);
 
                     if hide_to_tray {
