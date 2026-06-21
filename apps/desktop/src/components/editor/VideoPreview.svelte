@@ -21,10 +21,8 @@
 	import { Spinner } from "@recast/ui/spinner";
 	import { convertFileSrc } from "@tauri-apps/api/core";
 	import { onDestroy, onMount } from "svelte";
-	import {
-		CAMERA_OVERLAY_UI_ENABLED,
-		WEBCODECS_PREVIEW_ENABLED,
-	} from "$lib/feature-flags";
+	import { CAMERA_OVERLAY_UI_ENABLED } from "$lib/feature-flags";
+	import { experimentalStore } from "$lib/stores/experimental.svelte";
 	import { WebCodecsVideoSource } from "$lib/playback/webcodecs-source";
 	import { PlaybackClock } from "$lib/playback/clock";
 	import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
@@ -106,8 +104,8 @@
 	let bgTexReady = false;
 	let lastBgKey = "";
 
-	// WebCodecs preview engine (behind WEBCODECS_PREVIEW_ENABLED). When active,
-	// the composite samples a frame WE decode for the current playback time —
+	// WebCodecs preview engine (behind the `webcodecsPreview` experimental flag).
+	// When active, the composite samples a frame WE decode for the current time —
 	// not the <video> element's pixels — so jumping over a cut never waits on
 	// the element's native seek. The <video> element still drives the clock and
 	// audio sync (hybrid); the full clock swap comes later. Not $state — read
@@ -1279,7 +1277,7 @@ void main() {
 		// the picture, so its seek stalls can't freeze playback. In the legacy
 		// path the <video> element's currentTime is the clock, as before (it
 		// updates per-frame via rVFC, unlike store.currentTime's ~4×/sec tick).
-		const usingPicClock = WEBCODECS_PREVIEW_ENABLED && wcReady;
+		const usingPicClock = experimentalStore.webcodecsPreview && wcReady;
 		let playbackTime: number;
 		if (usingPicClock && store.isPlaying) {
 			// External scrub while playing: the timeline/controls set
@@ -1354,7 +1352,7 @@ void main() {
 		// selector holds (never steps back) until that GOP decodes. Critically we
 		// must NOT decode through the removed region, which would flood the decoder.
 		if (
-			!(WEBCODECS_PREVIEW_ENABLED && wcReady) &&
+			!(experimentalStore.webcodecsPreview && wcReady) &&
 			videoEl &&
 			store.isPlaying &&
 			activeCuts.length > 0
@@ -1406,7 +1404,7 @@ void main() {
 		// to the <video> element while the source is still demuxing or if a frame
 		// isn't ready yet, so the preview is never blank.
 		let haveFrame = false;
-		if (WEBCODECS_PREVIEW_ENABLED && wcSource && wcReady) {
+		if (experimentalStore.webcodecsPreview && wcSource && wcReady) {
 			// Floor = start of the current kept segment = the end of the most recent
 			// cut at or before the playhead (0 if none). Frames before it belong to
 			// a prior segment (inside the removed range) and must not be shown, or
@@ -1688,7 +1686,7 @@ void main() {
 	let wcRafHandle: number | null = null;
 
 	function startVideoFrameLoop() {
-		if (WEBCODECS_PREVIEW_ENABLED) {
+		if (experimentalStore.webcodecsPreview) {
 			// WebCodecs path: drive the loop with rAF, NOT the <video> element's
 			// requestVideoFrameCallback. rVFC fires only when the element presents
 			// a new frame, which STALLS during the seek we issue at a cut — the
@@ -1791,12 +1789,27 @@ void main() {
 		}
 	});
 
-	// WebCodecs frame source (re)create when the media src changes. Owns its own
-	// worker + decoder; disposed and rebuilt per source. A demux/codec failure
-	// leaves wcSource null so draw() falls back to the <video> element.
+	// WebCodecs frame source (re)create when the media src changes — or when the
+	// `webcodecsPreview` experiment is toggled. Owns its own worker + decoder;
+	// disposed and rebuilt per source. A demux/codec failure leaves wcSource null
+	// so draw() falls back to the <video> element.
 	$effect(() => {
 		const src = videoSrc;
-		if (!WEBCODECS_PREVIEW_ENABLED || !src) return;
+		// Experiment off (or no src): tear down any live engine and fall back to
+		// the <video> path. Reading the flag here makes this effect re-run when the
+		// user flips it in Settings, so the engine swaps without a reload.
+		if (!experimentalStore.webcodecsPreview || !src) {
+			if (wcSource) {
+				wcSource.dispose();
+				wcSource = null;
+			}
+			wcReady = false;
+			webcodecsActive = false;
+			loadedWcSrc = "";
+			picClock.pause();
+			requestRedraw();
+			return;
+		}
 		if (src === loadedWcSrc) return;
 		loadedWcSrc = src;
 		wcReady = false;
@@ -1882,7 +1895,7 @@ void main() {
 			// `!picClock.playing` guard stops those re-runs from re-seeding the clock
 			// to the (lagging) <video> time mid-playback — which jumped it BACKWARD
 			// and forced the decoder into a reset-thrash (the ~8 fps bug).
-			if (WEBCODECS_PREVIEW_ENABLED && !picClock.playing) {
+			if (experimentalStore.webcodecsPreview && !picClock.playing) {
 				// Capture the end state before setDuration re-clamps the time.
 				const wasAtEnd = picClock.atEnd;
 				// Duration = output (post-cut) length of the kept region, so the
@@ -1914,7 +1927,7 @@ void main() {
 		// While PAUSED, a scrub/frame-step moved the transport — realign the
 		// picture clock to it. During play the clock is the master, so ignore the
 		// `seeked` events our own drift-correction triggers.
-		if (WEBCODECS_PREVIEW_ENABLED && !store.isPlaying && videoEl) {
+		if (experimentalStore.webcodecsPreview && !store.isPlaying && videoEl) {
 			picClock.seek(originalToOutput(store.effectiveCuts, videoEl.currentTime));
 		}
 		requestRedraw();

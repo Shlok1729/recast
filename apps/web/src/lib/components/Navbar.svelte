@@ -1,7 +1,7 @@
 <script lang="ts">
   import Logo from "$lib/logo.svelte";
   import { FloatingMenu } from "$lib/motion-core";
-  import { Github } from "@recast/ui/brand-icons";
+  import { GithubBrand } from "@recast/ui/brand-icons";
 
   const menuGroups = [
     {
@@ -43,7 +43,7 @@
     tertiaryButton={{
       label: "GitHub",
       href: "https://github.com/kanakkholwal/recast",
-      icon: Github,
+      icon: GithubBrand,
       iconOnly: true,
       ariaLabel: "Recast on GitHub",
     }}

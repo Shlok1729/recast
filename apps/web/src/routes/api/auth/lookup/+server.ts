@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import { getDb } from "$lib/db";
 import { user } from "$lib/db/schema";
+import { enforceRateLimit } from "$lib/server/rate-limit";
 import type { RequestHandler } from "./$types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -25,7 +26,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * waitlist endpoint that takes any email, so an attacker can already probe
  * registration. The UX win outweighs the marginal info leak.
  */
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, getClientAddress }) => {
+	// Bound the existence-oracle: a generous per-IP cap that real login forms
+	// never reach but an enumeration script does.
+	const limited = await enforceRateLimit(
+		{ getClientAddress },
+		{ bucket: "auth-lookup", limit: 20, windowMs: 60_000 },
+	);
+	if (limited) return limited;
+
 	let body: { email?: unknown } = {};
 	try {
 		body = (await request.json()) as typeof body;

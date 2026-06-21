@@ -8,6 +8,7 @@
 	  SectionHeader,
 	  SeoMeta,
 	} from "$lib/components";
+	import { GithubBrand } from "@recast/ui/brand-icons";
 	import {
 	  Apple,
 	  ArrowRight,
@@ -19,7 +20,6 @@
 	  Download,
 	  EyeOff,
 	  Film,
-	  Github,
 	  HardDrive,
 	  HardDriveUpload,
 	  Highlighter,
@@ -198,7 +198,7 @@
 	// tech-stack logo row. Different signal: the logos say "what we're
 	// built on", this strip says "what that buys you as a user".
 	const openSourceClaims = [
-		{ icon: Github, label: "GPLv3 open source" },
+		{ icon: GithubBrand, label: "GPLv3 open source" },
 		{ icon: Cpu, label: "Tauri + Rust" },
 		{ icon: EyeOff, label: "No telemetry" },
 		{ icon: HardDrive, label: "Files never leave your machine" },
@@ -962,7 +962,7 @@
 					variant="ghost"
 					class="gap-2"
 				>
-					<Github class="size-4" />
+					<GithubBrand class="size-4" />
 					Build a pack
 				</Button>
 			</Reveal>

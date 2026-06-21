@@ -1,34 +1,46 @@
 <script lang="ts">
-	import { page } from "$app/state";
-	import { NavProgress } from "@recast/ui/nav-progress";
-	import { cn } from "@recast/ui/utils";
+	import DashboardHeader from "$lib/dashboard/components/DashboardHeader.svelte";
+	import DashboardSidebar from "$lib/dashboard/components/DashboardSidebar.svelte";
+	import { settingsStore } from "$lib/dashboard/store.svelte";
 	import {
-		ArrowLeft,
 		Building2,
 		ClipboardList,
-		Crown,
 		CreditCard,
 		Hourglass,
 		LayoutDashboard,
 		Users,
 	} from "@lucide/svelte";
+	import { NavProgress } from "@recast/ui/nav-progress";
+	import * as Sidebar from "@recast/ui/sidebar";
+	import { onMount } from "svelte";
 
 	let { children, data } = $props();
 
-	const currentPath = $derived(page.url.pathname);
+	// Admin shares the dashboard's inset shell + sidebar, just with the admin
+	// nav and no org switcher. The sidebar footer reads the profile from the
+	// shared store, so hydrate it from this layout's load (which exposes
+	// `data.admin`, not `data.user`).
+	onMount(() => {
+		settingsStore.value.profile.name = data.admin.name || data.admin.email;
+		settingsStore.value.profile.email = data.admin.email;
+	});
 
 	const nav = [
-		{ href: "/admin", label: "Overview", icon: LayoutDashboard, exact: true },
-		{ href: "/admin/users", label: "Users", icon: Users, exact: false },
-		{ href: "/admin/teams", label: "Teams", icon: Building2, exact: false },
-		{ href: "/admin/waitlist", label: "Waitlist", icon: Hourglass, exact: false },
-		{ href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard, exact: false },
-		{ href: "/admin/audit", label: "Audit log", icon: ClipboardList, exact: false },
+		{ title: "Overview", href: "/admin", icon: LayoutDashboard, exact: true },
+		{ title: "Users", href: "/admin/users", icon: Users, exact: false },
+		{ title: "Teams", href: "/admin/teams", icon: Building2, exact: false },
+		{ title: "Waitlist", href: "/admin/waitlist", icon: Hourglass, exact: false },
+		{ title: "Subscriptions", href: "/admin/subscriptions", icon: CreditCard, exact: false },
+		{ title: "Audit log", href: "/admin/audit", icon: ClipboardList, exact: false },
 	];
 
-	function isActive(href: string, exact: boolean) {
-		return exact ? currentPath === href : currentPath.startsWith(href);
-	}
+	const labels: Record<string, string> = {
+		users: "Users",
+		teams: "Teams",
+		waitlist: "Waitlist",
+		subscriptions: "Subscriptions",
+		audit: "Audit log",
+	};
 </script>
 
 <svelte:head>
@@ -39,52 +51,23 @@
 <!-- Top-of-page navigation indicator, shared with the desktop app. -->
 <NavProgress />
 
-<div class="min-h-screen bg-background text-foreground">
-	<!-- Impersonation indicator lives in the root layout (ImpersonationBanner)
-	     so it floats above every route, not just /admin. -->
-
-	<div class="mx-auto flex w-full max-w-7xl gap-8 px-5 py-8 sm:px-8 sm:py-10">
-		<aside class="hidden w-56 shrink-0 lg:block">
-			<div class="sticky top-8 flex flex-col gap-1">
-				<a
-					href="/dashboard"
-					class="mb-4 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground"
-				>
-					<ArrowLeft class="size-3" />
-					Back to dashboard
-				</a>
-				<div class="mb-3 flex items-center gap-2 px-2.5 py-2">
-					<span
-						class="grid size-7 place-items-center rounded-md bg-primary/15 text-primary"
-					>
-						<Crown class="size-3.5" />
-					</span>
-					<div class="flex flex-col leading-tight">
-						<span class="text-sm font-semibold tracking-tight">Admin</span>
-						<span class="text-[11px] text-muted-foreground">{data.admin.email}</span>
-					</div>
-				</div>
-				{#each nav as link (link.href)}
-					{@const active = isActive(link.href, link.exact)}
-					{@const Icon = link.icon}
-					<a
-						href={link.href}
-						class={cn(
-							"flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-							active
-								? "bg-foreground/5 text-foreground ring-1 ring-inset ring-border/40"
-								: "text-muted-foreground hover:bg-foreground/3 hover:text-foreground",
-						)}
-					>
-						<Icon class="size-4" />
-						{link.label}
-					</a>
-				{/each}
-			</div>
-		</aside>
-
-		<main class="min-w-0 flex-1">
+<!-- Same inset shell as /dashboard: `variant="inset"` turns the provider
+	 wrapper `bg-sidebar` and floats the content as a rounded `bg-background`
+	 panel. The impersonation indicator lives in the root layout so it floats
+	 above every route, not just /admin. -->
+<Sidebar.Provider>
+	<DashboardSidebar
+		{nav}
+		subtitle="Admin"
+		groupLabel="Administration"
+		homeHref="/admin"
+		showOrgSwitcher={false}
+		adminLinks
+	/>
+	<Sidebar.Inset>
+		<DashboardHeader rootLabel="Overview" {labels} />
+		<div class="px-5 py-8 sm:px-8 sm:py-10">
 			{@render children()}
-		</main>
-	</div>
-</div>
+		</div>
+	</Sidebar.Inset>
+</Sidebar.Provider>

@@ -2,6 +2,7 @@ import { error, json } from "@sveltejs/kit";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "$lib/db";
 import { recast, share, shareView } from "$lib/db/schema";
+import { enforceRateLimit } from "$lib/server/rate-limit";
 import { deviceFromUA, referrerHost } from "$lib/share/ua";
 import type { RequestHandler } from "./$types";
 
@@ -25,7 +26,16 @@ import type { RequestHandler } from "./$types";
  *
  * Body: { sessionId, event: "start" | "ended", watchPct? }
  */
-export const POST: RequestHandler = async ({ params, request }) => {
+export const POST: RequestHandler = async ({ params, request, getClientAddress }) => {
+	// Per share+IP cap on engagement writes — keeps a forged loop from inflating
+	// view counts or indefinitely resetting `lastViewedAt` to dodge the Free-tier
+	// expiry sweep. Generous enough for legitimate viewers behind shared NAT.
+	const limited = await enforceRateLimit(
+		{ getClientAddress },
+		{ bucket: "share-view", id: params.id, limit: 40, windowMs: 60_000 },
+	);
+	if (limited) return limited;
+
 	let body: {
 		sessionId?: unknown;
 		event?: unknown;

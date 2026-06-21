@@ -44,8 +44,10 @@ const QUEUE_MAX = 4;
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-// DIAGNOSTICS (temporary): decoder output rate, queue depth, reset count — to
-// tell whether the decoder itself is slow vs. frames arriving late on main.
+// DIAGNOSTICS: decoder output rate, queue depth, reset count — to tell whether
+// the decoder itself is slow vs. frames arriving late on main. Dev-only: silent
+// in production builds, kept around for debugging regressions.
+const DIAG = import.meta.env.DEV;
 let diagDecoded = 0;
 let diagResets = 0;
 let diagLastLogMs = 0;
@@ -142,18 +144,18 @@ async function init(ab: ArrayBuffer): Promise<void> {
 					frame.close();
 					return;
 				}
-				// --- diagnostics ---
-				diagDecoded++;
-				const nowMs = performance.now();
-				if (nowMs - diagLastLogMs > 1000) {
-					console.log(
-						`[wc-worker] decoded ${diagDecoded}/s · queue=${decoder?.decodeQueueSize} · resets=${diagResets} · fed=${feedCursor}/${chunks.length}`,
-					);
-					diagDecoded = 0;
-					diagResets = 0;
-					diagLastLogMs = nowMs;
+				if (DIAG) {
+					diagDecoded++;
+					const nowMs = performance.now();
+					if (nowMs - diagLastLogMs > 1000) {
+						console.log(
+							`[wc-worker] decoded ${diagDecoded}/s · queue=${decoder?.decodeQueueSize} · resets=${diagResets} · fed=${feedCursor}/${chunks.length}`,
+						);
+						diagDecoded = 0;
+						diagResets = 0;
+						diagLastLogMs = nowMs;
+					}
 				}
-				// --- end diagnostics ---
 				// Transfer ownership to the main thread; do NOT close after — the
 				// transfer detaches our handle.
 				post({ type: "frame", frame }, [frame]);

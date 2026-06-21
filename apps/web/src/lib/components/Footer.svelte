@@ -2,7 +2,7 @@
   import { Container } from "$lib/components";
   import Logo from "$lib/logo.svelte";
   import Mail from "@lucide/svelte/icons/mail";
-  import {Github, XBrand} from "@recast/ui/brand-icons";
+  import { GithubBrand, XBrand } from "@recast/ui/brand-icons";
 
   type Link = { label: string; href: string; external?: boolean };
 
@@ -54,7 +54,7 @@
 
   const socials = [
     {
-      icon: Github,
+      icon: GithubBrand,
       href: "https://github.com/kanakkholwal/recast",
       label: "GitHub",
     },

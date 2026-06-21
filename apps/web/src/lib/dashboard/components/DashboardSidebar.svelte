@@ -28,23 +28,60 @@
 	import { cubicOut } from "svelte/easing";
 	import { crossfade, fade, fly } from "svelte/transition";
 
-	const sidebar = useSidebar();
-	const open = $derived(sidebar.state === "expanded");
-	const currentPath = $derived(page.url.pathname);
-	const profile = $derived(settingsStore.value.profile);
-	// Surfaced by /dashboard/+layout.server.ts; falls back to "user" if absent
-	// so the conditional below safely returns false on unauthenticated pages.
-	const isAdmin = $derived(
-		(page.data?.user as { role?: string } | undefined)?.role === "admin",
-	);
+	// A nav entry; the same shape powers both the dashboard and admin shells.
+	// All Lucide icons share one component type, so `typeof LayoutDashboard`
+	// accepts any of them without `any`.
+	interface NavItem {
+		title: string;
+		href: string;
+		icon: typeof LayoutDashboard;
+		exact: boolean;
+	}
 
-	const nav = [
+	interface Props {
+		/** Nav rows. Defaults to the dashboard nav. */
+		nav?: NavItem[];
+		/** Small label under the wordmark ("Dashboard" / "Admin"). */
+		subtitle?: string;
+		/** Section heading above the nav. */
+		groupLabel?: string;
+		/** Where the wordmark links. */
+		homeHref?: string;
+		/** Show the org switcher (dashboard only). */
+		showOrgSwitcher?: boolean;
+		/** Force the admin cross-links in the user menu. Defaults to the
+		 *  signed-in role from `page.data.user` (present on dashboard loads). */
+		adminLinks?: boolean;
+	}
+
+	const defaultNav: NavItem[] = [
 		{ title: "Home", href: "/dashboard", icon: LayoutDashboard, exact: true },
 		{ title: "Recasts", href: "/dashboard/recasts", icon: Film, exact: false },
 		{ title: "Analytics", href: "/dashboard/analytics", icon: BarChart3, exact: false },
 		{ title: "Team", href: "/dashboard/team", icon: Users, exact: false },
 		{ title: "Settings", href: "/dashboard/settings", icon: Settings, exact: false },
 	];
+
+	let {
+		nav = defaultNav,
+		subtitle = "Dashboard",
+		groupLabel = "Library",
+		homeHref = "/dashboard",
+		showOrgSwitcher = true,
+		adminLinks,
+	}: Props = $props();
+
+	const sidebar = useSidebar();
+	const open = $derived(sidebar.state === "expanded");
+	const currentPath = $derived(page.url.pathname);
+	const profile = $derived(settingsStore.value.profile);
+	// Surfaced by /dashboard/+layout.server.ts; falls back to "user" if absent
+	// so the conditional below safely returns false on unauthenticated pages.
+	// The admin shell passes `adminLinks` explicitly since its load exposes
+	// `page.data.admin`, not `page.data.user`.
+	const isAdmin = $derived(
+		adminLinks ?? (page.data?.user as { role?: string } | undefined)?.role === "admin",
+	);
 
 	// /dashboard/+layout.server.ts surfaces these. Falls back to safe defaults
 	// if rendered outside that load (e.g. during route transition).
@@ -85,8 +122,8 @@
 
 	<Sidebar.Header class="gap-3 py-3">
 		<a
-			href="/dashboard"
-			aria-label="Recast dashboard"
+			href={homeHref}
+			aria-label="Recast {subtitle}"
 			class={cn(
 				"flex h-10 items-center gap-2.5 overflow-hidden rounded-lg transition-opacity hover:opacity-80",
 				open ? "px-1.5" : "justify-center px-0",
@@ -105,13 +142,13 @@
 						Recast
 					</span>
 					<span class="mt-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-						Dashboard
+						{subtitle}
 					</span>
 				</span>
 			{/if}
 		</a>
 
-		{#if activeOrg}
+		{#if showOrgSwitcher && activeOrg}
 			<div class="mt-1 border-t border-border/30 pt-2">
 				<OrgSwitcher
 					memberships={memberships.map((m) => ({
@@ -136,7 +173,7 @@
 						in:fade={{ duration: 180, delay: 80, easing: cubicOut }}
 						out:fade={{ duration: 140, easing: cubicOut }}
 					>
-						Library
+						{groupLabel}
 					</span>
 				</Sidebar.GroupLabel>
 			{/if}
@@ -287,6 +324,10 @@
 					Settings
 				</DropdownMenu.Item>
 				{#if isAdmin}
+					<DropdownMenu.Item onclick={() => goto("/dashboard")}>
+						<LayoutDashboard class="size-4 text-muted-foreground" />
+						Dashboard
+					</DropdownMenu.Item>
 					<DropdownMenu.Item onclick={() => goto("/admin")}>
 						<Shield class="size-4 text-primary" />
 						Admin dashboard

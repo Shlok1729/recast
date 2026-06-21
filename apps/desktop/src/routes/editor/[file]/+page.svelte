@@ -59,7 +59,7 @@
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
 
   import { log } from "$lib/logger";
   import { cubicOut } from "svelte/easing";
@@ -206,25 +206,24 @@
     if (!videoEl) return;
     if (store.isPlaying) {
       // In the WebCodecs path the picture clock is the master and owns
-      // `store.currentTime`. The `<video>` element free-runs through the raw
-      // recording (it doesn't skip cuts), so echoing its time into the store —
-      // or running the trim-loop off it — fights the clock and yanks playback
-      // back across a cut. Both are handled clock-side there (the draw loop
-      // publishes time; `picClock.atEnd` → `onEnded` handles end/loop). We still
-      // keep the audio drift-correction below: audio slaves to the `<video>`
-      // transport, which the clock nudges to the cut-aware time at each boundary.
-      if (!webcodecsActive) {
-        store.currentTime = videoEl.currentTime;
-        // Loop within trim region. Only relevant when trimEnd is set BELOW
-        // the natural duration — at the natural end we rely on the `ended`
-        // event below, which is more precise than timeupdate's ~250 ms tick.
-        if (loopEnabled && store.metadata) {
-          const trimEnd = store.trimEnd > 0 ? store.trimEnd : store.metadata.duration;
-          if (trimEnd > 0 && trimEnd < store.metadata.duration - 0.05) {
-            if (videoEl.currentTime >= trimEnd - 0.05) {
-              loopBackToStart();
-              return;
-            }
+      // `store.currentTime`, and audio is slaved to it by `syncAudioToClock`
+      // (rAF) — NOT to this `<video>` element. The element free-runs through the
+      // raw recording (it doesn't skip cuts), so echoing its time into the store,
+      // running the trim-loop off it, or snapping audio to it all fight the clock
+      // and yank playback/audio back across a cut. Everything below is therefore
+      // legacy-`<video>`-path only; the clock path handles time, end/loop, and
+      // audio elsewhere.
+      if (webcodecsActive) return;
+      store.currentTime = videoEl.currentTime;
+      // Loop within trim region. Only relevant when trimEnd is set BELOW
+      // the natural duration — at the natural end we rely on the `ended`
+      // event below, which is more precise than timeupdate's ~250 ms tick.
+      if (loopEnabled && store.metadata) {
+        const trimEnd = store.trimEnd > 0 ? store.trimEnd : store.metadata.duration;
+        if (trimEnd > 0 && trimEnd < store.metadata.duration - 0.05) {
+          if (videoEl.currentTime >= trimEnd - 0.05) {
+            loopBackToStart();
+            return;
           }
         }
       }
@@ -254,15 +253,55 @@
     micAudioEl?.pause();
   }
 
+  // Slave the audio tracks to the picture clock (WebCodecs path). The audio WAVs
+  // are the FULL recording, so to play the edited timeline they must skip the
+  // same cuts the picture does: `store.currentTime` is the cut-aware playhead the
+  // draw loop publishes, so we snap each element onto it whenever it drifts past
+  // a threshold. Normal playback runs both at 1× so they stay locked with no
+  // correction; the only correction is one snap at each cut boundary (where
+  // `store.currentTime` jumps the cut's length) and on a seek — exactly the
+  // events the old `<video>`-slaving handled late/twice, which is what made audio
+  // lag and repeat. Tighter than the visual threshold since audio desync is more
+  // audible, but not so tight that per-frame jitter causes constant re-seeks.
+  const AUDIO_SYNC_THRESHOLD = 0.12;
+  let audioSyncRaf: number | null = null;
+  function syncAudioToClock() {
+    audioSyncRaf = requestAnimationFrame(syncAudioToClock);
+    if (!store.isPlaying || !webcodecsActive) return;
+    const target = store.currentTime;
+    for (const el of [systemAudioEl, micAudioEl]) {
+      if (!el || el.paused) continue;
+      if (Math.abs(el.currentTime - target) > AUDIO_SYNC_THRESHOLD) {
+        el.currentTime = target;
+      }
+    }
+  }
+  function startAudioClockSync() {
+    if (audioSyncRaf === null) audioSyncRaf = requestAnimationFrame(syncAudioToClock);
+  }
+  function stopAudioClockSync() {
+    if (audioSyncRaf !== null) {
+      cancelAnimationFrame(audioSyncRaf);
+      audioSyncRaf = null;
+    }
+  }
+  onDestroy(stopAudioClockSync);
+
   // Play/pause audio elements in lockstep with the video via the store's
   // `isPlaying` flag (which is set by PlaybackControls, keyboard handler, etc.).
   $effect(() => {
     const playing = store.isPlaying;
+    // In the WebCodecs path the clock owns the time; align to it, not to the
+    // free-running <video> element. Read untracked so this effect doesn't re-run
+    // (re-aligning + replaying audio) on every clock tick.
+    const alignTo = untrack(() =>
+      webcodecsActive ? store.currentTime : (videoEl?.currentTime ?? 0),
+    );
     for (const el of [systemAudioEl, micAudioEl]) {
       if (!el) continue;
       if (playing) {
-        // Align audio to the video's current time before resuming.
-        if (videoEl) el.currentTime = videoEl.currentTime;
+        // Align audio to the current playhead before resuming.
+        el.currentTime = alignTo;
         void el.play().catch((err) => {
           console.warn("Audio play failed:", err);
         });
@@ -270,6 +309,9 @@
         el.pause();
       }
     }
+    // Keep audio locked to the clock while playing on the WebCodecs path.
+    if (playing && webcodecsActive) startAudioClockSync();
+    else stopAudioClockSync();
   });
 
   // Apply volume/mute from the store's audio settings to both audio elements.
@@ -282,9 +324,14 @@
     if (micAudioEl) micAudioEl.volume = vol;
   });
 
-  // Snap audio to the video's time whenever the user scrubs.
+  // Snap audio to the video's time whenever the user scrubs. WebCodecs path:
+  // audio follows the clock (`syncAudioToClock`), and the `<video>` element gets
+  // seeked by its own transport-correction (to a cut-aware time, but mid-stream),
+  // so snapping audio to those events would fight the clock and reintroduce the
+  // lag/repeat. Skip it there — paused-scrub audio realigns on the next play via
+  // the play/pause effect.
   function handleVideoSeeked() {
-    if (!videoEl) return;
+    if (!videoEl || webcodecsActive) return;
     const t = videoEl.currentTime;
     for (const el of [systemAudioEl, micAudioEl]) {
       if (el) el.currentTime = t;

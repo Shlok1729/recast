@@ -2,20 +2,31 @@
 	import { page } from "$app/state";
 	import * as Sidebar from "@recast/ui/sidebar";
 
+	interface Props {
+		/** Label shown at the route root (e.g. "Home" for /dashboard). */
+		rootLabel?: string;
+		/** Pretty names for second-segment routes; falls back to title-case. */
+		labels?: Record<string, string>;
+	}
+
+	let { rootLabel = "Home", labels }: Props = $props();
+
 	function titleCase(s: string) {
 		return s.charAt(0).toUpperCase() + s.slice(1);
 	}
 
-	const sectionMap: Record<string, string> = {
-		recasts: "Recasts",
-		analytics: "Analytics",
-		settings: "Settings",
-	};
+	const sectionMap = $derived(
+		labels ?? {
+			recasts: "Recasts",
+			analytics: "Analytics",
+			settings: "Settings",
+		},
+	);
 
 	// Breadcrumb derived from the route — "Settings / Profile" etc.
 	const crumb = $derived.by(() => {
 		const parts = page.url.pathname.split("/").filter(Boolean); // ["dashboard", ...]
-		if (parts.length <= 1) return { section: "Home", sub: null };
+		if (parts.length <= 1) return { section: rootLabel, sub: null };
 		const second = parts[1]!;
 		const section = sectionMap[second] ?? titleCase(second);
 		// Only settings has deeper routes (Profile / Integrations / Preferences).

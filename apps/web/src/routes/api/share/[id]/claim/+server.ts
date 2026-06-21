@@ -1,5 +1,6 @@
 import { error, json } from "@sveltejs/kit";
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb } from "$lib/db";
 import { share, shareMember } from "$lib/db/schema";
 import { sendEmail } from "$lib/email";
@@ -12,10 +13,18 @@ import {
 	strong,
 	wrap,
 } from "$lib/email/layout";
+import { enforceRateLimit } from "$lib/server/rate-limit";
 import { grantToken, normalizeEmail } from "$lib/share/grant";
 import type { RequestHandler } from "./$types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const BodySchema = z.object({
+	email: z
+		.string()
+		.transform((v) => normalizeEmail(v))
+		.refine((v) => EMAIL_RE.test(v), "Enter a valid email address"),
+});
 
 /**
  * POST /api/share/[id]/claim
@@ -29,16 +38,26 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * Response is intentionally generic ("if you're on the list, check your
  * mail") so the endpoint can't be used to enumerate who was invited.
  */
-export const POST: RequestHandler = async ({ params, request, url }) => {
-	let body: { email?: unknown } = {};
+export const POST: RequestHandler = async ({ params, request, url, getClientAddress }) => {
+	// Cap claim attempts per share+IP — each success sends an email to an
+	// allowlisted invitee, so this is the email-bomb / probing lever.
+	const limited = await enforceRateLimit(
+		{ getClientAddress },
+		{ bucket: "share-claim", id: params.id, limit: 5, windowMs: 60_000 },
+	);
+	if (limited) return limited;
+
+	let raw: unknown;
 	try {
-		body = (await request.json()) as typeof body;
+		raw = await request.json();
 	} catch {
 		error(400, "Invalid JSON body");
 	}
-
-	const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
-	if (!EMAIL_RE.test(email)) error(400, "Enter a valid email address");
+	const parsed = BodySchema.safeParse(raw);
+	if (!parsed.success) {
+		error(422, parsed.error.issues[0]?.message ?? "Enter a valid email address");
+	}
+	const { email } = parsed.data;
 
 	const db = getDb();
 	const [s] = await db

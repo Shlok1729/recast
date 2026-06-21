@@ -2,7 +2,13 @@
 // for information about these interfaces
 declare global {
 	namespace App {
-		// interface Error {}
+		// Shape of the object `handleError` returns and `$page.error` exposes.
+		// `errorId` correlates a user-facing message with the full stack logged
+		// server-side, so support can find the log line without leaking internals.
+		interface Error {
+			message: string;
+			errorId?: string;
+		}
 		// interface Locals {}
 		// interface PageData {}
 		// interface PageState {}

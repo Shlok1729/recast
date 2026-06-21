@@ -11,6 +11,7 @@
 	import { Button } from "@recast/ui/button";
 	import { cn } from "@recast/ui/utils";
 	import { TextLoop } from "$lib/motion-core";
+	import { GithubBrand } from "@recast/ui/brand-icons";
 	import {
 		Apple,
 		ArrowRight,
@@ -20,7 +21,6 @@
 		Crop,
 		Download,
 		FileBox,
-		Github,
 		HardDrive,
 		HardDriveUpload,
 		Highlighter,
@@ -231,7 +231,7 @@
 			description: "Every essential action lives one keystroke away. Mouse optional.",
 		},
 		{
-			icon: Github,
+			icon: GithubBrand,
 			title: "GPLv3 open source",
 			description: "Source on GitHub. Dual licensing available for closed-source redistribution.",
 		},

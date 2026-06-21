@@ -41,7 +41,11 @@ const FWD_WINDOW_S = 0.3;
  * holding too many starves that pool so the decoder stalls (processes input but
  * can't emit). A handful is enough for the playhead + a little lookahead.
  */
-const MAX_CACHED_FRAMES = 5;
+const MAX_CACHED_FRAMES = 7;
+
+/** Dev-only diagnostics (throughput + first-frame geometry). Silent in
+ * production; kept for debugging decode regressions. */
+const DIAG = import.meta.env.DEV;
 
 export class WebCodecsVideoSource {
 	#worker: Worker;
@@ -63,9 +67,8 @@ export class WebCodecsVideoSource {
 	 */
 	onFrame: (() => void) | null = null;
 
-	// DIAGNOSTICS (temporary): throughput + first-frame geometry, to pin down the
-	// "video updates ~0.5fps / half-center render" reports. Logged to the console
-	// only while the engine runs. Remove once the pipeline is validated.
+	// Dev-only diagnostics state (throughput + first-frame geometry). Gated by
+	// DIAG (import.meta.env.DEV) at the log sites — silent in production builds.
 	#framesSeen = 0;
 	#lastLogMs = 0;
 	#loggedDims = false;
@@ -144,27 +147,27 @@ export class WebCodecsVideoSource {
 				msg.frame.close();
 				return;
 			}
-			// --- diagnostics ---
-			if (!this.#loggedDims) {
-				this.#loggedDims = true;
-				const f = msg.frame;
-				const vr = f.visibleRect;
-				console.log(
-					`[wc] geometry coded=${f.codedWidth}x${f.codedHeight} display=${f.displayWidth}x${f.displayHeight} ` +
-						`visible=${vr ? `${vr.x},${vr.y} ${vr.width}x${vr.height}` : "none"} ` +
-						`format=${f.format} declaredMeta=${this.width}x${this.height}`,
-				);
+			if (DIAG) {
+				if (!this.#loggedDims) {
+					this.#loggedDims = true;
+					const f = msg.frame;
+					const vr = f.visibleRect;
+					console.log(
+						`[wc] geometry coded=${f.codedWidth}x${f.codedHeight} display=${f.displayWidth}x${f.displayHeight} ` +
+							`visible=${vr ? `${vr.x},${vr.y} ${vr.width}x${vr.height}` : "none"} ` +
+							`format=${f.format} declaredMeta=${this.width}x${this.height}`,
+					);
+				}
+				this.#framesSeen++;
+				const nowMs = performance.now();
+				if (nowMs - this.#lastLogMs > 1000) {
+					console.log(
+						`[wc] decoded ${this.#framesSeen} frames/s · cache=${this.#cache.size} · currentSec=${(this.#currentUs / 1e6).toFixed(2)}`,
+					);
+					this.#framesSeen = 0;
+					this.#lastLogMs = nowMs;
+				}
 			}
-			this.#framesSeen++;
-			const nowMs = performance.now();
-			if (nowMs - this.#lastLogMs > 1000) {
-				console.log(
-					`[wc] decoded ${this.#framesSeen} frames/s · cache=${this.#cache.size} · currentSec=${(this.#currentUs / 1e6).toFixed(2)}`,
-				);
-				this.#framesSeen = 0;
-				this.#lastLogMs = nowMs;
-			}
-			// --- end diagnostics ---
 
 			const ts = msg.frame.timestamp;
 			this.#cache.get(ts)?.close(); // never leak a replaced frame

@@ -15,6 +15,7 @@ import { PersistedState } from "@recast/ui/persisted-state";
 export type ExperimentalFlag =
 	| "timelineEditing"
 	| "silenceDetection"
+	| "webcodecsPreview"
 	| "selfHosting";
 
 interface FlagMeta {
@@ -37,6 +38,12 @@ export const FLAG_META: FlagMeta[] = [
 			"Detect dead air (quiet audio + still cursor) and skip it during playback/export. Hidden when off.",
 	},
 	{
+		key: "webcodecsPreview",
+		label: "WebCodecs preview engine",
+		description:
+			"Decode the editor preview with WebCodecs and a custom playback clock instead of the HTML <video> element. Removes the freeze when playback crosses a cut/split. On unsupported hardware it falls back to the <video> path automatically. Toggle to compare smoothness against the classic engine.",
+	},
+	{
 		key: "selfHosting",
 		label: "Self-hosting server endpoint",
 		description:
@@ -47,6 +54,7 @@ export const FLAG_META: FlagMeta[] = [
 const DEFAULTS: Record<ExperimentalFlag, boolean> = {
 	timelineEditing: false,
 	silenceDetection: false,
+	webcodecsPreview: false,
 	selfHosting: false,
 };
 
@@ -66,6 +74,9 @@ function createExperimentalStore() {
 		},
 		get silenceDetection() {
 			return flags.current.silenceDetection;
+		},
+		get webcodecsPreview() {
+			return flags.current.webcodecsPreview;
 		},
 		isEnabled(key: ExperimentalFlag): boolean {
 			return flags.current[key];

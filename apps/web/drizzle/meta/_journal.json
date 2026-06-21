@@ -50,6 +50,13 @@
       "when": 1780587377142,
       "tag": "0006_curious_mach_iv",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782037221133,
+      "tag": "0007_rainy_dazzler",
+      "breakpoints": true
     }
   ]
 }
