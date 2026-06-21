@@ -8,6 +8,7 @@ import {
 	totalCutDuration,
 	type TimelineCut,
 } from "./cuts";
+import parityFixtures from "./__fixtures__/cut-parity.json";
 
 function cut(start: number, end: number, id = `${start}-${end}`): TimelineCut {
 	return { id, start, end, source: "manual" };
@@ -87,6 +88,38 @@ describe("originalToOutput / outputToOriginal", () => {
 			expect(outputToOriginal(cuts, originalToOutput(cuts, t))).toBeCloseTo(t);
 		}
 	});
+
+	it("is monotonic non-decreasing in original time", () => {
+		// The output axis must never run backwards as the playhead advances —
+		// that's what keeps the timeline (and the playhead) from jittering at cuts.
+		let prev = -Infinity;
+		for (let t = 0; t <= 10; t += 0.1) {
+			const o = originalToOutput(cuts, t);
+			expect(o).toBeGreaterThanOrEqual(prev - 1e-9);
+			prev = o;
+		}
+	});
+
+	it("output length of the whole clip = duration − total cut duration", () => {
+		// The single invariant the export also has to satisfy (see parity tests).
+		const dur = 10;
+		expect(originalToOutput(cuts, dur)).toBeCloseTo(dur - totalCutDuration(cuts));
+	});
+});
+
+describe("cut/export parity (shared fixtures with Rust)", () => {
+	// These fixtures are loaded VERBATIM by the Rust export tests too
+	// (editor.rs::kept_duration_matches_shared_parity_fixtures). The editor's
+	// collapsed [trimStart,trimEnd] length must equal the export's output
+	// duration for every case, or one side has drifted from the other.
+	for (const c of parityFixtures.cases) {
+		it(`kept duration: ${c.name}`, () => {
+			const cuts = c.cuts.map(([s, e], i) => cut(s, e, `fx-${i}`));
+			const keptOutputLength =
+				originalToOutput(cuts, c.trimEnd) - originalToOutput(cuts, c.trimStart);
+			expect(keptOutputLength).toBeCloseTo(c.expectedKeptDuration, 6);
+		});
+	}
 });
 
 describe("overlapsAny", () => {

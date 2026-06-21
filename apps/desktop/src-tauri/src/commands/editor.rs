@@ -816,6 +816,12 @@ fn run_gif_palette_prepass(
 /// `buildExportRenderState`), so when a feature is opted off `render_state.cuts`
 /// is empty here and the export matches an un-edited clip. This pipeline applies
 /// whatever cuts it is handed; it does not (and cannot) re-check the flags.
+/// Two cut edges within this many seconds are treated as the same boundary and
+/// merged. Kept in lockstep with `EPS` in the frontend's cut/segment model
+/// (apps/desktop/src/lib/timeline/{cuts,segments}.ts) so the previewed edit and
+/// the export never disagree on where a segment begins or ends.
+const CUT_MERGE_EPS: f64 = 1e-4;
+
 fn collect_export_cuts(
     render_state: &crate::render::graph::RenderState,
     trim_start: f64,
@@ -834,7 +840,11 @@ fn collect_export_cuts(
     let mut merged: Vec<(f64, f64)> = Vec::with_capacity(cuts.len());
     for cut in cuts {
         match merged.last_mut() {
-            Some(last) if cut.0 <= last.1 + 0.001 => last.1 = last.1.max(cut.1),
+            // Adjacency tolerance MUST match the frontend's `normalizeCuts` EPS
+            // (1e-4 in apps/desktop/src/lib/timeline/cuts.ts) so the editor's
+            // collapsed timeline and this export agree on segment boundaries to
+            // the same precision. See cut-parity tests on both sides.
+            Some(last) if cut.0 <= last.1 + CUT_MERGE_EPS => last.1 = last.1.max(cut.1),
             _ => merged.push(cut),
         }
     }
@@ -2556,5 +2566,41 @@ mod cut_export_tests {
     #[test]
     fn no_cuts_yields_empty() {
         assert!(collect_export_cuts(&state_with_cuts(vec![]), 0.0, 10.0).is_empty());
+    }
+
+    #[test]
+    fn kept_duration_matches_shared_parity_fixtures() {
+        // Anti-drift guard. This loads the SAME json the frontend asserts against
+        // (cuts.test.ts → "cut/export parity"). For every case, this export's
+        // output duration — (trim length) minus the merged cut spans — must equal
+        // `expectedKeptDuration`, which the frontend also matches against its
+        // collapsed-timeline length. If the two cut models ever diverge, one of
+        // these two tests fails.
+        let raw = include_str!("../../../src/lib/timeline/__fixtures__/cut-parity.json");
+        let doc: serde_json::Value = serde_json::from_str(raw).expect("valid fixture json");
+        let cases = doc["cases"].as_array().expect("cases array");
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or("?");
+            let trim_start = case["trimStart"].as_f64().unwrap();
+            let trim_end = case["trimEnd"].as_f64().unwrap();
+            let expected = case["expectedKeptDuration"].as_f64().unwrap();
+            let cuts: Vec<CutRange> = case["cuts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|pair| {
+                    let p = pair.as_array().unwrap();
+                    cut(p[0].as_f64().unwrap(), p[1].as_f64().unwrap())
+                })
+                .collect();
+
+            let merged = collect_export_cuts(&state_with_cuts(cuts), trim_start, trim_end);
+            let removed: f64 = merged.iter().map(|(a, b)| b - a).sum();
+            let kept = (trim_end - trim_start) - removed;
+            assert!(
+                (kept - expected).abs() < 1e-6,
+                "parity case '{name}': export kept duration {kept} != expected {expected}"
+            );
+        }
     }
 }

@@ -173,6 +173,18 @@ fn emit_progress(app: &AppHandle, path: &str, phase: &str) {
     let _ = app.emit("recast-cloud:progress", CloudProgress { path, phase });
 }
 
+/// Byte-level progress for the long-running PUT, so the share card can render a
+/// determinate bar instead of an indeterminate pulse (mirrors Google Drive's
+/// `gdrive:progress`). Keyed by the local file path, like every other
+/// `recast-cloud:*` event.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CloudUploadProgress<'a> {
+    path: &'a str,
+    bytes_sent: u64,
+    total_bytes: u64,
+}
+
 /// Emit a failure event AND return the message, so the awaiting promise and
 /// any event listener (corner notifications) both learn about it.
 fn fail(app: &AppHandle, path: &str, message: String) -> String {
@@ -310,19 +322,63 @@ pub async fn recast_cloud_upload(
     }
 
     // ── PUT the file ──────────────────────────────────────────────────
-    // In-memory body so a Content-Length is sent (S3/R2/Azure reject a
-    // chunked PUT). Free uploads are 720p-capped (~150 MB), comfortably in
-    // RAM; streamed byte-progress is a future enhancement.
+    // Stream the in-memory buffer in chunks so we can emit byte-level progress
+    // (mirrors the Google Drive uploader). We MUST still send an explicit
+    // Content-Length — S3/R2/Azure reject a chunked PUT, and `wrap_stream`
+    // otherwise defaults to `Transfer-Encoding: chunked`. Free uploads are
+    // 720p-capped (~150 MB), comfortably in RAM; only one ~1 MiB chunk is
+    // copied out of the buffer at a time.
     emit_progress(&app, &path, "uploading");
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|e| fail(&app, &path, format!("Couldn't read export file: {e}")))?;
+    let total_bytes = bytes.len() as u64;
+
+    // Surface the bar at 0% before the first chunk flushes.
+    let _ = app.emit(
+        "recast-cloud:upload-progress",
+        CloudUploadProgress {
+            path: &path,
+            bytes_sent: 0,
+            total_bytes,
+        },
+    );
 
     let envelope_headers = init.upload.headers.unwrap_or_default();
     let has_content_type = envelope_headers
         .keys()
         .any(|k| k.eq_ignore_ascii_case("content-type"));
-    let mut put = client.put(&init.upload.url).body(bytes);
+
+    const PUT_CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB → smooth bar, bounded event count
+    let progress_app = app.clone();
+    let progress_path = path.clone();
+    let body_stream = futures_util::stream::unfold((bytes, 0usize), move |(buf, offset)| {
+        let progress_app = progress_app.clone();
+        let progress_path = progress_path.clone();
+        async move {
+            if offset >= buf.len() {
+                return None;
+            }
+            let end = (offset + PUT_CHUNK_SIZE).min(buf.len());
+            let chunk = buf[offset..end].to_vec();
+            // Cumulative bytes handed to the transport, keyed by local path
+            // to match the store's `uploads` map.
+            let _ = progress_app.emit(
+                "recast-cloud:upload-progress",
+                CloudUploadProgress {
+                    path: &progress_path,
+                    bytes_sent: end as u64,
+                    total_bytes,
+                },
+            );
+            Some((Ok::<Vec<u8>, std::io::Error>(chunk), (buf, end)))
+        }
+    });
+
+    let mut put = client
+        .put(&init.upload.url)
+        .header(header::CONTENT_LENGTH, total_bytes)
+        .body(reqwest::Body::wrap_stream(body_stream));
     for (k, v) in &envelope_headers {
         put = put.header(k.as_str(), v.as_str());
     }

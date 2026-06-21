@@ -288,7 +288,8 @@
   {/each}
 
   <!-- Recast Cloud share stack — one card per in-flight or completed share.
-       Phase-based (no byte %), so in-flight shows an indeterminate pulse. -->
+       The upload PUT shows a determinate byte-% bar; the instantaneous phases
+       (preparing/finalizing/sharing) fall back to an indeterminate pulse. -->
   {#each cloudShare.activeUploads as up (up.sourcePath)}
     <div
       class="pointer-events-auto overflow-hidden rounded-xl border border-border bg-card shadow-lg ring-1 ring-black/5"
@@ -338,9 +339,26 @@
       </div>
       {#if up.status === "uploading"}
         <div class="px-4 pb-3">
-          <div class="h-1 overflow-hidden rounded-full bg-muted">
-            <div class="h-full w-1/3 animate-pulse rounded-full bg-primary"></div>
-          </div>
+          {#if up.phase === "uploading" && up.totalBytes > 0}
+            <!-- Determinate bar while the file PUT streams (byte progress). -->
+            <div class="h-1 overflow-hidden rounded-full bg-muted">
+              <div
+                class="h-full rounded-full bg-primary transition-[width] duration-200"
+                style="width: {uploadPct(up.bytesSent, up.totalBytes)}%"
+              ></div>
+            </div>
+            <div class="mt-1 flex justify-end">
+              <span class="text-[10px] font-medium tabular-nums text-muted-foreground">
+                {uploadPct(up.bytesSent, up.totalBytes)}%
+              </span>
+            </div>
+          {:else}
+            <!-- Instantaneous phases (preparing/finalizing/sharing) have no byte
+                 count, so keep an indeterminate pulse. -->
+            <div class="h-1 overflow-hidden rounded-full bg-muted">
+              <div class="h-full w-1/3 animate-pulse rounded-full bg-primary"></div>
+            </div>
+          {/if}
         </div>
       {:else if up.status === "complete" && up.shareUrl}
         <div

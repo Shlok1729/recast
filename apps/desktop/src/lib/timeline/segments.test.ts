@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TimelineCut } from "./cuts";
 import {
+	deriveSeams,
 	deriveSegments,
 	planDeleteSegment,
 	planSplit,
@@ -178,5 +179,42 @@ describe("planDeleteSegment", () => {
 	it("keeps split points outside the deleted range untouched", () => {
 		const seg = { start: 4, end: 6, index: 1 };
 		expect(planDeleteSegment(seg, [1, 9]).splitPoints).toEqual([1, 9]);
+	});
+});
+
+describe("deriveSeams", () => {
+	it("returns no seams for a single segment", () => {
+		const segs = deriveSegments(shape());
+		expect(deriveSeams(segs)).toEqual([]);
+	});
+
+	it("emits one seam per ripple-removed gap, with the removed amount", () => {
+		// Trim [0,10] with [3,5] removed → segments [0,3] and [5,10], one seam.
+		const segs = deriveSegments(shape({ cuts: [cut(3, 5)] }));
+		expect(deriveSeams(segs)).toEqual([
+			{ gapStart: 3, gapEnd: 5, removed: 2 },
+		]);
+	});
+
+	it("emits a seam per cut when several are removed", () => {
+		const segs = deriveSegments(shape({ trimEnd: 12, cuts: [cut(2, 4), cut(7, 8)] }));
+		expect(deriveSeams(segs)).toEqual([
+			{ gapStart: 2, gapEnd: 4, removed: 2 },
+			{ gapStart: 7, gapEnd: 8, removed: 1 },
+		]);
+	});
+
+	it("does NOT emit a seam for a split (segments that merely touch)", () => {
+		// A split divides the clip into two adjacent segments with no gap.
+		const segs = deriveSegments(shape({ splitPoints: [5] }));
+		expect(segs).toHaveLength(2);
+		expect(deriveSeams(segs)).toEqual([]);
+	});
+
+	it("seam removed-amount equals the gap between adjacent segments", () => {
+		const segs = deriveSegments(shape({ trimEnd: 20, cuts: [cut(6, 9)] }));
+		const seams = deriveSeams(segs);
+		expect(seams).toHaveLength(1);
+		expect(seams[0].removed).toBeCloseTo(seams[0].gapEnd - seams[0].gapStart);
 	});
 });

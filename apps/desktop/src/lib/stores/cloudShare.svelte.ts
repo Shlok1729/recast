@@ -35,6 +35,9 @@ export type CloudUpload = {
 	fileName: string;
 	phase: CloudPhase;
 	status: CloudUploadStatus;
+	/** Byte-level progress for the upload PUT (0/0 until the first event). */
+	bytesSent: number;
+	totalBytes: number;
 	shareUrl?: string;
 	error?: string;
 };
@@ -112,6 +115,21 @@ function createCloudShareStore() {
 				const existing = uploads[payload.path];
 				if (!existing) return;
 				uploads[payload.path] = { ...existing, phase: payload.phase, status: "uploading" };
+			},
+		);
+		// Byte-level progress during the upload PUT — drives the determinate bar.
+		await listen<{ path: string; bytesSent: number; totalBytes: number }>(
+			"recast-cloud:upload-progress",
+			({ payload }) => {
+				const existing = uploads[payload.path];
+				if (!existing) return;
+				uploads[payload.path] = {
+					...existing,
+					bytesSent: payload.bytesSent,
+					totalBytes: payload.totalBytes,
+					phase: "uploading",
+					status: "uploading",
+				};
 			},
 		);
 		await listen<{ path: string; recastId: string; slug: string; shareUrl: string }>(
@@ -227,7 +245,14 @@ function createCloudShareStore() {
 		// otherwise the awaits below (Tauri probe + dynamic import) leave the
 		// screen looking frozen for a beat.
 		const fileName = path.split(/[\\/]/).pop() ?? path;
-		uploads[path] = { sourcePath: path, fileName, phase: "preparing", status: "uploading" };
+		uploads[path] = {
+			sourcePath: path,
+			fileName,
+			phase: "preparing",
+			status: "uploading",
+			bytesSent: 0,
+			totalBytes: 0,
+		};
 		if (!(await isTauriApp())) throw new Error("not running in Tauri");
 		await attachListeners();
 		// Explicit target wins; otherwise the resolved active workspace (local

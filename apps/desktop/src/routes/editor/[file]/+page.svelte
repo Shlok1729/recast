@@ -35,6 +35,7 @@
     type VideoMetadata,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
   import { gdrive } from "$lib/stores/gdrive.svelte";
   import {
     ArrowLeft,
@@ -48,7 +49,6 @@
     Link2,
     LoaderCircle,
     RefreshCw,
-    Scissors,
     Share2,
     TriangleAlert,
     Upload,
@@ -336,6 +336,23 @@
     for (const el of [systemAudioEl, micAudioEl]) {
       if (el) el.currentTime = t;
     }
+  }
+
+  // Frame-step on the OUTPUT (post-cut) axis so stepping across a cut boundary
+  // lands on the next kept frame, never inside a removed range. Mirrors the
+  // player controls' stepFrame; `store.currentTime` stays original time.
+  function frameStepSeek(direction: 1 | -1) {
+    if (!store.metadata) return;
+    const cuts = store.effectiveCuts;
+    const frameDur = 1 / (store.metadata.fps || 30);
+    const outDur = originalToOutput(cuts, store.metadata.duration);
+    const nextOut = Math.max(
+      0,
+      Math.min(originalToOutput(cuts, store.currentTime) + frameDur * direction, outDur),
+    );
+    const orig = outputToOriginal(cuts, nextOut);
+    if (videoEl) videoEl.currentTime = orig;
+    store.currentTime = orig;
   }
 
   function mergeVideoMetadata(next: Partial<VideoMetadata>) {
@@ -868,12 +885,6 @@
   const silenceCutCount = $derived(
     store.cuts.filter((c) => c.source === "silence").length,
   );
-  // Manual split/cut edits are gated behind the `timelineEditing` experiment.
-  // If a saved project carries them but the flag is off, the cuts are skipped —
-  // surface an opt-in so the work isn't silently lost (parallel to silence).
-  const manualCutCount = $derived(
-    store.cuts.filter((c) => c.source === "manual").length,
-  );
 
   function openExportOptions() {
     if (store.isExporting) return;
@@ -1165,21 +1176,10 @@
         }
         break;
       case "ArrowLeft":
-        if (videoEl && store.metadata) {
-          const frameDur = 1 / (store.metadata.fps || 30);
-          videoEl.currentTime = Math.max(0, videoEl.currentTime - frameDur);
-          store.currentTime = videoEl.currentTime;
-        }
+        if (store.metadata) frameStepSeek(-1);
         break;
       case "ArrowRight":
-        if (videoEl && store.metadata) {
-          const frameDur = 1 / (store.metadata.fps || 30);
-          videoEl.currentTime = Math.min(
-            store.metadata.duration,
-            videoEl.currentTime + frameDur,
-          );
-          store.currentTime = videoEl.currentTime;
-        }
+        if (store.metadata) frameStepSeek(1);
         break;
       case "f":
       case "F":
@@ -1315,33 +1315,6 @@
         class="h-6 shrink-0 border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
         onclick={() =>
           experimentalStore.setEnabled("silenceDetection", true)}
-      >
-        Enable
-      </Button>
-    </div>
-  {/if}
-
-  <!-- Manual edits banner: the project has split/cut edits but the opt-in
-       timeline-editing feature is off, so they're hidden and skipped on export.
-       Surface an inline opt-in so the edits aren't silently dropped. -->
-  {#if !isLoading && !error && manualCutCount > 0 && !experimentalStore.timelineEditing}
-    <div
-      class="flex items-center gap-2.5 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] text-warning"
-      role="status"
-    >
-      <FlaskConical class="size-3.5 shrink-0" />
-      <Scissors class="size-3.5 shrink-0" />
-      <span class="min-w-0 flex-1 truncate">
-        This project has {manualCutCount} timeline edit{manualCutCount === 1
-          ? ""
-          : "s"} — currently hidden and skipped on export. Enable
-        <span class="font-semibold">Timeline editing</span> to use them.
-      </span>
-      <Button
-        variant="outline"
-        size="xs"
-        class="h-6 shrink-0 border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
-        onclick={() => experimentalStore.setEnabled("timelineEditing", true)}
       >
         Enable
       </Button>

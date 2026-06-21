@@ -137,20 +137,17 @@
       </button>
     </div>
 
-    <!-- Split the clip at the playhead into two independently-deletable clips.
-         Part of the opt-in timeline-editing experiment — hidden when off. -->
-    {#if experimentalStore.timelineEditing}
-      <button
-        type="button"
-        onclick={onSplit}
-        title="Split the clip at the playhead (S)"
-        class={SOLO}
-      >
-        <SquareSplitHorizontal class="size-3" />
-        <span class="hidden sm:inline">Split</span>
-        <Kbd class="ml-0.5">S</Kbd>
-      </button>
-    {/if}
+    <!-- Split the clip at the playhead into two independently-deletable clips. -->
+    <button
+      type="button"
+      onclick={onSplit}
+      title="Split the clip at the playhead (S)"
+      class={SOLO}
+    >
+      <SquareSplitHorizontal class="size-3" />
+      <span class="hidden sm:inline">Split</span>
+      <Kbd class="ml-0.5">S</Kbd>
+    </button>
 
     <!-- Focus / Suggest -->
     <div class={GROUP}>

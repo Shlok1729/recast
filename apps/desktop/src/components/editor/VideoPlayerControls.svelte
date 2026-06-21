@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { EditorStore } from "$lib/stores/editor-store.svelte";
+	import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
 	import {
 	  Camera,
 	  LoaderCircle,
@@ -107,13 +108,23 @@
 		return `${mins}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
 	}
 
-	const currentTimeFormatted = $derived(formatTime(store.currentTime));
-	const durationFormatted = $derived(
-		formatTime(store.metadata?.duration ?? 0),
-	);
-	const duration = $derived(store.metadata?.duration ?? 0);
+	// OUTPUT (post-cut) time — the same gapless axis the timeline uses. Cuts
+	// collapse out of the transport, so the duration readout, the scrubber range,
+	// and the played-region width all reflect the EDITED length, and the scrubber
+	// can't land inside a removed region. `store.currentTime` stays the single
+	// source of truth (original time); we only map to output for presentation +
+	// seek here. With no cuts these are identities, so this is the old behaviour.
+	const cuts = $derived(store.effectiveCuts);
+	const fullDuration = $derived(store.metadata?.duration ?? 0);
+	const outputDuration = $derived(originalToOutput(cuts, fullDuration));
+	const currentOutput = $derived(originalToOutput(cuts, store.currentTime));
+
+	const currentTimeFormatted = $derived(formatTime(currentOutput));
+	const durationFormatted = $derived(formatTime(outputDuration));
 	const progressPct = $derived(
-		duration > 0 ? Math.min(100, (store.currentTime / duration) * 100) : 0,
+		outputDuration > 0
+			? Math.min(100, (currentOutput / outputDuration) * 100)
+			: 0,
 	);
 
 	function togglePlay() {
@@ -128,23 +139,26 @@
 	}
 
 	function stepFrame(direction: number) {
-		if (!videoEl || !store.metadata) return;
+		if (!store.metadata) return;
+		// Step a frame on the OUTPUT axis so stepping past a cut boundary lands on
+		// the next kept frame instead of inside the removed range.
 		const frameDuration = 1 / (store.metadata.fps || 30);
-		videoEl.currentTime = Math.max(
+		const nextOut = Math.max(
 			0,
-			Math.min(
-				videoEl.currentTime + frameDuration * direction,
-				store.metadata.duration,
-			),
+			Math.min(currentOutput + frameDuration * direction, outputDuration),
 		);
-		store.currentTime = videoEl.currentTime;
+		const orig = outputToOriginal(cuts, nextOut);
+		if (videoEl) videoEl.currentTime = orig;
+		store.currentTime = orig;
 	}
 
 	function handleSeek(e: Event) {
 		const target = e.target as HTMLInputElement;
-		const val = parseFloat(target.value);
-		if (videoEl) videoEl.currentTime = val;
-		store.currentTime = val;
+		// The scrubber is in output time; map back to original time (skipping over
+		// collapsed cuts) before driving the transport.
+		const orig = outputToOriginal(cuts, parseFloat(target.value));
+		if (videoEl) videoEl.currentTime = orig;
+		store.currentTime = orig;
 	}
 </script>
 
@@ -235,9 +249,9 @@
 		<input
 			type="range"
 			min="0"
-			max={duration}
+			max={outputDuration}
 			step="0.01"
-			value={store.currentTime}
+			value={currentOutput}
 			oninput={handleSeek}
 			class="relative z-10 m-0 h-3 w-full cursor-pointer appearance-none bg-transparent p-0 focus:outline-none [&::-webkit-slider-runnable-track]:h-3 [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-(--shadow-craft-inset) [&::-webkit-slider-thumb]:ring-2 [&::-webkit-slider-thumb]:ring-background [&::-webkit-slider-thumb]:transition-transform hover:[&::-webkit-slider-thumb]:scale-125 active:[&::-webkit-slider-thumb]:scale-110"
 			aria-label="Video progress"
