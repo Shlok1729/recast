@@ -36,12 +36,19 @@ import {
 } from "./frame-index";
 import type { FromWorker, ToWorker } from "./webcodecs-protocol";
 
-/** Samples (decode order) to keep decoded ahead of the playhead. */
-const DECODE_AHEAD = 24;
+/** Samples (decode order) to keep decoded ahead of the playhead. Small so we
+ * don't keep many decoder output surfaces checked out (which stalls HW decode). */
+const DECODE_AHEAD = 6;
 /** Cap on the decoder's in-flight queue so we don't overfeed during a burst. */
-const QUEUE_MAX = 12;
+const QUEUE_MAX = 4;
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
+
+// DIAGNOSTICS (temporary): decoder output rate, queue depth, reset count — to
+// tell whether the decoder itself is slow vs. frames arriving late on main.
+let diagDecoded = 0;
+let diagResets = 0;
+let diagLastLogMs = 0;
 
 let chunks: ChunkMeta[] = [];
 let keyframes: number[] = [];
@@ -57,16 +64,12 @@ function post(msg: FromWorker, transfer: Transferable[] = []): void {
 	ctx.postMessage(msg, transfer);
 }
 
-async function init(url: string): Promise<void> {
+async function init(ab: ArrayBuffer): Promise<void> {
 	if (typeof VideoDecoder === "undefined") {
 		post({ type: "error", message: "WebCodecs VideoDecoder unavailable" });
 		return;
 	}
 	try {
-		const res = await fetch(url);
-		if (!res.ok) throw new Error(`fetch failed: HTTP ${res.status}`);
-		const ab = await res.arrayBuffer();
-
 		const file = createFile();
 		const collected: ChunkMeta[] = [];
 
@@ -89,10 +92,16 @@ async function init(url: string): Promise<void> {
 				track = vtrack;
 				cfg = {
 					codec: vtrack.codec,
-					codedWidth: vtrack.video?.width ?? vtrack.track_width,
-					codedHeight: vtrack.video?.height ?? vtrack.track_height,
 					description: extractDescription(file, vtrack.id),
-					optimizeForLatency: true,
+					// Editor playback wants THROUGHPUT, not low latency. A
+					// latency-optimised decoder serialises and can tank to single-
+					// digit fps; prefer hardware and let it pipeline.
+					hardwareAcceleration: "prefer-hardware",
+					optimizeForLatency: false,
+					// codedWidth/Height intentionally omitted: the container reports
+					// the DISPLAY size (1920x1080) but the coded size is padded
+					// (1920x1088); a mismatched hint can confuse the decoder. It
+					// derives the true size from the SPS in `description`.
 				};
 				file.setExtractionOptions(vtrack.id, null, { nbSamples: Infinity });
 				file.start();
@@ -133,6 +142,18 @@ async function init(url: string): Promise<void> {
 					frame.close();
 					return;
 				}
+				// --- diagnostics ---
+				diagDecoded++;
+				const nowMs = performance.now();
+				if (nowMs - diagLastLogMs > 1000) {
+					console.log(
+						`[wc-worker] decoded ${diagDecoded}/s · queue=${decoder?.decodeQueueSize} · resets=${diagResets} · fed=${feedCursor}/${chunks.length}`,
+					);
+					diagDecoded = 0;
+					diagResets = 0;
+					diagLastLogMs = nowMs;
+				}
+				// --- end diagnostics ---
 				// Transfer ownership to the main thread; do NOT close after — the
 				// transfer detaches our handle.
 				post({ type: "frame", frame }, [frame]);
@@ -166,6 +187,7 @@ function schedule(target: number): void {
 		decoder.configure(config); // reset() drops the config
 		anchorKey = kf;
 		feedCursor = kf;
+		diagResets++;
 	}
 	const end = Math.min(target + DECODE_AHEAD, chunks.length - 1);
 	while (feedCursor <= end && decoder.decodeQueueSize < QUEUE_MAX) {
@@ -217,7 +239,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
 	const msg = e.data;
 	switch (msg.type) {
 		case "init":
-			void init(msg.url);
+			void init(msg.buffer);
 			break;
 		case "request":
 			request(msg.originalSec);

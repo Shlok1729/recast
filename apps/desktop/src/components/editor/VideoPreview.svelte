@@ -26,6 +26,8 @@
 		WEBCODECS_PREVIEW_ENABLED,
 	} from "$lib/feature-flags";
 	import { WebCodecsVideoSource } from "$lib/playback/webcodecs-source";
+	import { PlaybackClock } from "$lib/playback/clock";
+	import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
 	import AnnotationOverlay from "./_components/AnnotationOverlay.svelte";
 	import AnnotationStatusRail from "./_components/AnnotationStatusRail.svelte";
 	import CameraOverlay from "./_components/CameraOverlay.svelte";
@@ -105,6 +107,25 @@
 	let wcSource: WebCodecsVideoSource | null = null;
 	let wcReady = false;
 	let loadedWcSrc = "";
+	// True once at least one frame is in videoTex. The GL context uses
+	// preserveDrawingBuffer:false, so returning early from draw() clears the
+	// canvas to BLACK instead of holding; when a fresh frame isn't ready we
+	// re-render the last frame already in videoTex, and this guards that.
+	let hasRenderedFrame = false;
+	// Last original time published to store.currentTime. We throttle that write
+	// (it fans out to overlays/timeline/waveform); slamming it every rAF frame
+	// congests the main thread and delays decoded-frame delivery → dropped frames.
+	let lastPublishedTime = -1;
+
+	// Gapless OUTPUT-time clock that drives the PICTURE in the WebCodecs path.
+	// This is the actual fix for the cut hitch: a <video> element's currentTime
+	// STALLS during its own seek, so borrowing it as the clock freezes the
+	// picture at every cut. This clock is a free-running integrator — it never
+	// stalls — so playback runs over a continuous, gap-free output timeline
+	// (recording minus cuts), exactly like Cap's segment-walk. We map output →
+	// original time (outputToOriginal) for frame lookup, cursor, and zoom. The
+	// <video> element stays the audio/seek transport and is nudged to follow.
+	const picClock = new PlaybackClock();
 
 	// Uniform locations
 	const uniforms: Record<string, WebGLUniformLocation | null> = {};
@@ -1240,12 +1261,44 @@ void main() {
 		// (one string compare) when nothing's changed.
 		ensureSmoothingCurrent();
 
-		// Prefer the video element's current time for per-frame cursor & zoom
-		// interpolation — `store.currentTime` only updates ~4×/sec via the
-		// `timeupdate` event, so using it here caused visible cursor lag during
-		// playback. Fall back to the store value when the video isn't available
-		// (shouldn't happen inside draw but keeps the types honest).
-		const playbackTime = videoEl ? videoEl.currentTime : store.currentTime;
+		// Picture time. In the WebCodecs path the gapless OUTPUT clock is the
+		// master: output time → original time (outputToOriginal) feeds frame
+		// lookup, cursor, and zoom. The <video>/audio transport is nudged to
+		// follow — advancing it past cut gaps for sound — but is never read for
+		// the picture, so its seek stalls can't freeze playback. In the legacy
+		// path the <video> element's currentTime is the clock, as before (it
+		// updates per-frame via rVFC, unlike store.currentTime's ~4×/sec tick).
+		const usingPicClock = WEBCODECS_PREVIEW_ENABLED && wcReady;
+		let playbackTime: number;
+		if (usingPicClock && store.isPlaying) {
+			// Playing: the gapless output clock is the master.
+			playbackTime = outputToOriginal(store.effectiveCuts, picClock.time);
+			// Publish to the store (drives overlays/timeline/audio) at ~25 Hz, not
+			// every rAF frame — that fan-out is expensive and was starving decoded-
+			// frame delivery. Always publish on a backward step or a jump so cuts
+			// and seeks stay exact.
+			if (
+				playbackTime >= lastPublishedTime + 0.04 ||
+				playbackTime < lastPublishedTime
+			) {
+				store.currentTime = playbackTime;
+				lastPublishedTime = playbackTime;
+			}
+			// Keep the <video>/audio transport aligned — a rare correction that
+			// fires once at each cut boundary, where original time jumps.
+			if (
+				videoEl &&
+				!videoEl.seeking &&
+				Math.abs(videoEl.currentTime - playbackTime) > 0.25
+			) {
+				videoEl.currentTime = playbackTime;
+			}
+		} else {
+			// Paused (or legacy path): the <video> transport owns the time — a
+			// scrub or frame-step sets it directly. handleSeeked realigns the
+			// picture clock so resuming continues from here.
+			playbackTime = videoEl ? videoEl.currentTime : store.currentTime;
+		}
 
 		// Skip over removed cut ranges — manual split/delete AND accepted
 		// silence — during forward playback. Two decoders leapfrog the gap:
@@ -1262,28 +1315,23 @@ void main() {
 		// user can inspect what was removed; `cutsEnabled` off bypasses it.
 		let frameEl: HTMLVideoElement | null = videoEl;
 		const activeCuts = store.effectiveCuts;
-		if (videoEl && store.isPlaying && activeCuts.length > 0) {
+		// Legacy <video> cut-skip (scout + primary seek). OFF for the WebCodecs
+		// path: its output clock is gapless, so there's no gap to skip — crossing a
+		// cut is just the scheduler resetting to the post-cut GOP, and the frame
+		// selector holds (never steps back) until that GOP decodes. Critically we
+		// must NOT decode through the removed region, which would flood the decoder.
+		if (
+			!(WEBCODECS_PREVIEW_ENABLED && wcReady) &&
+			videoEl &&
+			store.isPlaying &&
+			activeCuts.length > 0
+		) {
 			const cut = activeCuts.find(
 				(c) =>
 					playbackTime + SCOUT_PRESEEK_LOOKAHEAD >= c.start &&
 					playbackTime < c.end - 0.02,
 			);
 			if (cut) {
-				if (WEBCODECS_PREVIEW_ENABLED && wcSource) {
-					// WebCodecs path: warm the post-cut GOP, then jump the clock at
-					// the boundary. The picture is decoded by US (sampled below at
-					// the jumped time), so there is NO native seek to freeze on —
-					// no scout element and no "hold the last frame" stall.
-					wcSource.prefetch(cut.end);
-					if (playbackTime + CUT_JUMP_LOOKAHEAD >= cut.start) {
-						if (cutSkipTarget !== cut.end && !videoEl.seeking) {
-							cutSkipTarget = cut.end;
-							videoEl.currentTime = cut.end;
-						}
-					} else {
-						cutSkipTarget = null;
-					}
-				} else {
 					// (1) Pre-decode the post-cut frame on the scout, ahead of the jump.
 					if (scoutEl && scoutSeekTarget !== cut.end) {
 						scoutSeekTarget = cut.end;
@@ -1313,7 +1361,6 @@ void main() {
 						// primary normally; the jump hasn't happened.
 						cutSkipTarget = null;
 					}
-				}
 			} else {
 				// Outside any cut window — clear so the next cut can fire.
 				cutSkipTarget = null;
@@ -1325,12 +1372,24 @@ void main() {
 		// frame WE decoded for playbackTime (no <video> seek latency); fall back
 		// to the <video> element while the source is still demuxing or if a frame
 		// isn't ready yet, so the preview is never blank.
-		let uploadedWcFrame = false;
+		let haveFrame = false;
 		if (WEBCODECS_PREVIEW_ENABLED && wcSource && wcReady) {
-			const f = wcSource.frameAt(Math.max(0, playbackTime));
-			if (f) uploadedWcFrame = uploadFrameObject(f);
+			// Floor = start of the current kept segment = the end of the most recent
+			// cut at or before the playhead (0 if none). Frames before it belong to
+			// a prior segment (inside the removed range) and must not be shown, or
+			// the picture steps back into deleted content at the cut.
+			let floorSec = 0;
+			for (const c of activeCuts) {
+				if (c.end <= playbackTime && c.end > floorSec) floorSec = c.end;
+			}
+			const f = wcSource.frameAt(Math.max(0, playbackTime), floorSec);
+			if (f) haveFrame = uploadFrameObject(f);
+			// No fresh in-segment frame yet (briefly, right after a cut while the
+			// post-cut GOP decodes): hold by re-rendering whatever is in videoTex.
+			else if (hasRenderedFrame) haveFrame = true;
 		}
-		if (!uploadedWcFrame && !uploadVideoFrame(frameEl)) return;
+		if (!haveFrame && !uploadVideoFrame(frameEl)) return;
+		hasRenderedFrame = true;
 
 		// Make sure background texture is current (fire-and-forget if it changed)
 		void loadBackgroundIfNeeded();
@@ -1708,6 +1767,8 @@ void main() {
 		if (src === loadedWcSrc) return;
 		loadedWcSrc = src;
 		wcReady = false;
+		hasRenderedFrame = false;
+		lastPublishedTime = -1;
 		wcSource?.dispose();
 		wcSource = null;
 		let cancelled = false;
@@ -1720,6 +1781,16 @@ void main() {
 				source.onFrame = () => requestRedraw();
 				wcSource = source;
 				wcReady = true;
+				// Seed the picture clock to the current transport so flipping onto
+				// the WebCodecs path (which may happen mid-playback, once demux
+				// finishes) doesn't jump.
+				picClock.setDuration(
+					originalToOutput(store.effectiveCuts, store.outPoint),
+				);
+				picClock.seek(
+					originalToOutput(store.effectiveCuts, videoEl?.currentTime ?? 0),
+				);
+				if (store.isPlaying) picClock.play();
 				requestRedraw();
 			})
 			.catch((err) => {
@@ -1767,11 +1838,30 @@ void main() {
 		requestRedraw();
 	});
 
-	// Start/stop the per-video-frame draw loop with playback
+	// Start/stop the per-video-frame draw loop with playback. In the WebCodecs
+	// path, also run the picture clock so output time advances while playing.
 	$effect(() => {
 		if (store.isPlaying) {
+			// Seed + start the picture clock ONLY on the paused→playing transition.
+			// This effect ALSO re-runs whenever effectiveCuts/outPoint change; the
+			// `!picClock.playing` guard stops those re-runs from re-seeding the clock
+			// to the (lagging) <video> time mid-playback — which jumped it BACKWARD
+			// and forced the decoder into a reset-thrash (the ~8 fps bug).
+			if (WEBCODECS_PREVIEW_ENABLED && !picClock.playing) {
+				// Duration = output (post-cut) length of the kept region, so the
+				// clock clamps at the true end of the edited timeline.
+				picClock.setDuration(
+					originalToOutput(store.effectiveCuts, store.outPoint),
+				);
+				// Align the clock to wherever the transport currently is.
+				picClock.seek(
+					originalToOutput(store.effectiveCuts, videoEl?.currentTime ?? 0),
+				);
+				picClock.play();
+			}
 			startVideoFrameLoop();
 		} else {
+			picClock.pause();
 			stopVideoFrameLoop();
 			requestRedraw();
 		}
@@ -1779,6 +1869,12 @@ void main() {
 
 	// Hook video element events
 	function handleSeeked() {
+		// While PAUSED, a scrub/frame-step moved the transport — realign the
+		// picture clock to it. During play the clock is the master, so ignore the
+		// `seeked` events our own drift-correction triggers.
+		if (WEBCODECS_PREVIEW_ENABLED && !store.isPlaying && videoEl) {
+			picClock.seek(originalToOutput(store.effectiveCuts, videoEl.currentTime));
+		}
 		requestRedraw();
 		onSeeked?.();
 	}

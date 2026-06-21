@@ -33,10 +33,15 @@
 import type { FromWorker, ToWorker } from "./webcodecs-protocol";
 
 /** Decoded-frame cache window around the playhead, in seconds. */
-const BACK_WINDOW_S = 0.5;
-const FWD_WINDOW_S = 1.5;
-/** Hard cap on cached frames regardless of window (GPU-memory backstop). */
-const MAX_CACHED_FRAMES = 48;
+const BACK_WINDOW_S = 0.1;
+const FWD_WINDOW_S = 0.3;
+/**
+ * Hard cap on cached frames. Kept SMALL on purpose: each held VideoFrame keeps
+ * one of the hardware decoder's limited output surfaces checked out, and
+ * holding too many starves that pool so the decoder stalls (processes input but
+ * can't emit). A handful is enough for the playhead + a little lookahead.
+ */
+const MAX_CACHED_FRAMES = 5;
 
 export class WebCodecsVideoSource {
 	#worker: Worker;
@@ -57,6 +62,13 @@ export class WebCodecsVideoSource {
 	 * the worker finishes decoding the seeked-to frame — wire this to a redraw.
 	 */
 	onFrame: (() => void) | null = null;
+
+	// DIAGNOSTICS (temporary): throughput + first-frame geometry, to pin down the
+	// "video updates ~0.5fps / half-center render" reports. Logged to the console
+	// only while the engine runs. Remove once the pipeline is validated.
+	#framesSeen = 0;
+	#lastLogMs = 0;
+	#loggedDims = false;
 
 	private constructor(
 		worker: Worker,
@@ -82,6 +94,12 @@ export class WebCodecsVideoSource {
 		if (typeof Worker === "undefined" || typeof VideoFrame === "undefined") {
 			throw new Error("WebCodecs/Worker unavailable in this WebView");
 		}
+		// Fetch the file on the main thread — the Tauri asset protocol is reliably
+		// reachable here — then transfer the bytes into the worker.
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`fetch failed: HTTP ${res.status}`);
+		const buffer = await res.arrayBuffer();
+
 		const worker = new Worker(
 			new URL("./webcodecs-worker.ts", import.meta.url),
 			{ type: "module" },
@@ -105,7 +123,9 @@ export class WebCodecsVideoSource {
 					}
 				};
 				worker.onerror = (e) => reject(new Error(e.message || "worker error"));
-				worker.postMessage({ type: "init", url } satisfies ToWorker);
+				worker.postMessage({ type: "init", buffer } satisfies ToWorker, [
+					buffer,
+				]);
 			});
 			return new WebCodecsVideoSource(worker, meta);
 		} catch (err) {
@@ -124,6 +144,28 @@ export class WebCodecsVideoSource {
 				msg.frame.close();
 				return;
 			}
+			// --- diagnostics ---
+			if (!this.#loggedDims) {
+				this.#loggedDims = true;
+				const f = msg.frame;
+				const vr = f.visibleRect;
+				console.log(
+					`[wc] geometry coded=${f.codedWidth}x${f.codedHeight} display=${f.displayWidth}x${f.displayHeight} ` +
+						`visible=${vr ? `${vr.x},${vr.y} ${vr.width}x${vr.height}` : "none"} ` +
+						`format=${f.format} declaredMeta=${this.width}x${this.height}`,
+				);
+			}
+			this.#framesSeen++;
+			const nowMs = performance.now();
+			if (nowMs - this.#lastLogMs > 1000) {
+				console.log(
+					`[wc] decoded ${this.#framesSeen} frames/s · cache=${this.#cache.size} · currentSec=${(this.#currentUs / 1e6).toFixed(2)}`,
+				);
+				this.#framesSeen = 0;
+				this.#lastLogMs = nowMs;
+			}
+			// --- end diagnostics ---
+
 			const ts = msg.frame.timestamp;
 			this.#cache.get(ts)?.close(); // never leak a replaced frame
 			this.#cache.set(ts, msg.frame);
@@ -141,12 +183,13 @@ export class WebCodecsVideoSource {
 	 *
 	 * The returned frame is owned by the cache — upload it, don't close it.
 	 */
-	frameAt(originalSec: number): VideoFrame | null {
+	frameAt(originalSec: number, floorSec = 0): VideoFrame | null {
 		if (this.#disposed) return null;
 		const tUs = Math.max(0, Math.round(originalSec * 1e6));
+		const floorUs = Math.max(0, Math.round(floorSec * 1e6));
 		this.#currentUs = tUs;
 		this.#post({ type: "request", originalSec });
-		return this.#bestCached(tUs);
+		return this.#bestCached(tUs, floorUs);
 	}
 
 	/**
@@ -158,26 +201,23 @@ export class WebCodecsVideoSource {
 		this.#post({ type: "prefetch", originalSec });
 	}
 
-	/** Best cached frame with ctsUs ≤ tUs (the one on screen at tUs). */
-	#bestCached(tUs: number): VideoFrame | null {
+	/**
+	 * Best cached frame to show at `tUs`: the greatest timestamp in
+	 * [floorUs, tUs]. `floorUs` is the start of the current kept segment — frames
+	 * before it belong to an earlier segment (inside a removed cut) and must NOT
+	 * be shown, or the picture steps BACK into deleted content right after a cut.
+	 * Within the segment we always return the closest frame at-or-before the
+	 * playhead (never null just because it's a little stale), so normal playback
+	 * stays smooth; null only when no in-segment frame is decoded yet, in which
+	 * case the caller holds the last frame.
+	 */
+	#bestCached(tUs: number, floorUs: number): VideoFrame | null {
 		let best: VideoFrame | null = null;
 		let bestTs = -Infinity;
 		for (const [ts, frame] of this.#cache) {
-			if (ts <= tUs && ts > bestTs) {
+			if (ts >= floorUs && ts <= tUs && ts > bestTs) {
 				bestTs = ts;
 				best = frame;
-			}
-		}
-		// Nothing at-or-before (e.g. just after a backward seek): fall back to the
-		// closest frame at all so the screen isn't blank.
-		if (!best) {
-			let bestDist = Infinity;
-			for (const [ts, frame] of this.#cache) {
-				const d = Math.abs(ts - tUs);
-				if (d < bestDist) {
-					bestDist = d;
-					best = frame;
-				}
 			}
 		}
 		return best;

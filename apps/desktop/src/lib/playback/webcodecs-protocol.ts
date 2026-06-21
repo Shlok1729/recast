@@ -6,7 +6,8 @@
 
 /** Main → worker. */
 export type ToWorker =
-	| { type: "init"; url: string }
+	/** The whole MP4 file, fetched on the main thread and transferred in. */
+	| { type: "init"; buffer: ArrayBuffer }
 	/** Tell the worker the current playhead so it can decode-ahead. */
 	| { type: "request"; originalSec: number }
 	/** Warm a different GOP (e.g. just after a cut) without moving the playhead. */
