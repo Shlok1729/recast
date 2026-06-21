@@ -3,9 +3,9 @@
 	import { Button } from "@recast/ui/button";
 	import { toast } from "@recast/ui/sonner";
 	import { cn } from "@recast/ui/utils";
-	import { invoke } from "@tauri-apps/api/core";
 	import { emit } from "@tauri-apps/api/event";
 	import { onMount } from "svelte";
+	import { getCloudApiConfig, setCloudApiUrl, type CloudApiConfig } from "$lib/ipc";
 
 	/**
 	 * Self-hosting server endpoint. Most users never touch this — Recast Cloud
@@ -20,13 +20,6 @@
 	 * endpoint clears the local session token server-side, so we emit
 	 * `cloud:endpoint-changed` to nudge the sign-in card back to signed-out.
 	 */
-	type CloudApiConfig = {
-		effective: string;
-		overrideUrl: string | null;
-		defaultUrl: string;
-		isCustom: boolean;
-	};
-
 	let config = $state<CloudApiConfig | null>(null);
 	let input = $state("");
 	let saving = $state(false);
@@ -39,7 +32,7 @@
 
 	async function load() {
 		try {
-			const c = await invoke<CloudApiConfig>("get_cloud_api_config");
+			const c = await getCloudApiConfig();
 			config = c;
 			input = c.overrideUrl ?? "";
 		} catch (e) {
@@ -54,9 +47,7 @@
 		try {
 			// Empty string clears the override → back to the default endpoint.
 			const trimmed = input.trim();
-			const next = await invoke<CloudApiConfig>("set_cloud_api_url", {
-				url: trimmed.length > 0 ? trimmed : null,
-			});
+			const next = await setCloudApiUrl(trimmed.length > 0 ? trimmed : null);
 			config = next;
 			input = next.overrideUrl ?? "";
 			toast.success(
@@ -139,13 +130,13 @@
 			<span
 				class={cn(
 					"inline-flex items-center gap-1.5 text-[10.5px] font-medium",
-					config.isCustom ? "text-amber-500" : "text-muted-foreground/70",
+					config.isCustom ? "text-warning" : "text-muted-foreground/70",
 				)}
 			>
 				<span
 					class={cn(
 						"size-1.5 rounded-full",
-						config.isCustom ? "bg-amber-500" : "bg-emerald-500",
+						config.isCustom ? "bg-warning" : "bg-success",
 					)}
 				></span>
 				{config.isCustom ? "Custom endpoint" : "Default endpoint"} ·

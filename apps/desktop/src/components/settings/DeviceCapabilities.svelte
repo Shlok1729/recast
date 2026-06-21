@@ -276,7 +276,7 @@
             "flex size-9 shrink-0 items-center justify-center rounded-full ring-1 ring-inset",
             captureReady
               ? "bg-primary/15 text-primary ring-primary/25"
-              : "bg-amber-500/12 text-amber-500 ring-1 ring-amber-500/25",
+              : "bg-warning/12 text-warning ring-1 ring-warning/25",
           )}
         >
           {#if captureReady}
@@ -297,7 +297,7 @@
                 "inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ring-1 ring-inset",
                 captureReady
                   ? "bg-primary/15 text-primary ring-primary/25"
-                  : "bg-amber-500/12 text-amber-500 ring-amber-500/25",
+                  : "bg-warning/12 text-warning ring-warning/25",
               )}
             >
               {captureCaps.screenBackend}
@@ -354,7 +354,7 @@
               <span
                 class={cn(
                   "mt-0.5 inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium",
-                  feat.supported ? "text-emerald-500" : "text-muted-foreground/70",
+                  feat.supported ? "text-success" : "text-muted-foreground/70",
                 )}
               >
                 {#if feat.supported}
@@ -521,7 +521,7 @@
                 <span
                   class={cn(
                     "inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium",
-                    enc.available ? "text-emerald-500" : "text-muted-foreground/70",
+                    enc.available ? "text-success" : "text-muted-foreground/70",
                   )}
                 >
                   {#if enc.available}

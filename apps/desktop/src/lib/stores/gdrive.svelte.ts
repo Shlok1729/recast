@@ -1,4 +1,15 @@
 import { isTauriApp } from "$lib/runtime/tauri";
+import {
+	gdriveCancelUpload,
+	gdriveConnect,
+	gdriveDisconnect,
+	gdriveForgetUpload,
+	gdriveListUploads,
+	gdriveStatus,
+	gdriveUpload,
+	type GdriveUploadRecord,
+	type GdriveUploadResult,
+} from "$lib/ipc";
 
 /**
  * Google Drive store.
@@ -31,25 +42,6 @@ export type GdriveUpload = {
 	error?: string;
 };
 
-type GdriveUploadResult = {
-	fileId: string;
-	name: string;
-	webViewLink?: string;
-};
-
-/**
- * Persistent record of a previously-uploaded export, keyed by local file
- * path. Mirrors the Rust `UploadRecord` struct from `commands/gdrive.rs`.
- * Sourced from a JSON file on disk — no database.
- */
-export type UploadRecord = {
-	fileId: string;
-	name: string;
-	webViewLink?: string;
-	/** Unix seconds. */
-	uploadedAt: number;
-};
-
 function createGdriveStore() {
 	let connected = $state(false);
 	let email = $state<string | null>(null);
@@ -61,7 +53,7 @@ function createGdriveStore() {
 	 * updated when `gdrive:upload-complete` fires. Drives the exports
 	 * list dropdown ("Upload to Drive" vs. "Copy link / Re-upload").
 	 */
-	const uploadHistory = $state<Record<string, UploadRecord>>({});
+	const uploadHistory = $state<Record<string, GdriveUploadRecord>>({});
 
 	let listenersAttached = false;
 
@@ -132,10 +124,7 @@ function createGdriveStore() {
 	async function refreshStatus() {
 		if (!(await isTauriApp())) return;
 		try {
-			const { invoke } = await import("@tauri-apps/api/core");
-			const status = await invoke<{ connected: boolean; email?: string }>(
-				"gdrive_status",
-			);
+			const status = await gdriveStatus();
 			connected = status.connected;
 			email = status.email ?? null;
 		} catch (e) {
@@ -147,10 +136,7 @@ function createGdriveStore() {
 	async function refreshHistory() {
 		if (!(await isTauriApp())) return;
 		try {
-			const { invoke } = await import("@tauri-apps/api/core");
-			const records = await invoke<Record<string, UploadRecord>>(
-				"gdrive_list_uploads",
-			);
+			const records = await gdriveListUploads();
 			// Wipe then refill so deletions made elsewhere propagate.
 			for (const key of Object.keys(uploadHistory)) {
 				delete uploadHistory[key];
@@ -174,8 +160,7 @@ function createGdriveStore() {
 		await attachListeners();
 		connecting = true;
 		try {
-			const { invoke } = await import("@tauri-apps/api/core");
-			await invoke("gdrive_connect");
+			await gdriveConnect();
 			// Success path: the `gdrive:connected` listener flips state.
 		} catch (e) {
 			connecting = false;
@@ -187,8 +172,7 @@ function createGdriveStore() {
 	async function disconnect() {
 		if (!(await isTauriApp())) return;
 		try {
-			const { invoke } = await import("@tauri-apps/api/core");
-			await invoke("gdrive_disconnect");
+			await gdriveDisconnect();
 		} catch (e) {
 			console.error("[gdrive] disconnect failed", e);
 		}
@@ -216,12 +200,8 @@ function createGdriveStore() {
 			totalBytes: 0,
 			status: "uploading",
 		};
-		const { invoke } = await import("@tauri-apps/api/core");
 		try {
-			return await invoke<GdriveUploadResult>("gdrive_upload", {
-				path,
-				uploadId,
-			});
+			return await gdriveUpload(path, uploadId);
 		} catch (e) {
 			// The Rust side already emitted `gdrive:upload-error` for the
 			// corner-card UI; re-throw for any caller that awaits the
@@ -232,9 +212,8 @@ function createGdriveStore() {
 
 	async function cancelUpload(uploadId: string) {
 		if (!(await isTauriApp())) return;
-		const { invoke } = await import("@tauri-apps/api/core");
 		try {
-			await invoke("gdrive_cancel_upload", { uploadId });
+			await gdriveCancelUpload(uploadId);
 		} catch (e) {
 			console.error("[gdrive] cancel failed", e);
 		}
@@ -253,15 +232,14 @@ function createGdriveStore() {
 		delete uploadHistory[localPath];
 		if (!(await isTauriApp())) return;
 		try {
-			const { invoke } = await import("@tauri-apps/api/core");
-			await invoke("gdrive_forget_upload", { localPath });
+			await gdriveForgetUpload(localPath);
 		} catch (e) {
 			console.error("[gdrive] forget failed", e);
 		}
 	}
 
 	/** Look up the persisted record for a local export, if any. */
-	function getRecordForPath(localPath: string): UploadRecord | undefined {
+	function getRecordForPath(localPath: string): GdriveUploadRecord | undefined {
 		return uploadHistory[localPath];
 	}
 

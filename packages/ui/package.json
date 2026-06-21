@@ -12,6 +12,10 @@
       "svelte": "./src/components/ui/badge/index.ts",
       "default": "./src/components/ui/badge/index.ts"
     },
+    "./brand-icons": {
+      "svelte": "./src/components/brand-icons/index.ts",
+      "default": "./src/components/brand-icons/index.ts"
+    },
     "./button": {
       "svelte": "./src/components/ui/button/index.ts",
       "default": "./src/components/ui/button/index.ts"

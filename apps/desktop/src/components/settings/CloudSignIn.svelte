@@ -16,11 +16,19 @@
 	import * as DropdownMenu from "@recast/ui/dropdown-menu";
 	import { toast } from "@recast/ui/sonner";
 	import { cn } from "@recast/ui/utils";
-	import { invoke } from "@tauri-apps/api/core";
 	import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { onDestroy, onMount } from "svelte";
 	import { cloudShare } from "$lib/stores/cloudShare.svelte";
+	import {
+		authCancel,
+		authSignOut,
+		authStart,
+		authStatus,
+		type AuthPlan,
+		type AuthStatus,
+		type AuthUsage,
+	} from "$lib/ipc";
 
 	/** Title-case a workspace role for the badge ("owner" → "Owner"). */
 	function roleLabel(role: string): string {
@@ -47,37 +55,6 @@
 	 *   denied     → error msg + retry button
 	 *   expired    → error msg + retry button
 	 */
-	type AuthPlan = {
-		id: string;
-		name: string;
-		status: string;
-		currentPeriodEnd: string | null;
-		cancelAtPeriodEnd: boolean;
-	};
-	type AuthUsage = {
-		recordings: number;
-		storageBytes: number;
-		activeShares: number;
-		sharesLimit: number | null;
-	};
-	// Field names match the camelCase wire shape Tauri emits for the Rust
-	// `AuthStatus` (it's `#[serde(rename_all = "camelCase")]`) — so `signedIn`,
-	// not `signed_in`. Reading the snake form silently yields `undefined`.
-	type AuthStatus = {
-		signedIn: boolean;
-		email?: string | null;
-		name?: string | null;
-		image?: string | null;
-		memberSince?: string | null;
-		plan?: AuthPlan | null;
-		usage?: AuthUsage | null;
-	};
-	type AuthStartResult = {
-		user_code: string;
-		verification_uri: string;
-		expires_in: number;
-	};
-
 	type SignedInProfile = {
 		email: string | null;
 		name: string | null;
@@ -170,7 +147,7 @@
 
 	async function loadStatus() {
 		try {
-			const status = await invoke<AuthStatus>("auth_status");
+			const status = await authStatus();
 			view = status.signedIn
 				? { kind: "signed-in", ...toProfile(status) }
 				: { kind: "signed-out" };
@@ -186,7 +163,7 @@
 	/** Refetch profile (plan/usage) without leaving the signed-in card. */
 	async function refreshProfile() {
 		try {
-			const status = await invoke<AuthStatus>("auth_status");
+			const status = await authStatus();
 			if (status.signedIn && view.kind === "signed-in") {
 				view = { kind: "signed-in", ...toProfile(status) };
 			}
@@ -199,7 +176,7 @@
 		if (busy) return;
 		inFlight = "sign-in";
 		try {
-			const result = await invoke<AuthStartResult>("auth_start");
+			const result = await authStart();
 			view = {
 				kind: "waiting",
 				userCode: result.user_code,
@@ -217,7 +194,7 @@
 		if (busy) return;
 		inFlight = "sign-out";
 		try {
-			await invoke("auth_sign_out");
+			await authSignOut();
 			toast.success("Signed out of Recast Cloud.");
 			view = { kind: "signed-out" };
 			// Drops the cached workspace list + persisted selection.
@@ -244,7 +221,7 @@
 	async function cancelSignIn() {
 		view = { kind: "signed-out" };
 		try {
-			await invoke("auth_cancel");
+			await authCancel();
 		} catch (e) {
 			// Cancel is idempotent on the Rust side; surfacing this would
 			// only confuse the user since the UI already reset.
@@ -524,7 +501,7 @@
 					<ArrowUpRight class="size-3 text-muted-foreground" />
 				</Button>
 				{#if view.plan?.cancelAtPeriodEnd && view.plan?.currentPeriodEnd}
-					<span class="ml-auto text-[10.5px] text-amber-600 dark:text-amber-400">
+					<span class="ml-auto text-[10.5px] text-warning">
 						Ends {new Date(view.plan.currentPeriodEnd).toLocaleDateString()}
 					</span>
 				{/if}
@@ -602,7 +579,7 @@
 		<div class="flex items-center justify-between gap-3">
 			<div class="flex min-w-0 items-center gap-3">
 				<div
-					class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 ring-1 ring-inset ring-amber-500/30 dark:text-amber-400"
+					class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-warning/10 text-warning ring-1 ring-inset ring-warning/30"
 				>
 					<ShieldAlert class="size-4" />
 				</div>

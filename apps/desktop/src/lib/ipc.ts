@@ -410,9 +410,28 @@ export function recastCloudDelete(recastId: string, path?: string): Promise<void
 	return invoke<void>("recast_cloud_delete", { recastId, path });
 }
 
-/** List the shares for a recast (owner-only). Shape mirrors the web API. */
-export function recastCloudListShares(recastId: string): Promise<unknown> {
-	return invoke<unknown>("recast_cloud_list_shares", { recastId });
+/** A single share link for a recast, as returned by `recast_cloud_list_shares`.
+ *  The Rust command passes the server's JSON through verbatim (`serde_json::Value`),
+ *  so this types the subset the manage UI actually consumes rather than the full
+ *  server payload. `visibility` stays a `string` (not a union) because the server
+ *  is the source of truth — the UI normalizes it with its own `toVisibility`. */
+export interface CloudShareLink {
+	slug: string;
+	visibility: string;
+	hasPassword: boolean;
+	expiresAt: string | null;
+	viewsCount: number;
+}
+
+/** Response of `recast_cloud_list_shares`. `shares` is absent on a recast that
+ *  has no links yet. */
+export interface CloudShareList {
+	shares?: CloudShareLink[];
+}
+
+/** List the shares for a recast (owner-only). */
+export function recastCloudListShares(recastId: string): Promise<CloudShareList> {
+	return invoke<CloudShareList>("recast_cloud_list_shares", { recastId });
 }
 
 /** All locally-recorded cloud uploads, keyed by local export path. */
@@ -923,4 +942,159 @@ export function getDiagnosticLogging(): Promise<boolean> {
 
 export function setDiagnosticLogging(enabled: boolean): Promise<void> {
 	return invoke<void>("set_diagnostic_logging", { enabled });
+}
+
+//  Recast Cloud — account / auth
+//
+// Canonical shapes for the `auth_*` and cloud-endpoint commands. These live
+// here (not in the cloud stores) so the IPC contract has one home; the stores
+// import these types + the wrappers below. All are `#[serde(rename_all =
+// "camelCase")]` on the Rust side EXCEPT `AuthStartResult` (noted inline).
+
+export interface AuthPlan {
+	id: string;
+	name: string;
+	status: string;
+	currentPeriodEnd: string | null;
+	cancelAtPeriodEnd: boolean;
+}
+
+export interface AuthUsage {
+	recordings: number;
+	storageBytes: number;
+	activeShares: number;
+	sharesLimit: number | null;
+}
+
+/** A workspace the signed-in user can upload into. Mirrors the Rust `Workspace`. */
+export interface CloudWorkspace {
+	id: string;
+	name: string;
+	/** "owner" | "admin" | "member". */
+	role: string;
+	/** "free" | "pro" | "enterprise" — the org's plan. */
+	plan: string;
+	/** Live (non-deleted) recast count in the workspace. */
+	recastsCount: number;
+}
+
+/** Full sign-in snapshot from `auth_status`. Consumers read the subset they
+ *  need (profile card vs. share-flow guard). */
+export interface AuthStatus {
+	signedIn: boolean;
+	email: string | null;
+	name: string | null;
+	image: string | null;
+	memberSince: string | null;
+	plan: AuthPlan | null;
+	usage: AuthUsage | null;
+	workspaces: CloudWorkspace[];
+	defaultWorkspaceId: string | null;
+}
+
+/** Result of `auth_start` (device-authorization flow kickoff). NOTE: the Rust
+ *  `AuthStartResult` is NOT `rename_all = camelCase`, so its fields stay
+ *  snake_case on the wire. */
+export interface AuthStartResult {
+	user_code: string;
+	verification_uri: string;
+	expires_in: number;
+}
+
+/** Self-hosting cloud endpoint config (`get_cloud_api_config` / `set_cloud_api_url`). */
+export interface CloudApiConfig {
+	effective: string;
+	overrideUrl: string | null;
+	defaultUrl: string;
+	isCustom: boolean;
+}
+
+export function authStatus(): Promise<AuthStatus> {
+	return invoke<AuthStatus>("auth_status");
+}
+
+export function authStart(): Promise<AuthStartResult> {
+	return invoke<AuthStartResult>("auth_start");
+}
+
+export function authSignOut(): Promise<void> {
+	return invoke<void>("auth_sign_out");
+}
+
+export function authCancel(): Promise<void> {
+	return invoke<void>("auth_cancel");
+}
+
+export function getCloudApiConfig(): Promise<CloudApiConfig> {
+	return invoke<CloudApiConfig>("get_cloud_api_config");
+}
+
+/** Set (or clear, with `null`) the self-hosting endpoint override. Returns the
+ *  resolved config; the backend validates and falls back to the default. */
+export function setCloudApiUrl(url: string | null): Promise<CloudApiConfig> {
+	return invoke<CloudApiConfig>("set_cloud_api_url", { url });
+}
+
+//  Google Drive
+//
+// Types + wrappers for the `gdrive_*` commands (OAuth + Drive upload). The
+// gdrive store guards every call with `isTauriApp()` and tracks in-flight UI
+// state itself; these wrappers are thin.
+
+export interface GdriveStatus {
+	connected: boolean;
+	email?: string | null;
+}
+
+/** Result of a successful Drive upload. */
+export interface GdriveUploadResult {
+	fileId: string;
+	name: string;
+	webViewLink?: string;
+}
+
+/** Persisted record of a prior Drive upload, keyed by local export path.
+ *  Mirrors the Rust `UploadRecord` from `commands/gdrive.rs`. */
+export interface GdriveUploadRecord {
+	fileId: string;
+	name: string;
+	webViewLink?: string;
+	/** Unix seconds. */
+	uploadedAt: number;
+}
+
+export function gdriveStatus(): Promise<GdriveStatus> {
+	return invoke<GdriveStatus>("gdrive_status");
+}
+
+export function gdriveListUploads(): Promise<Record<string, GdriveUploadRecord>> {
+	return invoke<Record<string, GdriveUploadRecord>>("gdrive_list_uploads");
+}
+
+export function gdriveConnect(): Promise<void> {
+	return invoke<void>("gdrive_connect");
+}
+
+export function gdriveDisconnect(): Promise<void> {
+	return invoke<void>("gdrive_disconnect");
+}
+
+export function gdriveUpload(path: string, uploadId: string): Promise<GdriveUploadResult> {
+	return invoke<GdriveUploadResult>("gdrive_upload", { path, uploadId });
+}
+
+export function gdriveCancelUpload(uploadId: string): Promise<void> {
+	return invoke<void>("gdrive_cancel_upload", { uploadId });
+}
+
+export function gdriveForgetUpload(localPath: string): Promise<void> {
+	return invoke<void>("gdrive_forget_upload", { localPath });
+}
+
+/** Validate a `.recast` project file, throwing if it isn't a readable, valid
+ *  project. Used purely as a guard before opening — the backend returns the
+ *  project metadata, but no caller surfaces it, so it's intentionally not typed
+ *  out here (kept as `void`). */
+export function peekRecastProject(path: string): Promise<void> {
+	return invoke<void>("peek_recast_project", { path });
 }

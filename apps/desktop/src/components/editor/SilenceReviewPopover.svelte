@@ -145,14 +145,14 @@
   }
 
   function confidenceTextClass(c: number): string {
-    if (c >= 0.66) return "text-emerald-500";
-    if (c >= 0.4) return "text-amber-500";
+    if (c >= 0.66) return "text-success";
+    if (c >= 0.4) return "text-warning";
     return "text-muted-foreground";
   }
 
   function confidenceBarClass(c: number): string {
-    if (c >= 0.66) return "bg-emerald-500";
-    if (c >= 0.4) return "bg-amber-500";
+    if (c >= 0.66) return "bg-success";
+    if (c >= 0.4) return "bg-warning";
     return "bg-muted-foreground/60";
   }
 
@@ -334,10 +334,10 @@
             <span
               class={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded-md border bg-card",
-                blocked ? "border-amber-500/40" : "border-border",
+                blocked ? "border-warning/40" : "border-border",
               )}
             >
-              <VolumeX size={12} class={blocked ? "text-amber-500" : "text-primary"} />
+              <VolumeX size={12} class={blocked ? "text-warning" : "text-primary"} />
             </span>
             <div class="min-w-0 flex-1">
               <div class="flex items-baseline justify-between gap-2">
@@ -350,7 +350,7 @@
               </div>
               <div class="truncate text-[10px] text-muted-foreground">
                 {#if blocked}
-                  <span class="inline-flex items-center gap-1 text-amber-500">
+                  <span class="inline-flex items-center gap-1 text-warning">
                     <AlertTriangle size={9} />
                     Overlaps a focus or annotation
                   </span>

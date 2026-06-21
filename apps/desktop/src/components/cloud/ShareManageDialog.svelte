@@ -48,14 +48,6 @@
 		onOpenChange?.(false);
 	}
 
-	type ShareRow = {
-		slug: string;
-		visibility: string;
-		hasPassword: boolean;
-		expiresAt: string | null;
-		viewsCount: number;
-	};
-
 	let loading = $state(true);
 	let saving = $state(false);
 	let deleting = $state(false);
@@ -91,9 +83,7 @@
 
 	async function prime() {
 		try {
-			const res = (await recastCloudListShares(record.recastId)) as {
-				shares?: ShareRow[];
-			};
+			const res = await recastCloudListShares(record.recastId);
 			const row =
 				res.shares?.find((s) => s.slug === record.slug) ?? res.shares?.[0];
 			if (row) {

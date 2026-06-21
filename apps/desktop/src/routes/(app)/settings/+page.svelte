@@ -44,7 +44,7 @@
     Timer,
     Video,
   } from "@lucide/svelte";
-  import GithubBrand from "$components/icons/github-brand.svelte";
+  import { GithubBrand } from "@recast/ui/brand-icons";
   import { Button } from "@recast/ui/button";
   import { toast } from "@recast/ui/sonner";
   import * as Tabs from "@recast/ui/tabs";
@@ -802,7 +802,7 @@
                       <Server class="size-3 text-primary" />
                       Self-hosting
                       <span
-                        class="inline-flex items-center gap-1 rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-500"
+                        class="inline-flex items-center gap-1 rounded-full bg-warning/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-warning"
                       >
                         <FlaskConical class="size-2.5" />
                         Experimental

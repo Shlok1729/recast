@@ -77,6 +77,12 @@
   const store = createEditorStore();
 
   let videoEl: HTMLVideoElement | null = $state(null);
+  // True while the WebCodecs preview engine drives the picture (its output-time
+  // clock owns `store.currentTime`). When set, `handleTimeUpdate` must NOT echo
+  // `videoEl.currentTime` back into the store: the `<video>` element free-runs
+  // through the raw (un-cut) recording, so feeding its time to the store fights
+  // the clock and snaps playback back across a cut. Bound from VideoPreview.
+  let webcodecsActive = $state(false);
   // VideoPreview binds its `captureFrame` to this slot so VideoPlayerControls
   // can trigger a WYSIWYG screenshot (composite, not raw video frame).
   let captureFrame = $state<(() => Promise<Blob | null>) | undefined>(undefined);
@@ -199,16 +205,26 @@
   function handleTimeUpdate() {
     if (!videoEl) return;
     if (store.isPlaying) {
-      store.currentTime = videoEl.currentTime;
-      // Loop within trim region. Only relevant when trimEnd is set BELOW
-      // the natural duration — at the natural end we rely on the `ended`
-      // event below, which is more precise than timeupdate's ~250 ms tick.
-      if (loopEnabled && store.metadata) {
-        const trimEnd = store.trimEnd > 0 ? store.trimEnd : store.metadata.duration;
-        if (trimEnd > 0 && trimEnd < store.metadata.duration - 0.05) {
-          if (videoEl.currentTime >= trimEnd - 0.05) {
-            loopBackToStart();
-            return;
+      // In the WebCodecs path the picture clock is the master and owns
+      // `store.currentTime`. The `<video>` element free-runs through the raw
+      // recording (it doesn't skip cuts), so echoing its time into the store —
+      // or running the trim-loop off it — fights the clock and yanks playback
+      // back across a cut. Both are handled clock-side there (the draw loop
+      // publishes time; `picClock.atEnd` → `onEnded` handles end/loop). We still
+      // keep the audio drift-correction below: audio slaves to the `<video>`
+      // transport, which the clock nudges to the cut-aware time at each boundary.
+      if (!webcodecsActive) {
+        store.currentTime = videoEl.currentTime;
+        // Loop within trim region. Only relevant when trimEnd is set BELOW
+        // the natural duration — at the natural end we rely on the `ended`
+        // event below, which is more precise than timeupdate's ~250 ms tick.
+        if (loopEnabled && store.metadata) {
+          const trimEnd = store.trimEnd > 0 ? store.trimEnd : store.metadata.duration;
+          if (trimEnd > 0 && trimEnd < store.metadata.duration - 0.05) {
+            if (videoEl.currentTime >= trimEnd - 0.05) {
+              loopBackToStart();
+              return;
+            }
           }
         }
       }
@@ -1235,7 +1251,7 @@
        opt-in so users sharing projects across machines don't lose work. -->
   {#if !isLoading && !error && silenceCutCount > 0 && !experimentalStore.silenceDetection}
     <div
-      class="flex items-center gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+      class="flex items-center gap-2.5 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] text-warning"
       role="status"
     >
       <FlaskConical class="size-3.5 shrink-0" />
@@ -1249,7 +1265,7 @@
       <Button
         variant="outline"
         size="xs"
-        class="h-6 shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+        class="h-6 shrink-0 border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
         onclick={() =>
           experimentalStore.setEnabled("silenceDetection", true)}
       >
@@ -1263,7 +1279,7 @@
        Surface an inline opt-in so the edits aren't silently dropped. -->
   {#if !isLoading && !error && manualCutCount > 0 && !experimentalStore.timelineEditing}
     <div
-      class="flex items-center gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+      class="flex items-center gap-2.5 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] text-warning"
       role="status"
     >
       <FlaskConical class="size-3.5 shrink-0" />
@@ -1277,7 +1293,7 @@
       <Button
         variant="outline"
         size="xs"
-        class="h-6 shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+        class="h-6 shrink-0 border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
         onclick={() => experimentalStore.setEnabled("timelineEditing", true)}
       >
         Enable
@@ -1324,6 +1340,7 @@
               {store}
               bind:videoEl
               bind:captureFrame
+              bind:webcodecsActive
               {videoSrc}
               {cursorPath}
               {cameraSrc}

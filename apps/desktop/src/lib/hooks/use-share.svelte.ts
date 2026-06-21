@@ -1,7 +1,5 @@
 import { Mail } from '@lucide/svelte';
-import FacebookBrand from '$components/icons/facebook-brand.svelte';
-import LinkedinBrand from '$components/icons/linkedin-brand.svelte';
-import XBrand from '$components/icons/x-brand.svelte';
+import { FacebookBrand, LinkedinBrand, XBrand } from '@recast/ui/brand-icons';
 
 type ShareData = {
   title?: string;

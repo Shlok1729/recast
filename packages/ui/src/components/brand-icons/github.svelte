@@ -1,11 +1,10 @@
 <script lang="ts">
   // Brand mark — GitHub. @lucide/svelte 1.x removed brand icons (trademark
-  // policy), so the few brand glyphs we need ship as small inline SVGs. The
-  // prop surface mirrors a Lucide icon (numeric `size` default 24 + `class` +
-  // `currentColor` fill), so it drops into the same call sites; a `size-*`
-  // class overrides the width/height attrs via CSS exactly like Lucide. Path
-  // from simple-icons. See AGENTS.md §4 — documented brand exception to the
-  // "Lucide icons only" rule.
+  // policy), so the brand glyphs we need ship here as small inline SVGs shared
+  // across web + desktop. The prop surface mirrors a Lucide icon (numeric
+  // `size` default 24 + `class` + `currentColor` fill), so it drops into the
+  // same call sites; a `size-*` class overrides the width/height attrs via CSS
+  // exactly like Lucide. Path from simple-icons.
   import type { SVGAttributes } from "svelte/elements";
 
   interface Props extends SVGAttributes<SVGSVGElement> {

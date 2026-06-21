@@ -49,6 +49,13 @@
 		onReady: () => void;
 		onError: () => void;
 		onSeeked?: () => void;
+		/** True once the WebCodecs preview engine is decoding for this source (so
+		 *  the picture clock — not the `<video>` element — owns playback time).
+		 *  The parent reads this to stop echoing `videoEl.currentTime` back into
+		 *  `store.currentTime`, which otherwise fights the clock across cuts.
+		 *  False whenever the legacy `<video>` path is active (flag off or the
+		 *  source couldn't be demuxed/decoded). */
+		webcodecsActive?: boolean;
 		/** Exposed method — captures the current preview canvas as a PNG
 		 *  blob (composite: video + background + zoom + blur + cursor, i.e.
 		 *  WYSIWYG). Returns null if the WebGL context isn't ready or the
@@ -69,6 +76,7 @@
 		onReady,
 		onError,
 		onSeeked,
+		webcodecsActive = $bindable(false),
 		captureFrame = $bindable(),
 	}: Props = $props();
 
@@ -116,6 +124,9 @@
 	// (it fans out to overlays/timeline/waveform); slamming it every rAF frame
 	// congests the main thread and delays decoded-frame delivery → dropped frames.
 	let lastPublishedTime = -1;
+	// Guards the end-of-timeline stop so it fires once per play session, not every
+	// frame while the clock sits clamped at the end. Reset when playback (re)starts.
+	let endHandled = false;
 
 	// Gapless OUTPUT-time clock that drives the PICTURE in the WebCodecs path.
 	// This is the actual fix for the cut hitch: a <video> element's currentTime
@@ -1271,8 +1282,30 @@ void main() {
 		const usingPicClock = WEBCODECS_PREVIEW_ENABLED && wcReady;
 		let playbackTime: number;
 		if (usingPicClock && store.isPlaying) {
+			// External scrub while playing: the timeline/controls set
+			// store.currentTime to a value we didn't publish ourselves. Re-seat the
+			// clock onto it so seeking works mid-playback instead of snapping back.
+			// (We compare against our own last publish, so this never fires for the
+			// values WE wrote.)
+			if (Math.abs(store.currentTime - lastPublishedTime) > 0.05) {
+				picClock.seek(
+					originalToOutput(store.effectiveCuts, store.currentTime),
+				);
+				lastPublishedTime = store.currentTime;
+				endHandled = false;
+			}
 			// Playing: the gapless output clock is the master.
 			playbackTime = outputToOriginal(store.effectiveCuts, picClock.time);
+			// Reached the end of the edited timeline → stop cleanly. The clock
+			// clamps at its duration, so without this the picture would freeze on
+			// the last frame while still "playing" (and the decoder would sit idle).
+			// Setting isPlaying=false pauses the clock (via the play/pause effect);
+			// hitting play again restarts from the top (see the seed below).
+			if (picClock.atEnd && !endHandled) {
+				endHandled = true;
+				store.isPlaying = false;
+				onEnded?.();
+			}
 			// Publish to the store (drives overlays/timeline/audio) at ~25 Hz, not
 			// every rAF frame — that fan-out is expensive and was starving decoded-
 			// frame delivery. Always publish on a backward step or a jump so cuts
@@ -1767,6 +1800,7 @@ void main() {
 		if (src === loadedWcSrc) return;
 		loadedWcSrc = src;
 		wcReady = false;
+		webcodecsActive = false;
 		hasRenderedFrame = false;
 		lastPublishedTime = -1;
 		wcSource?.dispose();
@@ -1781,6 +1815,7 @@ void main() {
 				source.onFrame = () => requestRedraw();
 				wcSource = source;
 				wcReady = true;
+				webcodecsActive = true;
 				// Seed the picture clock to the current transport so flipping onto
 				// the WebCodecs path (which may happen mid-playback, once demux
 				// finishes) doesn't jump.
@@ -1848,16 +1883,23 @@ void main() {
 			// to the (lagging) <video> time mid-playback — which jumped it BACKWARD
 			// and forced the decoder into a reset-thrash (the ~8 fps bug).
 			if (WEBCODECS_PREVIEW_ENABLED && !picClock.playing) {
+				// Capture the end state before setDuration re-clamps the time.
+				const wasAtEnd = picClock.atEnd;
 				// Duration = output (post-cut) length of the kept region, so the
 				// clock clamps at the true end of the edited timeline.
 				picClock.setDuration(
 					originalToOutput(store.effectiveCuts, store.outPoint),
 				);
-				// Align the clock to wherever the transport currently is.
+				// Restart from the top if we'd just finished; otherwise resume from
+				// the current transport position. (Seeding blindly from the <video>
+				// time parked the clock at the end on replay → stuck frame.)
 				picClock.seek(
-					originalToOutput(store.effectiveCuts, videoEl?.currentTime ?? 0),
+					wasAtEnd
+						? 0
+						: originalToOutput(store.effectiveCuts, videoEl?.currentTime ?? 0),
 				);
 				picClock.play();
+				endHandled = false;
 			}
 			startVideoFrameLoop();
 		} else {

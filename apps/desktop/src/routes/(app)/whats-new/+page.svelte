@@ -7,7 +7,7 @@
     type ChangelogRelease,
   } from "$constants/changelog";
   import { whatsNew } from "$lib/stores/whats-new.svelte";
-  import GithubBrand from "$components/icons/github-brand.svelte";
+  import { GithubBrand } from "@recast/ui/brand-icons";
   import { Sparkles } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import { Markdown } from "@recast/ui/markdown";

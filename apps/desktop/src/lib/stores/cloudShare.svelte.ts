@@ -1,5 +1,6 @@
 import { isTauriApp } from "$lib/runtime/tauri";
 import {
+	authStatus,
 	recastCloudDelete,
 	recastCloudForgetUpload,
 	recastCloudListUploads,
@@ -7,7 +8,10 @@ import {
 	recastCloudUpload,
 	type CloudShareResult,
 	type CloudUploadRecord,
+	type CloudWorkspace,
 } from "$lib/ipc";
+
+export type { CloudWorkspace };
 
 /**
  * Recast Cloud share store.
@@ -46,35 +50,6 @@ export type CloudAuth = {
 	};
 };
 
-/** A workspace the user can upload into — mirrors the Rust `Workspace`. */
-export type CloudWorkspace = {
-	id: string;
-	name: string;
-	/** "owner" | "admin" | "member". */
-	role: string;
-	/** "free" | "pro" | "enterprise" — the org's plan. */
-	plan: string;
-	/** Live (non-deleted) recast count in the workspace. */
-	recastsCount: number;
-};
-
-// NOTE: the Rust `auth_status` command returns a struct annotated
-// `#[serde(rename_all = "camelCase")]`, so Tauri serializes every field as
-// camelCase on the wire — `signedIn`, `defaultWorkspaceId`, `storageBytes`,
-// etc. (NOT the Rust snake_case identifiers). An earlier version of this
-// store read `s.signed_in`, which is always `undefined` over IPC — that's
-// why the signed-in gate silently failed after any status refresh.
-type AuthStatusShape = {
-	signedIn: boolean;
-	plan?: { name?: string } | null;
-	usage?: {
-		activeShares?: number;
-		sharesLimit?: number | null;
-		storageBytes?: number;
-	} | null;
-	workspaces?: CloudWorkspace[] | null;
-	defaultWorkspaceId?: string | null;
-};
 
 /**
  * localStorage key for the user's preferred upload workspace. The value is
@@ -173,8 +148,7 @@ function createCloudShareStore() {
 	async function refreshStatus() {
 		if (!(await isTauriApp())) return;
 		try {
-			const { invoke } = await import("@tauri-apps/api/core");
-			const s = await invoke<AuthStatusShape>("auth_status");
+			const s = await authStatus();
 			signedIn = s.signedIn;
 			planName = s.plan?.name ?? undefined;
 			usage = s.usage

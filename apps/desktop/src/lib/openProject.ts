@@ -13,9 +13,8 @@
  * window (label-based dedupe).
  */
 import { analytics } from "$lib/analytics/client";
-import { isRecordingActive } from "$lib/ipc";
+import { isRecordingActive, peekRecastProject } from "$lib/ipc";
 import { toast } from "@recast/ui/sonner";
-import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 function basename(path: string): string {
@@ -93,7 +92,7 @@ export async function openProjectFromExternalPath(
   }
 
   try {
-    await invoke("peek_recast_project", { path });
+    await peekRecastProject(path);
   } catch (e) {
     toast.error(
       `Couldn't open "${basename(path)}" — ${describeError(e)}`,
