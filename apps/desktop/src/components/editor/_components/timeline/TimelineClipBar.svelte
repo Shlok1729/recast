@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import { experimentalStore } from "$lib/stores/experimental.svelte";
   import { originalToOutput } from "$lib/timeline/cuts";
+  import { deriveSeams } from "$lib/timeline/segments";
   import { Trash2 } from "@lucide/svelte";
   import { fade } from "svelte/transition";
   import {
@@ -82,22 +82,11 @@
   // Seam markers: where a removed cut sits BETWEEN two kept segments, the gap
   // is collapsed to a single seam. Hover to see how much was removed, click to
   // restore it (the non-destructive replacement for the old in-place red band).
-  const seamMarkers = $derived.by(() => {
-    const segs = store.segments;
-    const out: { x: number; removed: number; gapStart: number; gapEnd: number }[] = [];
-    for (let i = 0; i < segs.length - 1; i++) {
-      const gap = segs[i + 1].start - segs[i].end;
-      if (gap > 1e-3) {
-        out.push({
-          x: xOf(segs[i].end),
-          removed: gap,
-          gapStart: segs[i].end,
-          gapEnd: segs[i + 1].start,
-        });
-      }
-    }
-    return out;
-  });
+  // Derivation is a pure, unit-tested helper (`deriveSeams`); here we only add
+  // the output-axis x position.
+  const seamMarkers = $derived(
+    deriveSeams(store.segments).map((s) => ({ ...s, x: xOf(s.gapStart) })),
+  );
   function restoreSeam(gapStart: number, gapEnd: number) {
     // Restore every cut that lives inside the collapsed gap.
     for (const c of store.effectiveCuts) {
@@ -267,11 +256,8 @@
       {/if}
 
       <!-- Per-clip ripple delete (only when there's more than one clip — the
-           trim handles, not this, remove the whole recording). Ripple-delete is
-           part of the opt-in timeline-editing feature, so the affordance is
-           hidden unless that's enabled (a silence-only split could otherwise
-           expose it). -->
-      {#if clipBlocks.length > 1 && experimentalStore.timelineEditing}
+           trim handles, not this, remove the whole recording). -->
+      {#if clipBlocks.length > 1}
         <!-- svelte-ignore a11y_consider_explicit_label -->
         <button
           type="button"

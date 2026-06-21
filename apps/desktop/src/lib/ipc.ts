@@ -374,8 +374,10 @@ export interface CloudUploadRecord {
 /**
  * Upload an already-exported MP4 to Recast Cloud and create a public share
  * link. The caller runs `exportVideo` first; `workspaceId` comes from the
- * desktop profile's `defaultWorkspaceId`. Emits `recast-cloud:progress`,
- * `recast-cloud:complete`, and `recast-cloud:error` events keyed by `path`.
+ * desktop profile's `defaultWorkspaceId`. Emits `recast-cloud:progress`
+ * (coarse phase), `recast-cloud:upload-progress` (`{ bytesSent, totalBytes }`
+ * during the file PUT), `recast-cloud:complete`, and `recast-cloud:error` —
+ * all keyed by `path`.
  */
 export function recastCloudUpload(
 	path: string,

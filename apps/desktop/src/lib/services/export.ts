@@ -100,11 +100,11 @@ export async function buildExportRenderState(
 		...renderState,
 		annotations: store.annotationsGloballyHidden ? [] : expandedAnnotations,
 		zoomRegions: store.focusEnabled ? renderState.zoomRegions : [],
-		// Cuts only export when their feature is opted in: manual splits/ripple
-		// deletes require the experimental `timelineEditing` flag, auto silence
-		// requires `silenceDetection`, and both honor the cuts-lane toggle. With
-		// the feature off the cut data is preserved on the store but never reaches
-		// the Rust pipeline, so the export is identical to an un-edited clip.
+		// `effectiveCuts` already reflects what actually applies: manual splits/
+		// ripple deletes are always-on, auto silence still requires the
+		// `silenceDetection` opt-in, and both honor the cuts-lane toggle. Cuts that
+		// don't apply are preserved on the store but never reach the Rust pipeline,
+		// so the export matches the previewed edit.
 		cuts: store.effectiveCuts,
 		cursorSpriteRest: cursorSprites?.rest,
 		cursorSpritePress: cursorSprites?.press,

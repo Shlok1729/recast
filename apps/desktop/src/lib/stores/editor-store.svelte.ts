@@ -1577,24 +1577,21 @@ export function createEditorStore() {
 		};
 	}
 
-	// Split & cut is an experimental, opt-in feature (`timelineEditing`); auto
-	// silence is its own flag (`silenceDetection`). A cut is only "active" — i.e.
-	// shown on the timeline and applied in playback/export — when its source's
-	// flag is on AND the cuts lane is enabled. With both flags off the project's
-	// edits are preserved but ignored, so toggling a flag back on restores them.
+	// Manual split/cut is an always-on feature now; auto silence is still its own
+	// opt-in flag (`silenceDetection`). A cut is only "active" — i.e. shown on the
+	// timeline and applied in playback/export — when its source allows it AND the
+	// cuts lane is enabled. A disabled silence flag preserves those edits but
+	// ignores them, so toggling it back on restores them.
 	function cutFlagAllows(c: TimelineCut): boolean {
-		return c.source === 'silence'
-			? experimentalStore.silenceDetection
-			: experimentalStore.timelineEditing;
+		return c.source === 'silence' ? experimentalStore.silenceDetection : true;
 	}
 	/** Cuts that actually apply right now (flag-gated + lane-enabled). */
 	function effectiveCutList(): TimelineCut[] {
 		if (!cutsEnabled) return [];
 		return cuts.filter(cutFlagAllows);
 	}
-	/** Split markers only exist as a concept while timeline editing is on. */
 	function activeSplitPoints(): number[] {
-		return experimentalStore.timelineEditing ? splitPoints : [];
+		return splitPoints;
 	}
 
 	/** The current clip's kept segments: trim − active cuts, subdivided by
@@ -1612,7 +1609,6 @@ export function createEditorStore() {
 
 	/** Split the clip at original time `t`. Returns true if a split was added. */
 	function splitAt(t: number): boolean {
-		if (!experimentalStore.timelineEditing) return false;
 		const { start, end } = clipBounds();
 		const next = planSplit(t, {
 			trimStart: start,
@@ -1650,7 +1646,6 @@ export function createEditorStore() {
 	 * a segment) — the whole recording can't be removed this way.
 	 */
 	function deleteSegmentAt(t: number): number | null {
-		if (!experimentalStore.timelineEditing) return null;
 		const segs = currentSegments();
 		if (segs.length <= 1) return null;
 		const seg = segmentAt(segs, t);

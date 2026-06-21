@@ -80,6 +80,42 @@ export function deriveSegments(shape: ClipShape): Segment[] {
 }
 
 /**
+ * A collapsed cut between two kept segments. On the output (post-cut) timeline
+ * the removed span has zero width, so the editor renders it as a single seam
+ * marker at `gapStart` (== the previous segment's end). `removed` is how much
+ * original time was taken out — shown in the restore tooltip.
+ */
+export interface Seam {
+	/** Original time where the gap begins (previous segment's end). */
+	gapStart: number;
+	/** Original time where the gap ends (next segment's start). */
+	gapEnd: number;
+	/** Seconds of original content removed across the gap. */
+	removed: number;
+}
+
+/**
+ * Derive the seams between adjacent kept segments — i.e. every place a cut was
+ * ripple-removed, collapsing two segments together. A pure boundary between
+ * segments that merely *touch* (a split, no removed time) yields no seam. Pure
+ * so the timeline's seam markers are unit-tested independently of the DOM.
+ */
+export function deriveSeams(segments: Segment[]): Seam[] {
+	const seams: Seam[] = [];
+	for (let i = 0; i < segments.length - 1; i++) {
+		const gap = segments[i + 1].start - segments[i].end;
+		if (gap > EPS) {
+			seams.push({
+				gapStart: segments[i].end,
+				gapEnd: segments[i + 1].start,
+				removed: gap,
+			});
+		}
+	}
+	return seams;
+}
+
+/**
  * The segment containing original time `t`, or null if `t` is in a trimmed-off
  * region or inside a cut. On an exact internal boundary the playhead belongs to
  * the segment to its right (NLE convention); at the very end it belongs to the
