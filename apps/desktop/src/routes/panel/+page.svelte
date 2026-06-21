@@ -15,6 +15,7 @@
     getDisplays,
     getLastSource,
     pauseRecording,
+    refreshTray,
     resumeRecording,
     setLastSource,
     startRecording,
@@ -56,7 +57,6 @@
   import { recordingCountdown } from "$lib/stores/recording-countdown.svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { emit, listen } from "@tauri-apps/api/event";
-  import { invoke } from "@tauri-apps/api/core";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
@@ -200,7 +200,7 @@
   // tray init may have failed (no icon registered) — the command is a
   // no-op in that case.
   $effect(() => {
-    void invoke("refresh_tray", { isRecording });
+    void refreshTray(isRecording);
   });
 
   // Pause state. `pausedAccumMs` banks completed pauses; `pausedSince` marks

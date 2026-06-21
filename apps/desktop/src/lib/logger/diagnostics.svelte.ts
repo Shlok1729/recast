@@ -14,6 +14,7 @@
  */
 
 import { PersistedState } from "@recast/ui/persisted-state";
+import { getDiagnosticLogging, setDiagnosticLogging } from "$lib/ipc";
 
 const STORAGE_KEY = "recast-diagnostic-logging";
 
@@ -23,8 +24,7 @@ function createDiagnosticsStore() {
 	// Adopt the backend's persisted value on startup so the toggle reflects the
 	// real log level even after localStorage is cleared. Best-effort — a
 	// non-Tauri preview just keeps the localStorage/default value.
-	void import("@tauri-apps/api/core")
-		.then(({ invoke }) => invoke<boolean>("get_diagnostic_logging"))
+	void getDiagnosticLogging()
 		.then((backend) => {
 			if (typeof backend === "boolean") state.current = backend;
 		})
@@ -38,9 +38,7 @@ function createDiagnosticsStore() {
 		/** Persist the choice to localStorage (cross-window) AND Rust (log level). */
 		set(value: boolean) {
 			state.current = value;
-			void import("@tauri-apps/api/core")
-				.then(({ invoke }) => invoke("set_diagnostic_logging", { enabled: value }))
-				.catch(() => {});
+			void setDiagnosticLogging(value).catch(() => {});
 		},
 	};
 }

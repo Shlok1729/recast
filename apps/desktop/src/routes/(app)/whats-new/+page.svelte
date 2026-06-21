@@ -7,8 +7,10 @@
     type ChangelogRelease,
   } from "$constants/changelog";
   import { whatsNew } from "$lib/stores/whats-new.svelte";
-  import { Github, Sparkles } from "@lucide/svelte";
+  import GithubBrand from "$components/icons/github-brand.svelte";
+  import { Sparkles } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
+  import { Markdown } from "@recast/ui/markdown";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -66,7 +68,7 @@
           size="sm"
           class="h-8 gap-1.5"
         >
-          <Github class="size-3.5" />
+          <GithubBrand class="size-3.5" />
           <span class="text-[11.5px]">Releases on GitHub</span>
         </Button>
       </div>
@@ -121,7 +123,7 @@
                   class="flex items-start gap-2 rounded-lg border border-border/50 bg-card/40 px-3 py-2 text-[12.5px] leading-relaxed text-foreground"
                 >
                   <Sparkles class="mt-0.5 size-3.5 shrink-0 text-primary" />
-                  <span>{h}</span>
+                  <span><Markdown inline source={h} /></span>
                 </li>
               {/each}
             </ul>
@@ -149,7 +151,7 @@
                         class="mt-1.5 size-1 shrink-0 rounded-full bg-foreground/30"
                         aria-hidden="true"
                       ></span>
-                      <span>{it}</span>
+                      <span><Markdown inline source={it} /></span>
                     </li>
                   {/each}
                 </ul>

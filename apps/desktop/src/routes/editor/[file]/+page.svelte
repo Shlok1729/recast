@@ -21,6 +21,8 @@
     extractWaveform,
     generateThumbnails,
     loadEditorDocument,
+    openFileLocation,
+    refreshTray,
     saveProjectEdits,
   } from "$lib/ipc";
   import { generateAutoZoom } from "$lib/services/analysis";
@@ -616,9 +618,7 @@
       // selectable from there immediately. Pass `isRecording: null` to
       // signal "list changed, don't touch the recording flag" — the
       // panel window is the authoritative source for that.
-      void import("@tauri-apps/api/core").then(({ invoke }) => {
-        invoke("refresh_tray", { isRecording: null }).catch(() => {});
-      });
+      void refreshTray(null).catch(() => {});
     } else if (next.kind === "cancelled") {
       toast.info("Export cancelled");
     } else {
@@ -855,8 +855,7 @@
   async function revealExportInFolder() {
     if (exportResult?.kind !== "success") return;
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_file_location", { path: exportResult.path });
+      await openFileLocation(exportResult.path);
     } catch (err) {
       toast.error(`Could not open folder: ${err}`);
     }

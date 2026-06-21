@@ -1,10 +1,10 @@
 <script lang="ts">
   import { diagnostics } from "$lib/logger/diagnostics.svelte";
+  import { openLogDir } from "$lib/ipc";
   import { Button } from "@recast/ui/button";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
   import { FolderOpen, ScrollText } from "@lucide/svelte";
-  import { invoke } from "@tauri-apps/api/core";
 
   let opening = $state(false);
 
@@ -21,7 +21,7 @@
   async function openLogs() {
     opening = true;
     try {
-      await invoke<string>("open_log_dir");
+      await openLogDir();
     } catch (e) {
       toast.error(`Couldn't open the logs folder: ${e}`);
     } finally {

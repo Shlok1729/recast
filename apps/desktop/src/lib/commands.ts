@@ -8,7 +8,6 @@ import {
 	ExternalLink,
 	Film,
 	FolderOpen,
-	Github,
 	Home,
 	Monitor,
 	Moon,
@@ -17,6 +16,7 @@ import {
 	SlidersHorizontal,
 	Sun,
 } from "@lucide/svelte";
+import GithubBrand from "$components/icons/github-brand.svelte";
 import { toast } from "@recast/ui/sonner";
 import { setMode } from "@recast/ui/theme";
 
@@ -167,7 +167,7 @@ export function buildGlobalCommands(): PaletteCommand[] {
 			title: "View on GitHub",
 			description: "Open the source repository",
 			category: "External",
-			icon: Github,
+			icon: GithubBrand,
 			keywords: ["github", "source", "repo"],
 			action: () => openExternal(config.github),
 		},

@@ -21,7 +21,12 @@ import { platform } from "@tauri-apps/plugin-os";
 // can't break out of — clicks pass through to it instead of the main window
 // behind, so close/minimize/maximize on the main window stop working. Drop
 // the flag on Linux until we have a proper compositor-side fix.
-const IS_LINUX = platform() === "linux";
+// Lazy, not a top-level `const` — calling `platform()` at module-eval time
+// would make ipc.ts unsafe to *import* outside the Tauri webview (web build,
+// SSR analysis). Several stores (gdrive/consent/diagnostics) import this module
+// and guard actual calls behind `isTauriApp()`, so the module itself must be
+// import-safe; `platform()` only runs when a window helper actually needs it.
+const isLinux = () => platform() === "linux";
 
 //  Types matching Rust structs 
 
@@ -787,7 +792,7 @@ export function fetchExtensionRegistry<T = unknown>(indexUrl: string): Promise<T
       decorations: false,
       transparent: true,
 	  shadow: false,
-      alwaysOnTop: !IS_LINUX,
+      alwaysOnTop: !isLinux(),
       resizable: false,
       skipTaskbar: true,
       x: Math.round(window.screen.availWidth / 2 - panelWidth / 2),
@@ -813,7 +818,7 @@ export async function openCameraPreviewWindow() {
   if (existing) {
     // Re-apply the exclusion in case the window was reused after a crash
     // or stop/restart cycle that dropped the affinity.
-    invoke("exclude_window_from_capture", { label: "camera-preview" }).catch(
+    excludeWindowFromCapture("camera-preview").catch(
       (err) => console.warn("camera preview exclusion (existing) failed:", err),
     );
     await existing.setFocus();
@@ -834,7 +839,7 @@ export async function openCameraPreviewWindow() {
     decorations: false,
     transparent: true,
     shadow: false,
-    alwaysOnTop: !IS_LINUX,
+    alwaysOnTop: !isLinux(),
     resizable: true,
     skipTaskbar: true,
     x: Math.round(window.screen.availWidth - previewSize - 40),
@@ -844,9 +849,7 @@ export async function openCameraPreviewWindow() {
   previewWin.once("tauri://error", (e) => console.error(e));
   previewWin.once("tauri://created", async () => {
     try {
-      await invoke("exclude_window_from_capture", {
-        label: "camera-preview",
-      });
+      await excludeWindowFromCapture("camera-preview");
     } catch (err) {
       // Non-fatal: the preview will still appear, but its pixels will
       // leak into screen captures. Surface to the console so users
@@ -857,4 +860,67 @@ export async function openCameraPreviewWindow() {
       );
     }
   });
+}
+
+//  System tray, diagnostics & misc commands
+//
+// Primitive-typed one-offs that previously called `invoke()` raw from scattered
+// stores/components. Routed here so the whole IPC surface is typed in one place
+// (see the module header). Callers in web-safe stores still guard with
+// `isTauriApp()` before calling — these wrappers don't, they're thin.
+
+/** Exclude a window (by Tauri label) from screen capture (Windows
+ *  `SetWindowDisplayAffinity`). No-op on platforms without an equivalent. */
+export function excludeWindowFromCapture(label: string): Promise<void> {
+	return invoke<void>("exclude_window_from_capture", { label });
+}
+
+/** Refresh the system tray menu/icon. `isRecording` overrides the recording
+ *  state shown; `null`/omitted lets the backend resolve it. */
+export function refreshTray(isRecording?: boolean | null): Promise<void> {
+	return invoke<void>("refresh_tray", { isRecording: isRecording ?? null });
+}
+
+/** Whether closing the main window hides to tray instead of quitting. */
+export function getCloseToTray(): Promise<boolean> {
+	return invoke<boolean>("get_close_to_tray");
+}
+
+export function setCloseToTray(enabled: boolean): Promise<void> {
+	return invoke<void>("set_close_to_tray", { enabled });
+}
+
+/** Open the app's log directory in the OS file manager; returns the path. */
+export function openLogDir(): Promise<string> {
+	return invoke<string>("open_log_dir");
+}
+
+/** Consume a file path the OS asked us to open (file association / deep link),
+ *  if one is pending. Returns `null` when there's nothing queued. */
+export function takePendingOpenFile(): Promise<string | null> {
+	return invoke<string | null>("take_pending_open_file");
+}
+
+/** Whether a capture session is currently active (recording or paused). */
+export function isRecordingActive(): Promise<boolean> {
+	return invoke<boolean>("is_recording_active");
+}
+
+/** Persist the user's telemetry consent. `installId` seeds a fresh anonymous
+ *  id when product analytics is first enabled. */
+export function setTelemetryConsent(
+	product: boolean,
+	errors: boolean,
+	installId?: string,
+): Promise<void> {
+	return invoke<void>("set_telemetry_consent", { product, errors, installId });
+}
+
+/** Whether verbose diagnostic logging is enabled. */
+export function getDiagnosticLogging(): Promise<boolean> {
+	return invoke<boolean>("get_diagnostic_logging");
+}
+
+export function setDiagnosticLogging(enabled: boolean): Promise<void> {
+	return invoke<void>("set_diagnostic_logging", { enabled });
 }

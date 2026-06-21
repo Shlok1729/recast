@@ -7,9 +7,11 @@
   import GoogleDriveConnection from "$components/settings/GoogleDriveConnection.svelte";
   import { config } from "$constants/app";
   import {
+    getCloseToTray,
     getDisplays,
     getLastSource,
     getOutputDir,
+    setCloseToTray,
     setOutputDir,
   } from "$lib/ipc";
   import {
@@ -26,7 +28,6 @@
     ExternalLink,
     FlaskConical,
     FolderOpen,
-    Github,
     Globe,
     HardDrive,
     Info,
@@ -43,6 +44,7 @@
     Timer,
     Video,
   } from "@lucide/svelte";
+  import GithubBrand from "$components/icons/github-brand.svelte";
   import { Button } from "@recast/ui/button";
   import { toast } from "@recast/ui/sonner";
   import * as Tabs from "@recast/ui/tabs";
@@ -239,8 +241,7 @@
       toast.error(`Could not load settings: ${e}`);
     }
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      closeToTray = await invoke<boolean>("get_close_to_tray");
+      closeToTray = await getCloseToTray();
     } catch {
       // Pre-tray builds or non-Tauri preview — leave the default and let
       // the UI render the optimistic value.
@@ -251,8 +252,7 @@
     const next = !closeToTray;
     closeToTray = next;
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("set_close_to_tray", { enabled: next });
+      await setCloseToTray(next);
     } catch (e) {
       // Roll back on failure so the UI mirrors the actual persisted state.
       closeToTray = !next;
@@ -1221,7 +1221,7 @@
                       size="sm"
                       class="h-8 gap-1.5"
                     >
-                      <Github class="size-3.5" />
+                      <GithubBrand class="size-3.5" />
                       <span class="text-[11.5px]">GitHub</span>
                       <ArrowUpRight class="size-3 text-muted-foreground" />
                     </Button>

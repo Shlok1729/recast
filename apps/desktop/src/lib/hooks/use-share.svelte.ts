@@ -1,9 +1,7 @@
-import {
-  Facebook,
-  Linkedin,
-  Mail,
-  Twitter,
-} from '@lucide/svelte';
+import { Mail } from '@lucide/svelte';
+import FacebookBrand from '$components/icons/facebook-brand.svelte';
+import LinkedinBrand from '$components/icons/linkedin-brand.svelte';
+import XBrand from '$components/icons/x-brand.svelte';
 
 type ShareData = {
   title?: string;
@@ -14,11 +12,10 @@ type ShareData = {
 
 // Accept a getter function: () => ShareData
 export function useShare(getData: () => ShareData) {
-  let isNativeShareSupported = $state(false);
-
-  $effect(() => {
-    isNativeShareSupported = !!(navigator && navigator.share);
-  });
+  // Static capability check — `navigator.share` isn't reactive, so read it once
+  // at call time rather than mirroring it into `$state` via an `$effect`.
+  const isNativeShareSupported =
+    typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   const share = async () => {
 
@@ -46,17 +43,17 @@ export function useShare(getData: () => ShareData) {
       {
         name: "facebook",
         url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(data.url || '')}`,
-        icon: Facebook, 
+        icon: FacebookBrand,
       },
       {
         name: "twitter",
         url: `https://twitter.com/intent/tweet?url=${encodeURIComponent(data.url || '')}&text=${encodeURIComponent(data.title || '')}`,
-        icon: Twitter, 
+        icon: XBrand,
       },
       {
         name: "linkedin",
         url: `https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(data.url || '')}&title=${encodeURIComponent(data.title || '')}`,
-        icon: Linkedin,
+        icon: LinkedinBrand,
       },
       
       {
@@ -69,7 +66,7 @@ export function useShare(getData: () => ShareData) {
 
   return {
     share,
-    get isNativeShareSupported() { return isNativeShareSupported },
+    isNativeShareSupported,
     get socials() { return socials } // Return the reactive derived value
   };
 }

@@ -9,6 +9,7 @@
   import { ArrowRight, Sparkles } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import * as Dialog from "@recast/ui/dialog";
+  import { Markdown } from "@recast/ui/markdown";
 
   // Order changes so additions surface first, then changes, then fixes.
   const ORDER: ChangeKind[] = ["added", "changed", "fixed", "deprecated"];
@@ -77,7 +78,7 @@
               class="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-[12px] leading-relaxed text-foreground"
             >
               <Sparkles class="mt-0.5 size-3.5 shrink-0 text-primary" />
-              <span>{h}</span>
+              <span><Markdown inline source={h} /></span>
             </li>
           {/each}
         </ul>
@@ -105,7 +106,7 @@
                     class="mt-1.5 size-1 shrink-0 rounded-full bg-foreground/30"
                     aria-hidden="true"
                   ></span>
-                  <span>{it}</span>
+                  <span><Markdown inline source={it} /></span>
                 </li>
               {/each}
             </ul>

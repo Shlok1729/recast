@@ -731,10 +731,15 @@ export function createEditorStore() {
 	let audioPath = $state<string | null>(null);
 	let microphonePath = $state<string | null>(null);
 	let metadata = $state<VideoMetadata | null>(null);
-	let thumbnailStrip = $state<string[]>([]);
+	// Large, replace-only arrays use `$state.raw` — they're swapped wholesale by
+	// their async loaders and never mutated element-wise, so deep-proxying every
+	// element (thousands of entries) would be pure overhead. Only the array
+	// identity needs to be reactive. See AGENTS.md §4 (`$state.raw` for large
+	// immutable blobs).
+	let thumbnailStrip = $state.raw<string[]>([]);
 	// Audio peak envelope (0..1 per bucket) for the timeline waveform.
 	// Transient — recomputed on document load, never persisted.
-	let waveform = $state<number[]>([]);
+	let waveform = $state.raw<number[]>([]);
 
 	// Playback
 	let currentTime = $state(0);
@@ -796,7 +801,10 @@ export function createEditorStore() {
 	// Raw cursor samples, shared between the preview (which runs the actual
 	// compositor) and the Cursor panel (which needs them for the trajectory
 	// minimap). Set by VideoPreview on load; read-only elsewhere.
-	let cursorSamplesRaw = $state<CursorSampleLike[]>([]);
+	// Cursor track — up to tens of thousands of sample objects for a long
+	// recording. Replace-only (swapped wholesale on load), so `$state.raw` avoids
+	// deep-proxying every sample. The name was already "Raw"; now it actually is.
+	let cursorSamplesRaw = $state.raw<CursorSampleLike[]>([]);
 
 	// Annotations + active tool (for the preview canvas's place-mode).
 	let annotations = $state<Annotation[]>([]);
@@ -902,8 +910,12 @@ export function createEditorStore() {
 	let isExporting = $state(false);
 
 	// Undo/Redo stacks (simplified — stores snapshots of key settings)
-	let undoStack = $state<string[]>([]);
-	let redoStack = $state<string[]>([]);
+	// Undo/redo history — arrays of full serialized-project JSON strings, always
+	// reassigned with spreads (never index-mutated) and bounded to
+	// `MAX_UNDO_HISTORY`. `$state.raw` since only the array identity is read
+	// reactively; the string contents never need proxying.
+	let undoStack = $state.raw<string[]>([]);
+	let redoStack = $state.raw<string[]>([]);
 
 	// Dirty tracking — flips to true the moment the user makes any undoable edit,
 	// clears when the edits are persisted to the .recast archive (markSaved) or

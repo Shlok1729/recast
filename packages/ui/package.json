@@ -68,6 +68,10 @@
       "svelte": "./src/components/ui/label/index.ts",
       "default": "./src/components/ui/label/index.ts"
     },
+    "./markdown": {
+      "svelte": "./src/components/ui/markdown/index.ts",
+      "default": "./src/components/ui/markdown/index.ts"
+    },
     "./nav-progress": {
       "svelte": "./src/components/ui/nav-progress/index.ts",
       "default": "./src/components/ui/nav-progress/index.ts"
@@ -177,6 +181,8 @@
     "@tabler/icons-svelte": "^3.44.0",
     "bits-ui": "^2.18.1",
     "clsx": "^2.1.1",
+    "dompurify": "^3.2.4",
+    "marked": "^15.0.7",
     "mode-watcher": "^1.1.0",
     "svelte-sonner": "^1.1.1",
     "tailwind-merge": "^3.6.0",

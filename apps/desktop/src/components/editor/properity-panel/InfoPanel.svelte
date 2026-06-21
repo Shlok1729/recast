@@ -29,7 +29,7 @@
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import { toast } from "@recast/ui/sonner";
-  import { invoke } from "@tauri-apps/api/core";
+  import { openFileLocation } from "$lib/ipc";
   import { onDestroy, onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
@@ -189,7 +189,7 @@
   async function revealInFolder(path: string) {
     if (!path) return;
     try {
-      await invoke("open_file_location", { path });
+      await openFileLocation(path);
     } catch (err) {
       const msg = typeof err === "string" ? err : String(err);
       toast.error(`Could not open folder: ${msg}`);
