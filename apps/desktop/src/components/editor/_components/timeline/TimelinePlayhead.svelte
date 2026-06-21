@@ -7,8 +7,11 @@
 
   interface Props {
     currentTime: number;
+    /** Horizontal position in px, already mapped onto the output (post-cut)
+     *  axis by the parent. The label still shows `currentTime` (original time,
+     *  what the rest of the app uses); only the position is output-mapped. */
+    leftPx: number;
     fps: number;
-    pixelsPerSecond: number;
     isDragging: boolean;
     timeMode: TimeMode;
     /** When false (cut lane hidden), the playhead guide line is shortened
@@ -19,14 +22,14 @@
 
   let {
     currentTime,
+    leftPx,
     fps,
-    pixelsPerSecond,
     isDragging,
     timeMode,
     tall = true,
   }: Props = $props();
 
-  const playheadLeft = $derived(currentTime * pixelsPerSecond);
+  const playheadLeft = $derived(leftPx);
 </script>
 
 <div

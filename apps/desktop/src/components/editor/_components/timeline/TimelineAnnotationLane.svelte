@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Annotation, EditorStore } from "$lib/stores/editor-store.svelte";
+  import { originalToOutput } from "$lib/timeline/cuts";
   import type { TimeMode } from "./timeline-helpers";
   import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import AnnotationLayerCard from "./AnnotationLayerCard.svelte";
@@ -27,6 +28,11 @@
   }: Props = $props();
 
   let activeSnap = $state<SnapTarget | null>(null);
+  const snapX = $derived(
+    activeSnap
+      ? originalToOutput(store.effectiveCuts, activeSnap.time) * pixelsPerSecond
+      : 0,
+  );
 
   function targetsFor(excludeId: string): SnapTarget[] {
     return buildSnapTargets({
@@ -71,11 +77,11 @@
   {#if activeSnap}
     <div
       class="pointer-events-none absolute -top-25 z-40 h-50 w-px bg-warning/80"
-      style="left: {activeSnap.time * pixelsPerSecond + 6}px;"
+      style="left: {snapX + 6}px;"
     ></div>
     <div
       class="pointer-events-none absolute -top-25 z-40 -translate-x-1/2 rounded border border-warning/60 bg-warning px-1 py-0.5 font-mono text-[9px] text-warning-foreground shadow-craft-sm"
-      style="left: {activeSnap.time * pixelsPerSecond + 6}px;"
+      style="left: {snapX + 6}px;"
     >
       {snapLabel(activeSnap.kind)}
     </div>

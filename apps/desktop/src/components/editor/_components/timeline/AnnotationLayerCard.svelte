@@ -4,6 +4,7 @@
     Annotation,
     EditorStore,
   } from "$lib/stores/editor-store.svelte";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
   import { X } from "@lucide/svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -62,12 +63,17 @@
   let drag = $state<DragContext | null>(null);
 
   const isSelected = $derived(annotation.id === store.selectedAnnotationId);
-  const left = $derived(annotation.start * pixelsPerSecond);
+  // Output (post-cut) axis — see ZoomLayerCard for the rationale.
+  const xOf = (t: number) =>
+    originalToOutput(store.effectiveCuts, t) * pixelsPerSecond;
+  const tOf = (xPx: number) =>
+    outputToOriginal(store.effectiveCuts, xPx / pixelsPerSecond);
+  const left = $derived(xOf(annotation.start));
   // 28px lets a single icon stay grabbable even on a one-frame annotation.
   // Subtitle (start time) appears once the card is wide enough to fit it
   // alongside the kind label.
   const width = $derived(
-    Math.max((annotation.end - annotation.start) * pixelsPerSecond, 28),
+    Math.max(xOf(annotation.end) - xOf(annotation.start), 28),
   );
   const showSubtitle = $derived(width >= 110);
   const Icon = $derived(kindIcon(annotation));
@@ -95,13 +101,15 @@
 
   function onPointerMove(event: PointerEvent) {
     if (!drag) return;
-    const deltaTime = (event.clientX - drag.startClientX) / pixelsPerSecond;
+    // Output-space pointer delta mapped back to original time — see ZoomLayerCard.
+    const outDelta = (event.clientX - drag.startClientX) / pixelsPerSecond;
+    const movedFrom = (orig: number) => tOf(xOf(orig) + outDelta);
     const tolerance = SNAP_TOLERANCE_PX / pixelsPerSecond;
     let snapForGuide: SnapTarget | null = null;
 
     if (drag.mode === "move") {
       const span = drag.originalEnd - drag.originalStart;
-      const proposed = drag.originalStart + deltaTime;
+      const proposed = movedFrom(drag.originalStart);
       const startSnap = snapTime(proposed, snapTargets, tolerance, fps);
       const endSnap = snapTime(proposed + span, snapTargets, tolerance, fps);
       const startDist = startSnap.target
@@ -126,7 +134,7 @@
       const nextEnd = nextStart + span;
       store.updateAnnotation(annotation.id, { start: nextStart, end: nextEnd });
     } else if (drag.mode === "resize-start") {
-      const proposed = drag.originalStart + deltaTime;
+      const proposed = movedFrom(drag.originalStart);
       const snap = snapTime(proposed, snapTargets, tolerance, fps);
       snapForGuide = snap.target;
       const next = Math.max(
@@ -135,7 +143,7 @@
       );
       store.updateAnnotation(annotation.id, { start: next });
     } else {
-      const proposed = drag.originalEnd + deltaTime;
+      const proposed = movedFrom(drag.originalEnd);
       const snap = snapTime(proposed, snapTargets, tolerance, fps);
       snapForGuide = snap.target;
       const next = Math.min(

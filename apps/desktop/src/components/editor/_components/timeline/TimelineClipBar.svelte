@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
+  import { originalToOutput } from "$lib/timeline/cuts";
   import { Trash2 } from "@lucide/svelte";
   import { fade } from "svelte/transition";
   import {
@@ -22,6 +23,7 @@
     videoEl: HTMLVideoElement | null;
     fps: number;
     duration: number;
+    pixelsPerSecond: number;
     clipLeft: number;
     clipWidth: number;
     thumbnailWidth: number;
@@ -34,6 +36,7 @@
     videoEl,
     fps,
     duration,
+    pixelsPerSecond,
     clipLeft,
     clipWidth,
     thumbnailWidth,
@@ -42,44 +45,67 @@
   }: Props = $props();
 
   // The clip lane renders one block per kept segment (split by the user or
-  // carved out by cuts), so a split visibly produces two adjacent clips. All
-  // positions are absolute timeline coordinates, derived from the parent's
-  // clip box (clipLeft = inPoint·pps, clipWidth = clipDuration·pps), so blocks
-  // stay pixel-aligned with the playhead and other lanes. `stripOffset` shifts
-  // the shared thumbnail strip so each block shows its own slice.
+  // carved out by cuts), so a split visibly produces two adjacent clips. The
+  // horizontal axis is OUTPUT (post-cut) time: a cut occupies zero width and
+  // the clips after it slide left to close the gap, exactly like a real NLE.
+  // `xOf` maps an original time onto that gapless axis. With no cuts it's the
+  // identity, so this is the old layout untouched.
+  const pps = $derived(pixelsPerSecond);
+  const xOf = (t: number) => originalToOutput(store.effectiveCuts, t) * pps;
+  // Original clip span at output px — the thumbnail strip is laid out across
+  // this (each kept block is internally cut-free, i.e. locally linear, so a
+  // block shows its slice via a plain margin offset, same as before).
   const clipDuration = $derived(Math.max(0.0001, store.outPoint - store.inPoint));
-  const pps = $derived(clipWidth / clipDuration);
+  const stripFullWidth = $derived(clipDuration * pps);
+  const thumbW = $derived(
+    store.thumbnailStrip.length > 0
+      ? Math.max(2, stripFullWidth / store.thumbnailStrip.length)
+      : thumbnailWidth,
+  );
   const clipBlocks = $derived(
     store.segments.map((seg) => ({
       key: seg.start,
       start: seg.start,
       end: seg.end,
-      left: clipLeft + (seg.start - store.inPoint) * pps,
+      left: xOf(seg.start),
       // -2px leaves a thin seam between adjacent clips so a split reads as two.
-      width: Math.max(2, (seg.end - seg.start) * pps - 2),
+      width: Math.max(2, xOf(seg.end) - xOf(seg.start) - 2),
+      // Shift the original-scale strip so this block reveals [seg.start, seg.end].
       stripOffset: -(seg.start - store.inPoint) * pps,
     })),
   );
   const splitMarkers = $derived(
     store.splitPoints
       .filter((p) => p > store.inPoint && p < store.outPoint)
-      .map((p) => ({ time: p, x: clipLeft + (p - store.inPoint) * pps })),
+      .map((p) => ({ time: p, x: xOf(p) })),
   );
-  const removedBands = $derived(
-    store.effectiveCuts
-      .map((c) => {
-        const start = Math.max(c.start, store.inPoint);
-        const end = Math.min(c.end, store.outPoint);
-        return {
-          id: c.id,
-          source: c.source,
-          left: clipLeft + (start - store.inPoint) * pps,
-          width: Math.max(2, (end - start) * pps),
-          valid: end > start,
-        };
-      })
-      .filter((b) => b.valid),
-  );
+  // Seam markers: where a removed cut sits BETWEEN two kept segments, the gap
+  // is collapsed to a single seam. Hover to see how much was removed, click to
+  // restore it (the non-destructive replacement for the old in-place red band).
+  const seamMarkers = $derived.by(() => {
+    const segs = store.segments;
+    const out: { x: number; removed: number; gapStart: number; gapEnd: number }[] = [];
+    for (let i = 0; i < segs.length - 1; i++) {
+      const gap = segs[i + 1].start - segs[i].end;
+      if (gap > 1e-3) {
+        out.push({
+          x: xOf(segs[i].end),
+          removed: gap,
+          gapStart: segs[i].end,
+          gapEnd: segs[i + 1].start,
+        });
+      }
+    }
+    return out;
+  });
+  function restoreSeam(gapStart: number, gapEnd: number) {
+    // Restore every cut that lives inside the collapsed gap.
+    for (const c of store.effectiveCuts) {
+      if (c.start >= gapStart - 1e-3 && c.end <= gapEnd + 1e-3) {
+        store.removeCut(c.id);
+      }
+    }
+  }
   const inHandleLeft = $derived(clipLeft);
   const outHandleLeft = $derived(clipLeft + clipWidth);
 
@@ -219,7 +245,7 @@
       {#if store.thumbnailStrip.length > 0}
         <div
           class="flex h-full"
-          style="width: {clipWidth}px; margin-left: {block.stripOffset}px;"
+          style="width: {stripFullWidth}px; margin-left: {block.stripOffset}px;"
         >
           {#each store.thumbnailStrip as frame, index (frame + index)}
             <img
@@ -227,7 +253,7 @@
               src={frame}
               alt="Timeline frame"
               class="h-full shrink-0 object-cover"
-              style="width: {thumbnailWidth}px;"
+              style="width: {thumbW}px;"
               draggable="false"
             />
           {/each}
@@ -260,24 +286,31 @@
     </div>
   {/each}
 
-  <!-- Removed sections (ripple-deleted / cut ranges). Click to restore. -->
-  {#each removedBands as band (band.id)}
-    {@const isSilence = band.source === "silence"}
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <!-- Deleted clips (manual) read as a SOLID block; auto-detected silence as a
-         diagonal hatch — so the two kinds of removal are visually distinct. -->
+  <!-- Seam markers: a removed section collapses to a single seam between the two
+       kept clips. The content disappears and the timeline closes up (NLE ripple);
+       the seam stays as a restorable handle — hover shows how much was removed,
+       click restores it. -->
+  {#each seamMarkers as seam (seam.gapStart)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <button
       type="button"
       onpointerdown={(e) => e.stopPropagation()}
-      onclick={() => store.removeCut(band.id)}
-      title={isSilence
-        ? "Silence (auto-detected) — click to restore"
-        : "Deleted clip — click to restore"}
-      class="absolute inset-y-0 z-5 rounded-sm border border-destructive/60 bg-destructive/25"
-      style="left: {band.left}px; width: {band.width}px;{isSilence
-        ? ' background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, color-mix(in srgb, var(--destructive) 28%, transparent) 5px, color-mix(in srgb, var(--destructive) 28%, transparent) 10px);'
-        : ''}"
-    ></button>
+      onclick={() => restoreSeam(seam.gapStart, seam.gapEnd)}
+      title="Removed {seam.removed.toFixed(2)}s — click to restore"
+      class="group/seam absolute inset-y-0 z-6 w-3 -translate-x-1/2 cursor-pointer"
+      style="left: {seam.x}px;"
+    >
+      <!-- Notched destructive seam: two small triangles meeting at a hairline,
+           reading as "content was pinched out here". -->
+      <div
+        class="mx-auto h-full w-0.5 bg-destructive/70 transition-all group-hover/seam:w-1 group-hover/seam:bg-destructive"
+      ></div>
+      <span
+        class="pointer-events-none absolute bottom-full left-1/2 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded border border-border bg-popover px-1.5 py-0.5 font-mono text-[9px] text-foreground shadow-sm group-hover/seam:block"
+      >
+        −{seam.removed.toFixed(2)}s · restore
+      </span>
+    </button>
   {/each}
 
   <!-- Split seams between adjacent clips. Double-click to rejoin. -->

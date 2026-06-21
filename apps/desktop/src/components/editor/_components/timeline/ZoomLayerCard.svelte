@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EditorStore, ZoomRegion } from "$lib/stores/editor-store.svelte";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
   import { X } from "@lucide/svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -83,12 +84,17 @@
   let drag = $state<DragContext | null>(null);
 
   const isSelected = $derived(region.id === store.selectedZoomRegionId);
-  const left = $derived(region.start * pixelsPerSecond);
+  // Output (post-cut) axis: position via originalToOutput so a region sits on
+  // the same gapless line as the clips. A region overlapping a cut renders
+  // narrower (the cut portion collapses) — correct NLE behaviour.
+  const xOf = (t: number) =>
+    originalToOutput(store.effectiveCuts, t) * pixelsPerSecond;
+  const tOf = (xPx: number) =>
+    outputToOriginal(store.effectiveCuts, xPx / pixelsPerSecond);
+  const left = $derived(xOf(region.start));
   // Hard floor of 32px keeps even sub-frame regions clickable. Below 80px
   // the card collapses to icon+label only; below 56px to icon only.
-  const width = $derived(
-    Math.max((region.end - region.start) * pixelsPerSecond, 32),
-  );
+  const width = $derived(Math.max(xOf(region.end) - xOf(region.start), 32));
   const showThumb = $derived(width >= 110);
   const showSubtitle = $derived(width >= 130);
 
@@ -115,13 +121,18 @@
 
   function onPointerMove(event: PointerEvent) {
     if (!drag) return;
-    const deltaTime = (event.clientX - drag.startClientX) / pixelsPerSecond;
+    // The pointer moves in OUTPUT pixels; convert that to an output-time delta,
+    // then map an original anchor through output space and back so dragging
+    // tracks the cursor on the collapsed axis. With no cuts this reduces to the
+    // old `anchor + deltaPx/pps`.
+    const outDelta = (event.clientX - drag.startClientX) / pixelsPerSecond;
+    const movedFrom = (orig: number) => tOf(xOf(orig) + outDelta);
     const tolerance = SNAP_TOLERANCE_PX / pixelsPerSecond;
     let snapForGuide: SnapTarget | null = null;
 
     if (drag.mode === "move") {
       const span = drag.originalEnd - drag.originalStart;
-      const proposed = drag.originalStart + deltaTime;
+      const proposed = movedFrom(drag.originalStart);
 
       // Snap whichever edge is closer to a target — this lets the user
       // butt the card up against the playhead from either side without
@@ -151,7 +162,7 @@
       const nextEnd = nextStart + span;
       store.updateZoomRegion(region.id, { start: nextStart, end: nextEnd });
     } else if (drag.mode === "resize-start") {
-      const proposed = drag.originalStart + deltaTime;
+      const proposed = movedFrom(drag.originalStart);
       const snap = snapTime(proposed, snapTargets, tolerance, fps);
       snapForGuide = snap.target;
       const next = Math.max(
@@ -160,7 +171,7 @@
       );
       store.updateZoomRegion(region.id, { start: next });
     } else {
-      const proposed = drag.originalEnd + deltaTime;
+      const proposed = movedFrom(drag.originalEnd);
       const snap = snapTime(proposed, snapTargets, tolerance, fps);
       snapForGuide = snap.target;
       const next = Math.min(

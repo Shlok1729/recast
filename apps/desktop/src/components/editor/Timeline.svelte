@@ -21,6 +21,7 @@
     quantizeToFrame as quantizeToFrameOf,
     type TimeMode,
   } from "./_components/timeline/timeline-helpers";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
 
   // Orchestrator. Owns the scroll container, sizing, transport state
   // (JKL/playback speed), keyboard routing, and the click-to-seek scrubber.
@@ -143,12 +144,13 @@
     const nextZoom = Math.max(0.5, Math.min(5, target));
     store.timelineZoom = nextZoom;
     requestAnimationFrame(() => {
-      if (!timelineEl || duration <= 0) return;
-      const nextPps = (timelineEl.clientWidth * nextZoom) / duration;
+      if (!timelineEl || outputDuration <= 0) return;
+      const nextPps = (timelineEl.clientWidth * nextZoom) / outputDuration;
+      // Center on the region's midpoint in OUTPUT pixels.
       const center = (region.start + region.end) * 0.5;
       timelineEl.scrollLeft = Math.max(
         0,
-        center * nextPps - timelineEl.clientWidth * 0.5,
+        originalToOutput(cuts, center) * nextPps - timelineEl.clientWidth * 0.5,
       );
     });
   }
@@ -158,7 +160,9 @@
     const rect = timelineEl.getBoundingClientRect();
     const scrollLeft = timelineEl.scrollLeft;
     const x = clientX - rect.left + scrollLeft;
-    return Math.max(0, Math.min(duration, x / pixelsPerSecond));
+    // x is in OUTPUT pixels → output seconds → back to original time (so the
+    // scrubber lands on kept content and skips over collapsed cuts).
+    return Math.max(0, Math.min(duration, tOf(x)));
   }
 
   // Shared trim-nudge for the global Alt+[ / Alt+] shortcuts. The trim
@@ -185,14 +189,28 @@
   }
 
   const duration = $derived(store.metadata?.duration ?? 0);
+  // Cuts collapse the timeline: the horizontal axis is OUTPUT (post-cut) time,
+  // not original-recording time. `originalToOutput` maps an original time onto
+  // the gapless output line (a time inside a cut lands on the cut's start), so
+  // removed ranges occupy zero width and everything after them slides left —
+  // exactly like a real NLE. With no cuts the mapping is the identity, so this
+  // is byte-for-byte the old original-time layout. Trim is preserved (it's not
+  // a cut), so the head/tail still show with their handles.
+  const cuts = $derived(store.effectiveCuts);
+  // Output length of the whole recording = original duration minus all cuts.
+  const outputDuration = $derived(originalToOutput(cuts, duration));
   const pixelsPerSecond = $derived(
-    duration > 0 ? (timelineWidth * store.timelineZoom) / duration : 100,
+    outputDuration > 0 ? (timelineWidth * store.timelineZoom) / outputDuration : 100,
   );
   const totalWidth = $derived(
-    Math.max(duration * pixelsPerSecond, timelineWidth),
+    Math.max(outputDuration * pixelsPerSecond, timelineWidth),
   );
-  const clipLeft = $derived(store.inPoint * pixelsPerSecond);
-  const clipRight = $derived(store.outPoint * pixelsPerSecond);
+  // Canonical axis transforms. Every lane positions content with `xOf` and
+  // resolves a pointer back with `tOf`; keep them as the single source of truth.
+  const xOf = (t: number) => originalToOutput(cuts, t) * pixelsPerSecond;
+  const tOf = (x: number) => outputToOriginal(cuts, x / pixelsPerSecond);
+  const clipLeft = $derived(xOf(store.inPoint));
+  const clipRight = $derived(xOf(store.outPoint));
   const clipWidth = $derived(Math.max(clipRight - clipLeft, 0));
   const thumbnailWidth = $derived(
     store.thumbnailStrip.length > 0
@@ -221,7 +239,11 @@
     const rect = timelineEl.getBoundingClientRect();
     const scrollLeft = timelineEl.scrollLeft;
     const x = clientX - rect.left + scrollLeft;
-    const time = Math.max(0, Math.min(duration, x / pixelsPerSecond));
+    // x is in OUTPUT pixels — map back through the cut model to original time,
+    // exactly like `clientXToTime`. (Using the raw `x / pps` here treated an
+    // output position as original time, so the playhead trailed the cursor more
+    // and more past each cut.)
+    const time = Math.max(0, Math.min(duration, tOf(x)));
     store.currentTime = time;
     if (videoEl) videoEl.currentTime = time;
   }
@@ -408,19 +430,21 @@
       event.preventDefault();
       const rect = timelineEl.getBoundingClientRect();
       const anchorX = event.clientX - rect.left;
-      const anchorTime =
+      // Anchor in OUTPUT seconds (output px / output pps) so the point under the
+      // cursor stays put across the zoom — restored with the output pps below.
+      const anchorOut =
         duration > 0 ? (timelineEl.scrollLeft + anchorX) / pixelsPerSecond : 0;
       const delta = event.deltaY < 0 ? 0.2 : -0.2;
       const nextZoom = Math.max(0.5, Math.min(5, store.timelineZoom + delta));
       if (nextZoom === store.timelineZoom) return;
       store.timelineZoom = nextZoom;
       requestAnimationFrame(() => {
-        if (!timelineEl || duration <= 0) return;
+        if (!timelineEl || outputDuration <= 0) return;
         const nextPixelsPerSecond =
-          (timelineEl.clientWidth * nextZoom) / duration;
+          (timelineEl.clientWidth * nextZoom) / outputDuration;
         timelineEl.scrollLeft = Math.max(
           0,
-          anchorTime * nextPixelsPerSecond - anchorX,
+          anchorOut * nextPixelsPerSecond - anchorX,
         );
       });
       return;
@@ -692,7 +716,7 @@
         class="relative min-w-full"
         style="width: {totalWidth}px; height: {experimentalStore.silenceDetection ? 250 : 204}px;"
       >
-        <TimelineRuler {duration} {pixelsPerSecond} />
+        <TimelineRuler duration={outputDuration} {pixelsPerSecond} />
 
       <div class="relative px-2 pb-2 pt-1.5">
         <TimelineClipBar
@@ -700,6 +724,7 @@
           {videoEl}
           fps={effectiveFps()}
           {duration}
+          {pixelsPerSecond}
           {clipLeft}
           {clipWidth}
           {thumbnailWidth}
@@ -733,8 +758,8 @@
 
       <TimelinePlayhead
         currentTime={store.currentTime}
+        leftPx={xOf(store.currentTime)}
         fps={effectiveFps()}
-        {pixelsPerSecond}
         isDragging={isDraggingPlayhead}
         {timeMode}
         tall={experimentalStore.silenceDetection}
