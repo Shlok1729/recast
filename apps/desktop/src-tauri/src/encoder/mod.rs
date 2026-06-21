@@ -2,8 +2,13 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{ChildStderr, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
+
+// `parking_lot::Mutex` can't poison, so the stderr-tail sink keeps being
+// retained even if a holder ever panics (a poisoned `std` Mutex would silently
+// drop the diagnostic tail exactly when something is going wrong).
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
@@ -33,23 +38,22 @@ fn pump_stderr_tail(stderr: ChildStderr, sink: Arc<Mutex<String>>) {
         match reader.read(&mut chunk) {
             Ok(0) => break, // EOF — FFmpeg closed stderr (i.e. exited).
             Ok(n) => {
-                if let Ok(mut tail) = sink.lock() {
-                    tail.push_str(&String::from_utf8_lossy(&chunk[..n]));
-                    if tail.len() > STDERR_TAIL_LIMIT {
-                        let mut cut = tail.len() - STDERR_TAIL_LIMIT;
-                        // Prefer a newline boundary so the tail starts on a
-                        // clean line; fall back to the raw offset.
-                        if let Some(nl) = tail[cut..].find('\n') {
-                            cut += nl + 1;
-                        }
-                        // `drain` panics on a non-char boundary (lossy decoding
-                        // can leave multi-byte chars straddling chunks), so back
-                        // off to the nearest boundary first.
-                        while cut < tail.len() && !tail.is_char_boundary(cut) {
-                            cut += 1;
-                        }
-                        tail.drain(..cut);
+                let mut tail = sink.lock();
+                tail.push_str(&String::from_utf8_lossy(&chunk[..n]));
+                if tail.len() > STDERR_TAIL_LIMIT {
+                    let mut cut = tail.len() - STDERR_TAIL_LIMIT;
+                    // Prefer a newline boundary so the tail starts on a
+                    // clean line; fall back to the raw offset.
+                    if let Some(nl) = tail[cut..].find('\n') {
+                        cut += nl + 1;
                     }
+                    // `drain` panics on a non-char boundary (lossy decoding
+                    // can leave multi-byte chars straddling chunks), so back
+                    // off to the nearest boundary first.
+                    while cut < tail.len() && !tail.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    tail.drain(..cut);
                 }
             }
             Err(_) => break,
@@ -67,9 +71,7 @@ fn collect_stderr_tail(
     if let Some(handle) = pump.take() {
         let _ = handle.join();
     }
-    sink.lock()
-        .map(|t| t.trim().to_string())
-        .unwrap_or_default()
+    sink.lock().trim().to_string()
 }
 
 /// Capture-time quality tier for the live recorder.
@@ -109,6 +111,40 @@ impl RecordingQuality {
             _ => Self::Balanced,
         }
     }
+
+    /// Resolve the frontend's tier *including* the `"auto"` sentinel (the new
+    /// default). Explicit tiers (`balanced`/`high`/`pristine`) are honored as
+    /// chosen via [`Self::from_label`]. `"auto"` (or a missing value) picks the
+    /// best tier the detected `encoder` can sustain in real time: hardware
+    /// encoders (NVENC/AMF/QSV/VideoToolbox) have ample headroom at 60fps, so
+    /// they default to `High` (near-visually-lossless ~cq 21). The capture
+    /// master is what every export re-encodes from, so a sharp master raises
+    /// the quality ceiling for the whole pipeline — there's no reason a GPU
+    /// machine records at the low-latency `Balanced` tier. Pure software
+    /// (`libx264`) stays `Balanced` so a weak CPU with no GPU doesn't drop
+    /// frames during capture.
+    pub fn resolve(label: Option<&str>, encoder: &str) -> Self {
+        match label {
+            Some("auto") | None => {
+                if is_hardware_encoder(encoder) {
+                    Self::High
+                } else {
+                    Self::Balanced
+                }
+            }
+            other => Self::from_label(other),
+        }
+    }
+}
+
+/// Whether the FFmpeg encoder name is a GPU/hardware encoder (vs the `libx264`
+/// software fallback). Hardware encoders can sustain a higher quality tier
+/// during live capture without dropping frames, so `"auto"` defaults them up.
+fn is_hardware_encoder(encoder: &str) -> bool {
+    matches!(
+        encoder,
+        "h264_nvenc" | "h264_amf" | "h264_qsv" | "h264_videotoolbox"
+    )
 }
 
 /// Build the codec + rate-control args (from `-c:v` onward) for a live
@@ -495,6 +531,46 @@ mod tests {
         assert_eq!(
             RecordingQuality::from_label(None),
             RecordingQuality::Balanced
+        );
+    }
+
+    #[test]
+    fn resolve_auto_picks_high_on_hardware_and_balanced_on_software() {
+        // Every hardware encoder has real-time headroom → default `auto`/unset
+        // up to High (sharp master), regardless of how the label arrives.
+        for enc in ["h264_nvenc", "h264_amf", "h264_qsv", "h264_videotoolbox"] {
+            assert_eq!(
+                RecordingQuality::resolve(Some("auto"), enc),
+                RecordingQuality::High,
+                "auto on {enc}"
+            );
+            assert_eq!(
+                RecordingQuality::resolve(None, enc),
+                RecordingQuality::High,
+                "unset on {enc}"
+            );
+        }
+        // Pure software fallback stays Balanced so weak CPUs don't drop frames.
+        assert_eq!(
+            RecordingQuality::resolve(Some("auto"), "libx264"),
+            RecordingQuality::Balanced
+        );
+        assert_eq!(
+            RecordingQuality::resolve(None, "libx264"),
+            RecordingQuality::Balanced
+        );
+        // An explicit tier is always honored, even on hardware that could do more.
+        assert_eq!(
+            RecordingQuality::resolve(Some("balanced"), "h264_nvenc"),
+            RecordingQuality::Balanced
+        );
+        assert_eq!(
+            RecordingQuality::resolve(Some("high"), "libx264"),
+            RecordingQuality::High
+        );
+        assert_eq!(
+            RecordingQuality::resolve(Some("pristine"), "libx264"),
+            RecordingQuality::Pristine
         );
     }
 

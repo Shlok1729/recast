@@ -1,6 +1,10 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import type { TimelineCut } from "$lib/timeline/cuts";
+  import {
+    originalToOutput,
+    outputToOriginal,
+    type TimelineCut,
+  } from "$lib/timeline/cuts";
   import { X } from "@lucide/svelte";
 
   // Lane that hosts cut bands — the ranges removed from the timeline.
@@ -22,6 +26,14 @@
 
   let laneEl = $state<HTMLDivElement | null>(null);
 
+  // Output (post-cut) axis, shared with every other lane. An APPLIED cut
+  // collapses to zero width here (its start and end map to the same output x),
+  // so we render it as a seam; an unapplied cut (flag/lane off → not in
+  // effectiveCuts, identity mapping) keeps its width and stays an editable band.
+  const cuts = $derived(store.effectiveCuts);
+  const xOf = (t: number) => originalToOutput(cuts, t) * pixelsPerSecond;
+  const axisWidth = $derived(xOf(duration));
+
   type DragMode = "create" | "move" | "resize-l" | "resize-r";
   interface DragState {
     mode: DragMode;
@@ -37,7 +49,8 @@
   function timeAt(clientX: number): number {
     if (!laneEl) return 0;
     const x = clientX - laneEl.getBoundingClientRect().left;
-    return Math.min(duration, Math.max(0, x / pixelsPerSecond));
+    // Pointer is in OUTPUT pixels → output seconds → original time.
+    return Math.min(duration, Math.max(0, outputToOriginal(cuts, x / pixelsPerSecond)));
   }
 
   function onLaneDown(e: PointerEvent) {
@@ -135,18 +148,20 @@
   }
 
   // Filled peak envelope, drawn behind the cut bands so the user can see the
-  // audio they're cutting against. `viewBox` units are bucket-indexed and the
-  // SVG is stretched to the timeline width, so it never needs a redraw on
-  // zoom — only when the waveform data itself changes.
+  // audio they're cutting against. Built in PIXEL space on the output axis: each
+  // bucket sits at `xOf(bucketTime)`, so buckets inside an applied cut collapse
+  // onto the seam and the envelope closes up exactly like the clips above it.
   const waveformPath = $derived.by(() => {
     const w = store.waveform;
-    if (w.length < 2) return "";
-    let d = "M 0 50";
-    for (let i = 0; i < w.length; i++) {
-      d += ` L ${i} ${(50 - w[i] * 46).toFixed(2)}`;
+    const n = w.length;
+    if (n < 2 || duration <= 0) return "";
+    const xAt = (i: number) => xOf((i / n) * duration);
+    let d = `M ${xAt(0).toFixed(2)} 50`;
+    for (let i = 0; i < n; i++) {
+      d += ` L ${xAt(i).toFixed(2)} ${(50 - w[i] * 46).toFixed(2)}`;
     }
-    for (let i = w.length - 1; i >= 0; i--) {
-      d += ` L ${i} ${(50 + w[i] * 46).toFixed(2)}`;
+    for (let i = n - 1; i >= 0; i--) {
+      d += ` L ${xAt(i).toFixed(2)} ${(50 + w[i] * 46).toFixed(2)}`;
     }
     return d + " Z";
   });
@@ -165,8 +180,8 @@
   {#if waveformPath}
     <svg
       class="pointer-events-none absolute left-0 top-1.5 bottom-1.5"
-      style="width: {duration * pixelsPerSecond}px;"
-      viewBox="0 0 {store.waveform.length} 100"
+      style="width: {axisWidth}px;"
+      viewBox="0 0 {axisWidth} 100"
       preserveAspectRatio="none"
       aria-hidden="true"
     >
@@ -183,44 +198,71 @@
   {/if}
 
   {#each store.cuts as cut (cut.id)}
-    {@const w = Math.max(8, (cut.end - cut.start) * pixelsPerSecond)}
-    <div
-      role="presentation"
-      onpointerdown={(e) => onBandDown(e, cut, "move")}
-      title="Removed section · {(cut.end - cut.start).toFixed(2)}s"
-      class="group/cut absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-sm border border-destructive/50 bg-destructive/20 active:cursor-grabbing"
-      style="left: {cut.start * pixelsPerSecond}px; width: {w}px; background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, color-mix(in srgb, var(--destructive) 22%, transparent) 5px, color-mix(in srgb, var(--destructive) 22%, transparent) 10px);"
-    >
-      <!-- Edge resize handles -->
-      <div
-        role="presentation"
-        onpointerdown={(e) => onBandDown(e, cut, "resize-l")}
-        class="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-destructive/60 opacity-0 transition-opacity group-hover/cut:opacity-100"
-      ></div>
-      <div
-        role="presentation"
-        onpointerdown={(e) => onBandDown(e, cut, "resize-r")}
-        class="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-destructive/60 opacity-0 transition-opacity group-hover/cut:opacity-100"
-      ></div>
-
-      {#if w > 44}
-        <span
-          class="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[8px] font-bold text-destructive"
-        >
-          −{(cut.end - cut.start).toFixed(1)}s
-        </span>
-      {/if}
-
+    {@const cutLeft = xOf(cut.start)}
+    {@const cutW = xOf(cut.end) - cutLeft}
+    {#if cutW < 2}
+      <!-- APPLIED cut: the section is collapsed out of the timeline, so it shows
+           as a seam. Hover to see the removed length; click to restore. (Move /
+           resize need width to grab, so they only apply to the unapplied band
+           below — restore, then re-cut, to adjust an applied section.) -->
       <button
         type="button"
         onpointerdown={(e) => e.stopPropagation()}
         onclick={(e) => remove(e, cut.id)}
+        title="Removed {(cut.end - cut.start).toFixed(2)}s — click to restore"
         aria-label="Restore this section"
-        title="Restore this section"
-        class="absolute right-0.5 top-0.5 flex size-3.5 items-center justify-center rounded bg-destructive text-destructive-foreground opacity-0 transition-opacity hover:scale-110 group-hover/cut:opacity-100"
+        class="group/seam absolute top-1.5 bottom-1.5 z-6 w-3 -translate-x-1/2 cursor-pointer"
+        style="left: {cutLeft}px;"
       >
-        <X class="size-2.5" />
+        <div
+          class="mx-auto h-full w-0.5 bg-destructive/70 transition-all group-hover/seam:w-1 group-hover/seam:bg-destructive"
+        ></div>
+        <span
+          class="pointer-events-none absolute bottom-full left-1/2 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded border border-border bg-popover px-1.5 py-0.5 font-mono text-[9px] text-foreground shadow-sm group-hover/seam:block"
+        >
+          −{(cut.end - cut.start).toFixed(2)}s · restore
+        </span>
       </button>
-    </div>
+    {:else}
+      {@const w = Math.max(8, cutW)}
+      <div
+        role="presentation"
+        onpointerdown={(e) => onBandDown(e, cut, "move")}
+        title="Removed section · {(cut.end - cut.start).toFixed(2)}s"
+        class="group/cut absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-sm border border-destructive/50 bg-destructive/20 active:cursor-grabbing"
+        style="left: {cutLeft}px; width: {w}px; background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, color-mix(in srgb, var(--destructive) 22%, transparent) 5px, color-mix(in srgb, var(--destructive) 22%, transparent) 10px);"
+      >
+        <!-- Edge resize handles -->
+        <div
+          role="presentation"
+          onpointerdown={(e) => onBandDown(e, cut, "resize-l")}
+          class="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-destructive/60 opacity-0 transition-opacity group-hover/cut:opacity-100"
+        ></div>
+        <div
+          role="presentation"
+          onpointerdown={(e) => onBandDown(e, cut, "resize-r")}
+          class="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-destructive/60 opacity-0 transition-opacity group-hover/cut:opacity-100"
+        ></div>
+
+        {#if w > 44}
+          <span
+            class="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[8px] font-bold text-destructive"
+          >
+            −{(cut.end - cut.start).toFixed(1)}s
+          </span>
+        {/if}
+
+        <button
+          type="button"
+          onpointerdown={(e) => e.stopPropagation()}
+          onclick={(e) => remove(e, cut.id)}
+          aria-label="Restore this section"
+          title="Restore this section"
+          class="absolute right-0.5 top-0.5 flex size-3.5 items-center justify-center rounded bg-destructive text-destructive-foreground opacity-0 transition-opacity hover:scale-110 group-hover/cut:opacity-100"
+        >
+          <X class="size-2.5" />
+        </button>
+      </div>
+    {/if}
   {/each}
 </div>

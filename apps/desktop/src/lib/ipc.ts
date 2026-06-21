@@ -21,7 +21,12 @@ import { platform } from "@tauri-apps/plugin-os";
 // can't break out of — clicks pass through to it instead of the main window
 // behind, so close/minimize/maximize on the main window stop working. Drop
 // the flag on Linux until we have a proper compositor-side fix.
-const IS_LINUX = platform() === "linux";
+// Lazy, not a top-level `const` — calling `platform()` at module-eval time
+// would make ipc.ts unsafe to *import* outside the Tauri webview (web build,
+// SSR analysis). Several stores (gdrive/consent/diagnostics) import this module
+// and guard actual calls behind `isTauriApp()`, so the module itself must be
+// import-safe; `platform()` only runs when a window helper actually needs it.
+const isLinux = () => platform() === "linux";
 
 //  Types matching Rust structs 
 
@@ -221,8 +226,9 @@ export interface RecordingOptions {
 	cameraDeviceId?: string | null;
 	/** Capture frame rate. Omitted/out-of-range (24–240) → backend default 60. */
 	fps?: number | null;
-	/** Capture quality tier: "balanced" (default), "high", or "pristine". */
-	quality?: "balanced" | "high" | "pristine" | null;
+	/** Capture quality tier: "auto" (default — backend picks high on a hardware
+	 *  encoder, balanced on software), or explicit "balanced"/"high"/"pristine". */
+	quality?: "auto" | "balanced" | "high" | "pristine" | null;
 }
 
 export interface AudioDeviceInfo {
@@ -279,7 +285,7 @@ export function startRecording(
 	analytics.capture("recording_started", {
 		source_kind: targetType,
 		fps: options?.fps ?? "default",
-		quality: options?.quality ?? "balanced",
+		quality: options?.quality ?? "auto",
 	});
 	return invoke<RecordingStartResult>("start_recording", {
 		targetType,
@@ -404,9 +410,28 @@ export function recastCloudDelete(recastId: string, path?: string): Promise<void
 	return invoke<void>("recast_cloud_delete", { recastId, path });
 }
 
-/** List the shares for a recast (owner-only). Shape mirrors the web API. */
-export function recastCloudListShares(recastId: string): Promise<unknown> {
-	return invoke<unknown>("recast_cloud_list_shares", { recastId });
+/** A single share link for a recast, as returned by `recast_cloud_list_shares`.
+ *  The Rust command passes the server's JSON through verbatim (`serde_json::Value`),
+ *  so this types the subset the manage UI actually consumes rather than the full
+ *  server payload. `visibility` stays a `string` (not a union) because the server
+ *  is the source of truth — the UI normalizes it with its own `toVisibility`. */
+export interface CloudShareLink {
+	slug: string;
+	visibility: string;
+	hasPassword: boolean;
+	expiresAt: string | null;
+	viewsCount: number;
+}
+
+/** Response of `recast_cloud_list_shares`. `shares` is absent on a recast that
+ *  has no links yet. */
+export interface CloudShareList {
+	shares?: CloudShareLink[];
+}
+
+/** List the shares for a recast (owner-only). */
+export function recastCloudListShares(recastId: string): Promise<CloudShareList> {
+	return invoke<CloudShareList>("recast_cloud_list_shares", { recastId });
 }
 
 /** All locally-recorded cloud uploads, keyed by local export path. */
@@ -786,7 +811,7 @@ export function fetchExtensionRegistry<T = unknown>(indexUrl: string): Promise<T
       decorations: false,
       transparent: true,
 	  shadow: false,
-      alwaysOnTop: !IS_LINUX,
+      alwaysOnTop: !isLinux(),
       resizable: false,
       skipTaskbar: true,
       x: Math.round(window.screen.availWidth / 2 - panelWidth / 2),
@@ -812,7 +837,7 @@ export async function openCameraPreviewWindow() {
   if (existing) {
     // Re-apply the exclusion in case the window was reused after a crash
     // or stop/restart cycle that dropped the affinity.
-    invoke("exclude_window_from_capture", { label: "camera-preview" }).catch(
+    excludeWindowFromCapture("camera-preview").catch(
       (err) => console.warn("camera preview exclusion (existing) failed:", err),
     );
     await existing.setFocus();
@@ -833,7 +858,7 @@ export async function openCameraPreviewWindow() {
     decorations: false,
     transparent: true,
     shadow: false,
-    alwaysOnTop: !IS_LINUX,
+    alwaysOnTop: !isLinux(),
     resizable: true,
     skipTaskbar: true,
     x: Math.round(window.screen.availWidth - previewSize - 40),
@@ -843,9 +868,7 @@ export async function openCameraPreviewWindow() {
   previewWin.once("tauri://error", (e) => console.error(e));
   previewWin.once("tauri://created", async () => {
     try {
-      await invoke("exclude_window_from_capture", {
-        label: "camera-preview",
-      });
+      await excludeWindowFromCapture("camera-preview");
     } catch (err) {
       // Non-fatal: the preview will still appear, but its pixels will
       // leak into screen captures. Surface to the console so users
@@ -856,4 +879,222 @@ export async function openCameraPreviewWindow() {
       );
     }
   });
+}
+
+//  System tray, diagnostics & misc commands
+//
+// Primitive-typed one-offs that previously called `invoke()` raw from scattered
+// stores/components. Routed here so the whole IPC surface is typed in one place
+// (see the module header). Callers in web-safe stores still guard with
+// `isTauriApp()` before calling — these wrappers don't, they're thin.
+
+/** Exclude a window (by Tauri label) from screen capture (Windows
+ *  `SetWindowDisplayAffinity`). No-op on platforms without an equivalent. */
+export function excludeWindowFromCapture(label: string): Promise<void> {
+	return invoke<void>("exclude_window_from_capture", { label });
+}
+
+/** Refresh the system tray menu/icon. `isRecording` overrides the recording
+ *  state shown; `null`/omitted lets the backend resolve it. */
+export function refreshTray(isRecording?: boolean | null): Promise<void> {
+	return invoke<void>("refresh_tray", { isRecording: isRecording ?? null });
+}
+
+/** Whether closing the main window hides to tray instead of quitting. */
+export function getCloseToTray(): Promise<boolean> {
+	return invoke<boolean>("get_close_to_tray");
+}
+
+export function setCloseToTray(enabled: boolean): Promise<void> {
+	return invoke<void>("set_close_to_tray", { enabled });
+}
+
+/** Open the app's log directory in the OS file manager; returns the path. */
+export function openLogDir(): Promise<string> {
+	return invoke<string>("open_log_dir");
+}
+
+/** Consume a file path the OS asked us to open (file association / deep link),
+ *  if one is pending. Returns `null` when there's nothing queued. */
+export function takePendingOpenFile(): Promise<string | null> {
+	return invoke<string | null>("take_pending_open_file");
+}
+
+/** Whether a capture session is currently active (recording or paused). */
+export function isRecordingActive(): Promise<boolean> {
+	return invoke<boolean>("is_recording_active");
+}
+
+/** Persist the user's telemetry consent. `installId` seeds a fresh anonymous
+ *  id when product analytics is first enabled. */
+export function setTelemetryConsent(
+	product: boolean,
+	errors: boolean,
+	installId?: string,
+): Promise<void> {
+	return invoke<void>("set_telemetry_consent", { product, errors, installId });
+}
+
+/** Whether verbose diagnostic logging is enabled. */
+export function getDiagnosticLogging(): Promise<boolean> {
+	return invoke<boolean>("get_diagnostic_logging");
+}
+
+export function setDiagnosticLogging(enabled: boolean): Promise<void> {
+	return invoke<void>("set_diagnostic_logging", { enabled });
+}
+
+//  Recast Cloud — account / auth
+//
+// Canonical shapes for the `auth_*` and cloud-endpoint commands. These live
+// here (not in the cloud stores) so the IPC contract has one home; the stores
+// import these types + the wrappers below. All are `#[serde(rename_all =
+// "camelCase")]` on the Rust side EXCEPT `AuthStartResult` (noted inline).
+
+export interface AuthPlan {
+	id: string;
+	name: string;
+	status: string;
+	currentPeriodEnd: string | null;
+	cancelAtPeriodEnd: boolean;
+}
+
+export interface AuthUsage {
+	recordings: number;
+	storageBytes: number;
+	activeShares: number;
+	sharesLimit: number | null;
+}
+
+/** A workspace the signed-in user can upload into. Mirrors the Rust `Workspace`. */
+export interface CloudWorkspace {
+	id: string;
+	name: string;
+	/** "owner" | "admin" | "member". */
+	role: string;
+	/** "free" | "pro" | "enterprise" — the org's plan. */
+	plan: string;
+	/** Live (non-deleted) recast count in the workspace. */
+	recastsCount: number;
+}
+
+/** Full sign-in snapshot from `auth_status`. Consumers read the subset they
+ *  need (profile card vs. share-flow guard). */
+export interface AuthStatus {
+	signedIn: boolean;
+	email: string | null;
+	name: string | null;
+	image: string | null;
+	memberSince: string | null;
+	plan: AuthPlan | null;
+	usage: AuthUsage | null;
+	workspaces: CloudWorkspace[];
+	defaultWorkspaceId: string | null;
+}
+
+/** Result of `auth_start` (device-authorization flow kickoff). NOTE: the Rust
+ *  `AuthStartResult` is NOT `rename_all = camelCase`, so its fields stay
+ *  snake_case on the wire. */
+export interface AuthStartResult {
+	user_code: string;
+	verification_uri: string;
+	expires_in: number;
+}
+
+/** Self-hosting cloud endpoint config (`get_cloud_api_config` / `set_cloud_api_url`). */
+export interface CloudApiConfig {
+	effective: string;
+	overrideUrl: string | null;
+	defaultUrl: string;
+	isCustom: boolean;
+}
+
+export function authStatus(): Promise<AuthStatus> {
+	return invoke<AuthStatus>("auth_status");
+}
+
+export function authStart(): Promise<AuthStartResult> {
+	return invoke<AuthStartResult>("auth_start");
+}
+
+export function authSignOut(): Promise<void> {
+	return invoke<void>("auth_sign_out");
+}
+
+export function authCancel(): Promise<void> {
+	return invoke<void>("auth_cancel");
+}
+
+export function getCloudApiConfig(): Promise<CloudApiConfig> {
+	return invoke<CloudApiConfig>("get_cloud_api_config");
+}
+
+/** Set (or clear, with `null`) the self-hosting endpoint override. Returns the
+ *  resolved config; the backend validates and falls back to the default. */
+export function setCloudApiUrl(url: string | null): Promise<CloudApiConfig> {
+	return invoke<CloudApiConfig>("set_cloud_api_url", { url });
+}
+
+//  Google Drive
+//
+// Types + wrappers for the `gdrive_*` commands (OAuth + Drive upload). The
+// gdrive store guards every call with `isTauriApp()` and tracks in-flight UI
+// state itself; these wrappers are thin.
+
+export interface GdriveStatus {
+	connected: boolean;
+	email?: string | null;
+}
+
+/** Result of a successful Drive upload. */
+export interface GdriveUploadResult {
+	fileId: string;
+	name: string;
+	webViewLink?: string;
+}
+
+/** Persisted record of a prior Drive upload, keyed by local export path.
+ *  Mirrors the Rust `UploadRecord` from `commands/gdrive.rs`. */
+export interface GdriveUploadRecord {
+	fileId: string;
+	name: string;
+	webViewLink?: string;
+	/** Unix seconds. */
+	uploadedAt: number;
+}
+
+export function gdriveStatus(): Promise<GdriveStatus> {
+	return invoke<GdriveStatus>("gdrive_status");
+}
+
+export function gdriveListUploads(): Promise<Record<string, GdriveUploadRecord>> {
+	return invoke<Record<string, GdriveUploadRecord>>("gdrive_list_uploads");
+}
+
+export function gdriveConnect(): Promise<void> {
+	return invoke<void>("gdrive_connect");
+}
+
+export function gdriveDisconnect(): Promise<void> {
+	return invoke<void>("gdrive_disconnect");
+}
+
+export function gdriveUpload(path: string, uploadId: string): Promise<GdriveUploadResult> {
+	return invoke<GdriveUploadResult>("gdrive_upload", { path, uploadId });
+}
+
+export function gdriveCancelUpload(uploadId: string): Promise<void> {
+	return invoke<void>("gdrive_cancel_upload", { uploadId });
+}
+
+export function gdriveForgetUpload(localPath: string): Promise<void> {
+	return invoke<void>("gdrive_forget_upload", { localPath });
+}
+
+/** Validate a `.recast` project file, throwing if it isn't a readable, valid
+ *  project. Used purely as a guard before opening — the backend returns the
+ *  project metadata, but no caller surfaces it, so it's intentionally not typed
+ *  out here (kept as `void`). */
+export function peekRecastProject(path: string): Promise<void> {
+	return invoke<void>("peek_recast_project", { path });
 }

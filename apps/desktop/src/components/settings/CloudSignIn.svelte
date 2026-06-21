@@ -1,21 +1,45 @@
 <script lang="ts">
 	import {
 	  ArrowUpRight,
+	  Check,
+	  ChevronsUpDown,
 	  Cloud,
 	  Crown,
 	  LoaderCircle,
 	  LogOut,
 	  ShieldAlert,
 	  Sparkles,
+	  Users,
 	  Video,
 	} from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
+	import * as DropdownMenu from "@recast/ui/dropdown-menu";
 	import { toast } from "@recast/ui/sonner";
 	import { cn } from "@recast/ui/utils";
-	import { invoke } from "@tauri-apps/api/core";
 	import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { onDestroy, onMount } from "svelte";
+	import { cloudShare } from "$lib/stores/cloudShare.svelte";
+	import {
+		authCancel,
+		authSignOut,
+		authStart,
+		authStatus,
+		type AuthPlan,
+		type AuthStatus,
+		type AuthUsage,
+	} from "$lib/ipc";
+
+	/** Title-case a workspace role for the badge ("owner" → "Owner"). */
+	function roleLabel(role: string): string {
+		return role ? role[0]!.toUpperCase() + role.slice(1) : "Member";
+	}
+
+	function planLabel(plan: string): string {
+		if (plan === "pro") return "Pro";
+		if (plan === "enterprise") return "Enterprise";
+		return "Free";
+	}
 
 	/**
 	 * "Sign in to Recast Cloud" row. Recast Cloud is the Loom-style sharing
@@ -31,34 +55,6 @@
 	 *   denied     → error msg + retry button
 	 *   expired    → error msg + retry button
 	 */
-	type AuthPlan = {
-		id: string;
-		name: string;
-		status: string;
-		currentPeriodEnd: string | null;
-		cancelAtPeriodEnd: boolean;
-	};
-	type AuthUsage = {
-		recordings: number;
-		storageBytes: number;
-		activeShares: number;
-		sharesLimit: number | null;
-	};
-	type AuthStatus = {
-		signed_in: boolean;
-		email?: string | null;
-		name?: string | null;
-		image?: string | null;
-		memberSince?: string | null;
-		plan?: AuthPlan | null;
-		usage?: AuthUsage | null;
-	};
-	type AuthStartResult = {
-		user_code: string;
-		verification_uri: string;
-		expires_in: number;
-	};
-
 	type SignedInProfile = {
 		email: string | null;
 		name: string | null;
@@ -151,10 +147,13 @@
 
 	async function loadStatus() {
 		try {
-			const status = await invoke<AuthStatus>("auth_status");
-			view = status.signed_in
+			const status = await authStatus();
+			view = status.signedIn
 				? { kind: "signed-in", ...toProfile(status) }
 				: { kind: "signed-out" };
+			// Keep the shared store (which the share flow reads for workspace
+			// targeting) in sync with what we just fetched.
+			void cloudShare.refreshStatus();
 		} catch (e) {
 			toast.error(`Couldn't check sign-in state: ${e}`);
 			view = { kind: "signed-out" };
@@ -164,8 +163,8 @@
 	/** Refetch profile (plan/usage) without leaving the signed-in card. */
 	async function refreshProfile() {
 		try {
-			const status = await invoke<AuthStatus>("auth_status");
-			if (status.signed_in && view.kind === "signed-in") {
+			const status = await authStatus();
+			if (status.signedIn && view.kind === "signed-in") {
 				view = { kind: "signed-in", ...toProfile(status) };
 			}
 		} catch {
@@ -177,7 +176,7 @@
 		if (busy) return;
 		inFlight = "sign-in";
 		try {
-			const result = await invoke<AuthStartResult>("auth_start");
+			const result = await authStart();
 			view = {
 				kind: "waiting",
 				userCode: result.user_code,
@@ -195,9 +194,11 @@
 		if (busy) return;
 		inFlight = "sign-out";
 		try {
-			await invoke("auth_sign_out");
+			await authSignOut();
 			toast.success("Signed out of Recast Cloud.");
 			view = { kind: "signed-out" };
+			// Drops the cached workspace list + persisted selection.
+			void cloudShare.refreshStatus();
 		} catch (e) {
 			toast.error(`Couldn't sign out: ${e}`);
 		} finally {
@@ -220,7 +221,7 @@
 	async function cancelSignIn() {
 		view = { kind: "signed-out" };
 		try {
-			await invoke("auth_cancel");
+			await authCancel();
 		} catch (e) {
 			// Cancel is idempotent on the Rust side; surfacing this would
 			// only confuse the user since the UI already reset.
@@ -246,6 +247,9 @@
 					// /api/desktop/profile after /device/token returns), so the
 					// payload carries plan + usage — no refetch needed here.
 					view = { kind: "signed-in", ...toProfile(s ?? ({} as AuthStatus)) };
+					// Hydrate the shared store so the workspace selector below and
+					// the share flow both see the freshly-signed-in workspaces.
+					void cloudShare.refreshStatus();
 					toast.success("Signed in to Recast Cloud.");
 				}),
 				listen("auth:denied", () => {
@@ -364,6 +368,79 @@
 				</Button>
 			</div>
 
+			<!-- Default workspace — only meaningful when the user belongs to
+				 more than one. Uploads target this workspace unless overridden
+				 at share time. Backed by the shared cloudShare store (which the
+				 share flow reads), persisted locally; it never changes the
+				 web session's active org. -->
+			{#if cloudShare.workspaces.length > 1}
+				{@const active = cloudShare.activeWorkspace}
+				<div
+					class="flex items-center justify-between gap-3 border-t border-border/40 px-4 py-3"
+				>
+					<div class="flex min-w-0 items-center gap-2">
+						<Users class="size-3.5 shrink-0 text-muted-foreground" />
+						<div class="min-w-0">
+							<div class="text-[11px] font-semibold text-foreground/85">
+								Upload to
+							</div>
+							<div class="truncate text-[10.5px] text-muted-foreground">
+								New shares are saved here
+							</div>
+						</div>
+					</div>
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class={cn(
+								"inline-flex h-8 max-w-[55%] items-center gap-1.5 rounded-md border border-border/60 bg-background/50 px-2.5 text-[11.5px] font-medium text-foreground transition-colors hover:bg-foreground/4",
+							)}
+						>
+							<span class="truncate">{active?.name ?? "Select workspace"}</span>
+							<ChevronsUpDown class="size-3 shrink-0 text-muted-foreground" />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="end" class="min-w-60">
+							<DropdownMenu.Label class="text-[10px] uppercase tracking-wide text-muted-foreground">
+								Workspaces
+							</DropdownMenu.Label>
+							{#each cloudShare.workspaces as ws (ws.id)}
+								{@const selected = active?.id === ws.id}
+								{@const isPaid = ws.plan !== "free"}
+								<DropdownMenu.Item
+									class="gap-2 py-2"
+									onSelect={() => cloudShare.setWorkspace(ws.id)}
+								>
+									<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+										<span class="flex items-center gap-1.5">
+											<span class="truncate text-[12px] font-medium">{ws.name}</span>
+											<span
+												class={cn(
+													"inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide",
+													isPaid
+														? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/30"
+														: "bg-muted text-muted-foreground ring-1 ring-inset ring-border/50",
+												)}
+											>
+												{#if isPaid}<Crown class="size-2" />{/if}
+												{planLabel(ws.plan)}
+											</span>
+										</span>
+										<span class="text-[10px] text-muted-foreground">
+											{roleLabel(ws.role)} · {ws.recastsCount}
+											{ws.recastsCount === 1 ? "recast" : "recasts"}
+										</span>
+									</span>
+									{#if selected}
+										<Check class="size-3.5 shrink-0 text-primary" />
+									{:else}
+										<span class="size-3.5 shrink-0"></span>
+									{/if}
+								</DropdownMenu.Item>
+							{/each}
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+				</div>
+			{/if}
+
 			<!-- Usage stats — only render if we got profile data back. The
 				 fallback get-session path leaves `usage` null; rather than
 				 stub zeros (which read as "you have nothing") we hide the
@@ -424,7 +501,7 @@
 					<ArrowUpRight class="size-3 text-muted-foreground" />
 				</Button>
 				{#if view.plan?.cancelAtPeriodEnd && view.plan?.currentPeriodEnd}
-					<span class="ml-auto text-[10.5px] text-amber-600 dark:text-amber-400">
+					<span class="ml-auto text-[10.5px] text-warning">
 						Ends {new Date(view.plan.currentPeriodEnd).toLocaleDateString()}
 					</span>
 				{/if}
@@ -502,7 +579,7 @@
 		<div class="flex items-center justify-between gap-3">
 			<div class="flex min-w-0 items-center gap-3">
 				<div
-					class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 ring-1 ring-inset ring-amber-500/30 dark:text-amber-400"
+					class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-warning/10 text-warning ring-1 ring-inset ring-warning/30"
 				>
 					<ShieldAlert class="size-4" />
 				</div>

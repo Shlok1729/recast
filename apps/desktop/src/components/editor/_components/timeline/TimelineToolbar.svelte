@@ -11,6 +11,7 @@
     Scissors,
     Search,
     SlidersHorizontal,
+    SquareSplitHorizontal,
     Target,
     VolumeX,
     Wand2,
@@ -46,6 +47,7 @@
     timeMode: TimeMode;
     hasSelectedRegion: boolean;
     onSetTrim: (kind: "in" | "out") => void;
+    onSplit: () => void;
     onAddFocusRegion: () => void;
     onResetTrim: () => void;
     onZoomTimeline: (dir: number) => void;
@@ -66,6 +68,7 @@
     timeMode,
     hasSelectedRegion,
     onSetTrim,
+    onSplit,
     onAddFocusRegion,
     onResetTrim,
     onZoomTimeline,
@@ -80,6 +83,12 @@
   // Popover open state — local to the toolbar; nothing upstream depends on it.
   let suggestOpen = $state(false);
   let showSilence = $state(false);
+
+  // Badge on the silence button counts ONLY silence-detected cuts. Manual
+  // ripple deletes are a separate concept and shouldn't inflate this number.
+  const silenceCutCount = $derived(
+    store.cuts.filter((c) => c.source === "silence").length,
+  );
 
   // Shared control styling so every toolbar affordance reads the same.
   const GROUP =
@@ -127,6 +136,21 @@
         <Kbd class="ml-0.5">O</Kbd>
       </button>
     </div>
+
+    <!-- Split the clip at the playhead into two independently-deletable clips.
+         Part of the opt-in timeline-editing experiment — hidden when off. -->
+    {#if experimentalStore.timelineEditing}
+      <button
+        type="button"
+        onclick={onSplit}
+        title="Split the clip at the playhead (S)"
+        class={SOLO}
+      >
+        <SquareSplitHorizontal class="size-3" />
+        <span class="hidden sm:inline">Split</span>
+        <Kbd class="ml-0.5">S</Kbd>
+      </button>
+    {/if}
 
     <!-- Focus / Suggest -->
     <div class={GROUP}>
@@ -179,11 +203,11 @@
             >
               <VolumeX class="size-3" />
               Remove silence
-              {#if store.cuts.length > 0}
+              {#if silenceCutCount > 0}
                 <span
                   class="rounded bg-primary/15 px-1 text-[9px] font-bold text-primary"
                 >
-                  {store.cuts.length}
+                  {silenceCutCount}
                 </span>
               {/if}
             </button>
@@ -210,6 +234,16 @@
         Use full clip
       </button>
     {/if}
+
+    <!-- Inline discoverability for the core clip keys; hidden on narrow rails. -->
+    <span
+      class="ml-1 hidden items-center gap-1 text-[10px] text-muted-foreground xl:inline-flex"
+    >
+      <Kbd>S</Kbd>
+      split
+      <Kbd>⌫</Kbd>
+      remove
+    </span>
   </div>
 
   <!-- View controls -->

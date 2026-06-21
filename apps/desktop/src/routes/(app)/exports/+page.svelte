@@ -1,5 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import ShareManageDialog from "$components/cloud/ShareManageDialog.svelte";
+  import WorkspacePickerDialog from "$components/cloud/WorkspacePickerDialog.svelte";
   import { ConfirmDialog, PlayerDialog, RenameDialog } from "$components/recast";
   import {
     deleteFile,
@@ -10,6 +12,9 @@
     type RecordingEntry,
   } from "$lib/ipc";
   import { morph } from "$lib/morph";
+  import { isShareSupported, shareRecording } from "$lib/share";
+  import { cloudShare } from "$lib/stores/cloudShare.svelte";
+  import { gdrive } from "$lib/stores/gdrive.svelte";
   import {
     Check,
     Clock,
@@ -35,20 +40,16 @@
     Unlink2,
     X,
   } from "@lucide/svelte";
-  import { gdrive } from "$lib/stores/gdrive.svelte";
-  import { cloudShare } from "$lib/stores/cloudShare.svelte";
-  import ShareManageDialog from "$components/cloud/ShareManageDialog.svelte";
-  import { isShareSupported, shareRecording } from "$lib/share";
   import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
   import * as DropdownMenu from "@recast/ui/dropdown-menu";
   import { Kbd } from "@recast/ui/kbd";
+  import { safeStorage } from "@recast/ui/persisted-state";
   import * as Select from "@recast/ui/select";
   import { Skeleton } from "@recast/ui/skeleton";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
-  import { safeStorage } from "@recast/ui/persisted-state";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { SvelteSet } from "svelte/reactivity";
@@ -66,6 +67,8 @@
   let deleteTarget = $state<RecordingEntry | null>(null);
   let manageTarget = $state<RecordingEntry | null>(null);
   let playTarget = $state<RecordingEntry | null>(null);
+  // Set when a share needs a workspace choice (user is in >1 workspace).
+  let workspacePick = $state<{ path: string; title: string; fileName: string } | null>(null);
 
   // Multi-select: a toolbar "Select" toggle flips the page into selection
   // mode, where clicking a card checks it instead of opening the file.
@@ -199,15 +202,35 @@
    * Progress is surfaced via the corner-notification stack.
    */
   async function shareToCloud(entry: RecordingEntry) {
-    await cloudShare.init();
+    // Only block on the network the very first time (before the store has
+    // hydrated). Afterwards the cached workspace list opens the picker
+    // instantly — no frozen screen. A loading toast covers that first wait.
+    if (!cloudShare.initialized) {
+      const tid = toast.loading("Connecting to Recast Cloud…");
+      await cloudShare.init();
+      toast.dismiss(tid);
+    }
     if (!cloudShare.signedIn) {
       toast.info("Sign in to Recast Cloud in Settings first.");
       void goto("/settings");
       return;
     }
     const title = entry.filename.replace(/\.[^.]+$/, "");
+    // Belongs to more than one workspace → let them confirm the target before
+    // the upload commits. A single workspace (or none) needs no prompt.
+    if (cloudShare.workspaces.length > 1) {
+      workspacePick = { path: entry.path, title, fileName: entry.filename };
+      // Freshen plan/recast counts in the background while they choose.
+      void cloudShare.refreshStatus();
+      return;
+    }
+    await performCloudShare(entry.path, title);
+  }
+
+  /** Upload + create a link for an already-targeted share, then copy it. */
+  async function performCloudShare(path: string, title: string, workspaceId?: string) {
     try {
-      const result = await cloudShare.share(entry.path, title);
+      const result = await cloudShare.share(path, title, workspaceId);
       try {
         await navigator.clipboard.writeText(result.shareUrl);
         toast.success("Shared — link copied to clipboard.");
@@ -778,7 +801,7 @@
                         </Button>
                       {/snippet}
                     </DropdownMenu.Trigger>
-                    <DropdownMenu.Content align="end" size="sm" class="w-44">
+                    <DropdownMenu.Content align="end" size="sm" class="w-50">
                       <DropdownMenu.Item
                         onSelect={() => openFileLocation(entry.path)}
                       >
@@ -860,7 +883,7 @@
                           <Unlink2 /> Forget cloud link
                         </DropdownMenu.Item>
                       {:else}
-                        <DropdownMenu.Item onSelect={() => shareToCloud(entry)}>
+                        <DropdownMenu.Item onSelect={() => shareToCloud(entry)} class="whitespace-nowrap">
                           <Cloud /> Share to Recast Cloud
                         </DropdownMenu.Item>
                       {/if}
@@ -1012,6 +1035,24 @@
     path={manageTarget.path}
     onOpenChange={(v: boolean) => {
       if (!v) manageTarget = null;
+    }}
+  />
+{/if}
+
+{#if workspacePick}
+  <WorkspacePickerDialog
+    open={true}
+    workspaces={cloudShare.workspaces}
+    activeId={cloudShare.activeWorkspaceId}
+    fileName={workspacePick.fileName}
+    onConfirm={(workspaceId, remember) => {
+      const pick = workspacePick;
+      if (!pick) return;
+      if (remember) cloudShare.setWorkspace(workspaceId);
+      void performCloudShare(pick.path, pick.title, workspaceId);
+    }}
+    onOpenChange={(v: boolean) => {
+      if (!v) workspacePick = null;
     }}
   />
 {/if}

@@ -25,9 +25,14 @@
 	 store inside the component; renders nothing when idle. -->
 <NavProgress />
 
+<!-- Inset shell, matching the desktop `(app)` group: `variant="inset"` turns the
+	 provider wrapper `bg-sidebar` and floats the content as a rounded `bg-background`
+	 panel with a gap. Unlike desktop (a fixed-viewport app), the web dashboard is a
+	 scrolling document, so the panel grows with content and the page scrolls — the
+	 header rounds/offsets its own top to sit cleanly inside the panel. -->
 <Sidebar.Provider>
 	<DashboardSidebar />
-	<Sidebar.Inset class="min-h-svh">
+	<Sidebar.Inset>
 		<DashboardHeader />
 		<div class="px-5 py-8 sm:px-8 sm:py-10">
 			{@render children()}

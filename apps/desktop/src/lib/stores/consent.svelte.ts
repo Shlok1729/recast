@@ -16,6 +16,7 @@
 
 import { PersistedState, safeStorage } from "@recast/ui/persisted-state";
 import { getInstallId } from "$lib/analytics/identity";
+import { setTelemetryConsent } from "$lib/ipc";
 
 export interface DesktopConsent {
 	product: boolean;
@@ -34,17 +35,9 @@ const SEEN_KEY = "recast-consent-seen";
  * window that made the change already mirrored it to the shared backend).
  */
 function mirrorToRust(consent: DesktopConsent) {
-	void import("@tauri-apps/api/core")
-		.then(({ invoke }) =>
-			invoke("set_telemetry_consent", {
-				product: consent.product,
-				errors: consent.errors,
-				installId: getInstallId(),
-			}),
-		)
-		.catch(() => {
-			// Non-Tauri preview or pre-command build — JS-side gating still applies.
-		});
+	void setTelemetryConsent(consent.product, consent.errors, getInstallId()).catch(() => {
+		// Non-Tauri preview or pre-command build — JS-side gating still applies.
+	});
 }
 
 function createConsentStore() {

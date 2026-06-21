@@ -436,9 +436,10 @@ pub struct RecordingOptions {
     /// UI gates the offered options by the detected display refresh.
     #[serde(default)]
     pub fps: Option<u32>,
-    /// Capture quality tier — `"balanced"` (default), `"high"`, or
-    /// `"pristine"`. Unknown values fall back to balanced. See
-    /// [`crate::encoder::RecordingQuality`].
+    /// Capture quality tier — `"auto"` (default), `"balanced"`, `"high"`, or
+    /// `"pristine"`. `"auto"`/unknown resolve against the detected encoder
+    /// (hardware → high, software → balanced). See
+    /// [`crate::encoder::RecordingQuality::resolve`].
     #[serde(default)]
     pub quality: Option<String>,
 }
@@ -573,7 +574,16 @@ impl RecordingManager {
                         })
                         .unwrap_or(false);
 
-                    if can_extend {
+                    // Bound memory + serialized project size on long sessions
+                    // with sustained camera movement: once the segment list hits
+                    // the cap, fold further moves into the last segment (same as
+                    // the extend path) instead of growing the Vec without limit.
+                    // 4096 deliberate moves is far beyond any real session given
+                    // the 0.45 s drag-coalescing window above.
+                    const MAX_MOTION_SEGMENTS: usize = 4096;
+                    let at_cap = tracker.overlay.motion_segments.len() >= MAX_MOTION_SEGMENTS;
+
+                    if can_extend || at_cap {
                         if let Some(segment) = tracker.overlay.motion_segments.last_mut() {
                             segment.end = now_secs.max(segment.start + 0.001);
                             segment.to_x = placement.x;
@@ -632,14 +642,27 @@ impl RecordingManager {
             return Err(anyhow!("recording is already running"));
         }
 
+        // macOS gates screen capture behind the Screen Recording TCC permission,
+        // which is SEPARATE from the Accessibility grant the cursor tracker
+        // needs. Without it FFmpeg avfoundation spawns but yields zero frames —
+        // the old behaviour was a silently-empty recording the user only
+        // discovered at stop(), with the UI timer ticking the whole time. Fail
+        // fast here (and trigger the system prompt) so the timer never starts on
+        // a dead capture. No-op on Windows/Linux.
+        crate::permissions::ensure_screen_recording()?;
+
         std::fs::create_dir_all(&output_dir)?;
         // Resolve the capture rate + quality tier up front. Both the pacer and
         // the encoder must agree on `recording_fps` (the encoder declares it as
         // `-framerate`, the pacer emits exactly that many frames/sec), and the
         // chosen rate is persisted into the project metadata at stop().
         let recording_fps = resolve_recording_fps(options.fps);
-        let recording_quality =
-            crate::encoder::RecordingQuality::from_label(options.quality.as_deref());
+        // `"auto"` (the default) resolves against the probed encoder: hardware
+        // → High, software → Balanced. Explicit tiers pass through unchanged.
+        let recording_quality = crate::encoder::RecordingQuality::resolve(
+            options.quality.as_deref(),
+            crate::ffmpeg::preferred_h264_encoder(),
+        );
         log::info!("recording config: {recording_fps} fps, quality={recording_quality:?}");
         let started_at_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -676,6 +699,17 @@ impl RecordingManager {
         );
         let pipeline = RecordingPipeline::new(queue_capacity);
         let mut warnings = Vec::new();
+
+        // Cursor sampling needs Accessibility on macOS; recording works without
+        // it, so warn rather than block — the track just has gaps until granted.
+        if !crate::permissions::cursor_tracking_authorized() {
+            warnings.push(
+                "Cursor tracking is off — grant Recast in System Settings → \
+                 Privacy & Security → Accessibility to capture cursor movement \
+                 and clicks."
+                    .to_string(),
+            );
+        }
 
         let first_frame_offset_us = Arc::new(AtomicU64::new(0));
         let capture_handle = spawn_capture_loop(
@@ -718,28 +752,52 @@ impl RecordingManager {
         // virtual-desktop (`crop.x`, `crop.y`). Without this remap, every
         // sample lives outside the [0..frame] range whenever the user
         // records a secondary monitor or a region.
-        let cursor_handle = match spawn_cursor_capture(
-            stop_flag.clone(),
-            clock.clone(),
-            CursorCaptureFrame {
-                origin_x: target.crop.x,
-                origin_y: target.crop.y,
-                width: target.crop.width,
-                height: target.crop.height,
-                // macOS samples the cursor in logical points but the video is
-                // physical pixels; lift samples by the display's scale so they
-                // line up. 1.0 on Windows/Linux (already physical) → unchanged.
-                scale: target.scale_factor,
-            },
-        ) {
-            Ok(handle) => handle,
-            Err(e) => {
-                // Capture + encoder are already live; tear both down so a failed
-                // start doesn't orphan them.
-                stop_flag.store(true, Ordering::Release);
-                let _ = capture_handle.join();
-                let _ = encoder_handle.join();
-                return Err(e);
+        // Only sample the cursor when the OS actually permits it. On macOS,
+        // `device_query`'s CoreGraphics access re-triggers the "control this
+        // computer using accessibility features" prompt EVERY recording when
+        // Accessibility isn't granted — the repeated-prompt complaint. Gating
+        // on the (non-prompting) trust check means we never poke that API
+        // unless it'll succeed; otherwise we substitute an empty track (the
+        // user already got the warning above). Always-true off macOS.
+        let cursor_handle = if crate::permissions::cursor_tracking_authorized() {
+            match spawn_cursor_capture(
+                stop_flag.clone(),
+                clock.clone(),
+                CursorCaptureFrame {
+                    origin_x: target.crop.x,
+                    origin_y: target.crop.y,
+                    width: target.crop.width,
+                    height: target.crop.height,
+                    // macOS samples the cursor in logical points but the video is
+                    // physical pixels; lift samples by the display's scale so they
+                    // line up. 1.0 on Windows/Linux (already physical) → unchanged.
+                    scale: target.scale_factor,
+                },
+            ) {
+                Ok(handle) => handle,
+                Err(e) => {
+                    // Capture + encoder are already live; tear both down so a failed
+                    // start doesn't orphan them.
+                    stop_flag.store(true, Ordering::Release);
+                    let _ = capture_handle.join();
+                    let _ = encoder_handle.join();
+                    return Err(e);
+                }
+            }
+        } else {
+            // No-op placeholder so the session shape (and `stop()`'s join) is
+            // unchanged; it yields an empty cursor track immediately.
+            match std::thread::Builder::new()
+                .name("recast-cursor-disabled".into())
+                .spawn(CursorTrack::default)
+            {
+                Ok(handle) => handle,
+                Err(e) => {
+                    stop_flag.store(true, Ordering::Release);
+                    let _ = capture_handle.join();
+                    let _ = encoder_handle.join();
+                    return Err(anyhow!("failed to spawn cursor placeholder thread: {e}"));
+                }
             }
         };
 
@@ -826,15 +884,27 @@ impl RecordingManager {
 
         session.stop_flag.store(true, Ordering::Release);
 
-        session
-            .capture_handle
-            .join()
-            .map_err(|_| anyhow!("capture thread panicked"))??;
+        // Reap ALL capture threads and OS sessions before propagating any error.
+        // `session` is already out of the session mutex, so anything we skip
+        // tearing down here (because an earlier `?` returned) is orphaned for the
+        // process lifetime — a spinning thread plus, for audio/camera, a live
+        // FFmpeg child or capture device. So join every thread and stop every
+        // session first, then surface the first failure.
+        let capture_join = session.capture_handle.join();
+        let cursor_join = session.cursor_handle.join();
+        let encoder_join = session.encoder_handle.join();
 
-        let mut cursor_track = session
-            .cursor_handle
-            .join()
-            .map_err(|_| anyhow!("cursor thread panicked"))?;
+        // Stop the system-audio / mic / camera OS sessions regardless of how the
+        // threads fared — each reaps its own FFmpeg child / releases its device.
+        let audio_stop = session.audio_session.map(|s| s.stop());
+        let microphone_stop = session.microphone_session.map(|s| s.stop());
+        let camera_stop = session.camera_session.map(|s| s.stop());
+
+        // Everything is reaped — now surface fatal thread failures.
+        capture_join.map_err(|_| anyhow!("capture thread panicked"))??;
+        let mut cursor_track = cursor_join.map_err(|_| anyhow!("cursor thread panicked"))?;
+        encoder_join.map_err(|_| anyhow!("encoder thread panicked"))??;
+
         // Re-base the cursor track onto the video clock: the capture-source
         // warmup means video frame 0 is wall-clock `first_frame_offset_us`, not
         // 0, while the cursor track has been ticking since recording start.
@@ -844,52 +914,41 @@ impl RecordingManager {
         shift_cursor_track(&mut cursor_track, cursor_offset_us);
         write_cursor_track(&session.cursor_path, &cursor_track)?;
 
-        session
-            .encoder_handle
-            .join()
-            .map_err(|_| anyhow!("encoder thread panicked"))??;
-
-        // Stop system audio capture. Write silence fallback if unavailable.
-        let audio_path = if let Some(audio_session) = session.audio_session {
-            match audio_session.stop() {
-                Ok(path) => path,
-                Err(e) => {
-                    log::warn!("audio capture stop failed, writing silence: {e}");
-                    let duration = session.clock.effective_elapsed().as_secs_f64();
-                    crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
-                    session.audio_path
-                }
+        // Resolve the system-audio path: the captured file, else a silence
+        // fallback so downstream always has a track to mux.
+        let audio_path = match audio_stop {
+            Some(Ok(path)) => path,
+            Some(Err(e)) => {
+                log::warn!("audio capture stop failed, writing silence: {e}");
+                let duration = session.clock.effective_elapsed().as_secs_f64();
+                crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
+                session.audio_path.clone()
             }
-        } else {
-            let duration = session.clock.effective_elapsed().as_secs_f64();
-            crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
-            session.audio_path
+            None => {
+                let duration = session.clock.effective_elapsed().as_secs_f64();
+                crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
+                session.audio_path.clone()
+            }
         };
 
-        // Stop microphone capture if it was running.
-        let microphone_path = if let Some(mic_session) = session.microphone_session {
-            match mic_session.stop() {
-                Ok(path) => Some(path),
-                Err(e) => {
-                    log::warn!("microphone capture stop failed: {e}");
-                    None
-                }
+        // Microphone path if its capture succeeded.
+        let microphone_path = match microphone_stop {
+            Some(Ok(path)) => Some(path),
+            Some(Err(e)) => {
+                log::warn!("microphone capture stop failed: {e}");
+                None
             }
-        } else {
-            None
+            None => None,
         };
 
-        // Stop camera capture if it was running.
-        let camera_path = if let Some(cam_session) = session.camera_session {
-            match cam_session.stop() {
-                Ok(path) => Some(path),
-                Err(e) => {
-                    log::warn!("camera capture stop failed: {e}");
-                    None
-                }
+        // Camera path if its capture succeeded.
+        let camera_path = match camera_stop {
+            Some(Ok(path)) => Some(path),
+            Some(Err(e)) => {
+                log::warn!("camera capture stop failed: {e}");
+                None
             }
-        } else {
-            None
+            None => None,
         };
 
         // The camera records continuously through pauses; cut the paused

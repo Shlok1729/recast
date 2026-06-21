@@ -2,6 +2,7 @@ import { error, json } from "@sveltejs/kit";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { getDb } from "$lib/db";
 import { shareComment, shareReaction } from "$lib/db/schema";
+import { enforceRateLimit } from "$lib/server/rate-limit";
 import { gateShareAccess } from "$lib/share/gate";
 import type { RequestHandler } from "./$types";
 
@@ -82,7 +83,13 @@ export const GET: RequestHandler = async ({ params, request, cookies, url }) => 
  *
  * Body: { sessionId, authorName, atSeconds, body }
  */
-export const POST: RequestHandler = async ({ params, request, cookies }) => {
+export const POST: RequestHandler = async ({ params, request, cookies, getClientAddress }) => {
+	const limited = await enforceRateLimit(
+		{ getClientAddress },
+		{ bucket: "share-comment", id: params.id, limit: 15, windowMs: 60_000 },
+	);
+	if (limited) return limited;
+
 	const gate = await gateShareAccess(params.id, request, cookies);
 	if (!gate.commentsEnabled) error(403, "Comments are turned off for this share");
 

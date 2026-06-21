@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
+  import { originalToOutput } from "$lib/timeline/cuts";
   import type { TimeMode } from "./timeline-helpers";
   import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import ZoomLayerCard from "./ZoomLayerCard.svelte";
@@ -31,6 +32,12 @@
   // Lifted from each card so the lane can paint a single guide line at the
   // active target. Last writer wins — only one card drags at a time.
   let activeSnap = $state<SnapTarget | null>(null);
+  // Snap targets are original times; place the guide on the output axis.
+  const snapX = $derived(
+    activeSnap
+      ? originalToOutput(store.effectiveCuts, activeSnap.time) * pixelsPerSecond
+      : 0,
+  );
 
   function targetsFor(excludeId: string): SnapTarget[] {
     return buildSnapTargets({
@@ -80,11 +87,11 @@
          use to confirm a snap. -->
     <div
       class="pointer-events-none absolute -top-14 z-40 h-42.5 w-px bg-primary/80"
-      style="left: {activeSnap.time * pixelsPerSecond + 6}px;"
+      style="left: {snapX + 6}px;"
     ></div>
     <div
       class="pointer-events-none absolute -top-14 z-40 -translate-x-1/2 rounded border border-primary/60 bg-primary px-1 py-0.5 font-mono text-[9px] text-primary-foreground shadow-craft-sm"
-      style="left: {activeSnap.time * pixelsPerSecond + 6}px;"
+      style="left: {snapX + 6}px;"
     >
       {snapLabel(activeSnap.kind)}
     </div>

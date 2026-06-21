@@ -322,7 +322,7 @@
         class:outline={isSelected && isActiveTab}
         class:outline-1={isSelected && isActiveTab}
         class:outline-dashed={isSelected && isActiveTab && !isEditing}
-        class:outline-blue-500={isSelected && isActiveTab}
+        class:outline-accent-blue={isSelected && isActiveTab}
         class:cursor-text={isEditing}
         class:cursor-grab={interactive && !isEditing && !isDragging}
         class:cursor-grabbing={isDragging}

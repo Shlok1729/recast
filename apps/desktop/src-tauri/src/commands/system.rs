@@ -16,34 +16,92 @@ use super::types::{
 };
 
 fn config_path(app: &AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .unwrap_or_else(|_| env::temp_dir())
-        .join("recast_config.json")
+    let dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            // `%TEMP%` is periodically purged by the OS, so settings (incl.
+            // telemetry consent + install_id) won't survive between sessions.
+            // Log it so a "my settings keep resetting" report is diagnosable
+            // rather than silent.
+            log::warn!(
+                "app_data_dir unavailable ({e}); using temp dir for config — \
+                 settings may not persist between sessions"
+            );
+            env::temp_dir()
+        }
+    };
+    dir.join("recast_config.json")
 }
 
 pub fn load_config(app: &AppHandle) -> AppConfig {
     let path = config_path(app);
-    if let Ok(data) = fs::read_to_string(&path) {
-        if let Ok(config) = serde_json::from_str(&data) {
-            return config;
+    match fs::read_to_string(&path) {
+        Ok(data) => match serde_json::from_str(&data) {
+            Ok(config) => config,
+            Err(e) => {
+                // A genuine parse failure (partial write, hand-edit, schema
+                // drift) — distinct from "no file yet". Silently resetting here
+                // would wipe all settings AND flip telemetry_errors back to its
+                // default-on, a privacy-relevant regression. Back the bad file
+                // up for diagnosis before falling back to defaults.
+                log::warn!(
+                    "config at {} is unreadable ({e}); backing up to .bak and \
+                     resetting to defaults",
+                    path.display()
+                );
+                let _ = fs::rename(&path, path.with_extension("json.bak"));
+                AppConfig::default()
+            }
+        },
+        // First run / no file — the expected case, stay quiet.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => AppConfig::default(),
+        Err(e) => {
+            log::warn!(
+                "failed to read config at {} ({e}); using defaults",
+                path.display()
+            );
+            AppConfig::default()
         }
     }
-    AppConfig::default()
 }
 
 pub(crate) fn save_config(app: &AppHandle, config: &AppConfig) {
     let path = config_path(app);
     if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+        if let Err(e) = fs::create_dir_all(parent) {
+            log::warn!("failed to create config dir {}: {e}", parent.display());
+            return;
+        }
     }
-    if let Ok(data) = serde_json::to_string_pretty(config) {
-        let _ = fs::write(path, data);
+    let data = match serde_json::to_string_pretty(config) {
+        Ok(data) => data,
+        Err(e) => {
+            log::error!("failed to serialize config: {e}");
+            return;
+        }
+    };
+    // Atomic write: a plain `fs::write` truncates-then-writes, so a crash or
+    // power loss mid-write leaves a corrupt file that the next launch discards —
+    // wiping every setting. Write to a sibling temp file, fsync, then rename
+    // over the target (atomic on the same volume).
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = write_atomic(&tmp, &path, data.as_bytes()) {
+        log::warn!("failed to persist config to {}: {e}", path.display());
+        let _ = fs::remove_file(&tmp);
     }
 }
 
+fn write_atomic(tmp: &Path, dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = fs::File::create(tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(tmp, dest)
+}
+
 pub fn get_active_output_dir(state: &State<'_, AppState>) -> PathBuf {
-    let config = state.config.lock();
+    let config = state.config.read();
     if let Some(dir) = &config.output_dir {
         PathBuf::from(dir)
     } else {
@@ -93,20 +151,23 @@ pub fn set_output_dir(
     if !Path::new(&path).exists() {
         return Err("Directory does not exist".into());
     }
-    let mut config = state.config.lock();
-    config.output_dir = Some(path);
-    save_config(&app, &config);
+    let snapshot = {
+        let mut config = state.config.write();
+        config.output_dir = Some(path);
+        config.clone()
+    };
+    save_config(&app, &snapshot);
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_last_source(state: State<'_, AppState>) -> Result<Option<LastSource>, String> {
-    Ok(state.config.lock().last_source.clone())
+    Ok(state.config.read().last_source.clone())
 }
 
 #[tauri::command]
 pub fn get_close_to_tray(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.config.lock().close_to_tray)
+    Ok(state.config.read().close_to_tray)
 }
 
 #[tauri::command]
@@ -115,9 +176,12 @@ pub fn set_close_to_tray(
     state: State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    let mut config = state.config.lock();
-    config.close_to_tray = enabled;
-    save_config(&app, &config);
+    let snapshot = {
+        let mut config = state.config.write();
+        config.close_to_tray = enabled;
+        config.clone()
+    };
+    save_config(&app, &snapshot);
     Ok(())
 }
 
@@ -133,15 +197,18 @@ pub fn set_telemetry_consent(
     errors: bool,
     install_id: Option<String>,
 ) -> Result<(), String> {
-    let mut config = state.config.lock();
-    config.telemetry_product = product;
-    config.telemetry_errors = errors;
-    if let Some(id) = install_id {
-        if !id.is_empty() {
-            config.install_id = Some(id);
+    let snapshot = {
+        let mut config = state.config.write();
+        config.telemetry_product = product;
+        config.telemetry_errors = errors;
+        if let Some(id) = install_id {
+            if !id.is_empty() {
+                config.install_id = Some(id);
+            }
         }
-    }
-    save_config(&app, &config);
+        config.clone()
+    };
+    save_config(&app, &snapshot);
     Ok(())
 }
 
@@ -151,9 +218,12 @@ pub fn set_last_source(
     state: State<'_, AppState>,
     source: LastSource,
 ) -> Result<(), String> {
-    let mut config = state.config.lock();
-    config.last_source = Some(source);
-    save_config(&app, &config);
+    let snapshot = {
+        let mut config = state.config.write();
+        config.last_source = Some(source);
+        config.clone()
+    };
+    save_config(&app, &snapshot);
     Ok(())
 }
 
@@ -179,7 +249,7 @@ pub(crate) fn apply_log_level(diagnostic: bool) {
 
 #[tauri::command]
 pub fn get_diagnostic_logging(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.config.lock().diagnostic_logging)
+    Ok(state.config.read().diagnostic_logging)
 }
 
 /// Toggle verbose diagnostic logging. Persists the choice and re-applies the
@@ -191,11 +261,12 @@ pub fn set_diagnostic_logging(
     state: State<'_, AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    {
-        let mut config = state.config.lock();
+    let snapshot = {
+        let mut config = state.config.write();
         config.diagnostic_logging = enabled;
-        save_config(&app, &config);
-    }
+        config.clone()
+    };
+    save_config(&app, &snapshot);
     apply_log_level(enabled);
     // Logged AFTER raising the level so the "enabled" transition is the first
     // line in a fresh diagnostic session.

@@ -507,9 +507,13 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
         }
     }
 
-    // Best-effort removal of the now-empty per-invocation subdir. Ignore
-    // failure (parallel invocations or filesystem races can leave stragglers).
-    let _ = fs::remove_dir(&temp_dir);
+    // Best-effort *recursive* removal of the per-invocation subdir. `remove_dir`
+    // (non-recursive) silently fails when image2 emits ±1 extra frame past
+    // `count` or the loop breaks early, leaking the whole dir until the next
+    // startup sweep — on a long editor session that's gigabytes of orphaned
+    // JPEGs. `remove_dir_all` takes the stragglers with it. Ignore failure
+    // (parallel invocations / filesystem races).
+    let _ = fs::remove_dir_all(&temp_dir);
 
     // Persist the strip so the next open of this recording skips the decode.
     // Only cache a complete strip — a partial/failed run shouldn't be pinned.
@@ -561,7 +565,7 @@ fn extract_single_thumbnail(
         .filter(|o| o.status.success())
         .and_then(|_| fs::read(&thumb_path).ok());
     let _ = fs::remove_file(&thumb_path);
-    let _ = fs::remove_dir(&temp_dir);
+    let _ = fs::remove_dir_all(&temp_dir);
     result
 }
 
@@ -607,7 +611,7 @@ fn extract_poster_webp(media_path: &Path, timestamp: f64, scale_width: u32) -> O
         .filter(|o| o.status.success())
         .and_then(|_| fs::read(&out_path).ok());
     let _ = fs::remove_file(&out_path);
-    let _ = fs::remove_dir(&temp_dir);
+    let _ = fs::remove_dir_all(&temp_dir);
     result
 }
 
@@ -642,6 +646,7 @@ fn run_gif_palette_prepass(
     source_duration: f64,
     options: GifFilterOptions<'_>,
     output_scale_filter: Option<&str>,
+    cut_select: Option<&str>,
     cancel_flag: Arc<AtomicBool>,
     progress_offset: f64,
     progress_scale: f64,
@@ -664,7 +669,13 @@ fn run_gif_palette_prepass(
     }
     args.extend(["-i".to_string(), source_path.to_string_lossy().to_string()]);
 
-    let vf = build_gif_palette_prepass_filter(options, output_scale_filter);
+    let base_vf = build_gif_palette_prepass_filter(options, output_scale_filter);
+    // Drop cut ranges and close the gaps before fps-resample + palettegen, so
+    // the palette is built only from kept frames.
+    let vf = match cut_select {
+        Some(cs) if !cs.is_empty() => format!("{cs},{base_vf}"),
+        _ => base_vf,
+    };
     args.extend([
         "-vf".to_string(),
         vf,
@@ -798,6 +809,13 @@ fn run_gif_palette_prepass(
 /// seconds (the input is seeked by `-ss trim_start`, so the filtergraph's `t`
 /// starts at 0 = `trim_start`). Cuts are clamped to the kept `[trim_start,
 /// trim_end]` window, sorted, and overlaps merged.
+///
+/// Note: split/cut editing and silence detection are EXPERIMENTAL, opt-in
+/// features on the client. The frontend only includes a cut in `render_state`
+/// when its feature is enabled (see `effectiveCuts` in the editor store and
+/// `buildExportRenderState`), so when a feature is opted off `render_state.cuts`
+/// is empty here and the export matches an un-edited clip. This pipeline applies
+/// whatever cuts it is handed; it does not (and cannot) re-check the flags.
 fn collect_export_cuts(
     render_state: &crate::render::graph::RenderState,
     trim_start: f64,
@@ -1393,6 +1411,19 @@ pub async fn export_video(
             std::process::id()
         ));
 
+        // Cuts apply to GIF too, but its two-pass palette path runs before the
+        // generic (MP4/WebM-only) cut stage below, so inject the same
+        // select+setpts into both the palette pre-pass and the main pass.
+        let gif_cut_select: Option<String> = {
+            let export_cuts = collect_export_cuts(&request.render_state, trim_start, trim_end);
+            (!export_cuts.is_empty()).then(|| {
+                format!(
+                    "select='{}',setpts=N/FRAME_RATE/TB",
+                    build_cut_select_expr(&export_cuts)
+                )
+            })
+        };
+        let cut_select_for_prepass = gif_cut_select.clone();
         let app_for_prepass = app.clone();
         let export_id_for_prepass = export_id.clone();
         let source_for_prepass = source_video.clone();
@@ -1416,6 +1447,7 @@ pub async fn export_video(
                 source_duration,
                 inner_options,
                 scale_for_prepass.as_deref(),
+                cut_select_for_prepass.as_deref(),
                 cancel_for_prepass,
                 0.0,
                 0.4,
@@ -1460,6 +1492,22 @@ pub async fn export_video(
             + cursor_overlay_path.is_some() as usize
             + watermark_path.is_some() as usize;
         args.extend(["-i".to_string(), palette_path.to_string_lossy().to_string()]);
+
+        // Drop cut ranges before the palette-use stage so removed frames never
+        // reach the GIF (the generic cut stage below is MP4/WebM-only).
+        if let Some(ref cs) = gif_cut_select {
+            let (mut complex, vlabel) = match filter_complex_after_cursor.take() {
+                Some(existing) => (existing, video_map_after_cursor.clone()),
+                None => ("[0:v]".to_string(), "[0:v]".to_string()),
+            };
+            if !complex.is_empty() && !complex.ends_with(';') && !vlabel.is_empty() {
+                complex.push(';');
+            }
+            complex.push_str(&vlabel);
+            complex.push_str(&format!("{cs}[vgifcut]"));
+            filter_complex_after_cursor = Some(complex);
+            video_map_after_cursor = "[vgifcut]".to_string();
+        }
 
         let pass2_options = GifFilterOptions {
             fps: resolved_fps,
@@ -2436,4 +2484,77 @@ pub fn suggest_zoom_regions(
         &track.samples,
         &track.clicks,
     ))
+}
+
+#[cfg(test)]
+mod cut_export_tests {
+    use super::{build_cut_select_expr, collect_export_cuts};
+    use crate::render::graph::{CutRange, RenderState};
+
+    fn cut(start: f64, end: f64) -> CutRange {
+        CutRange {
+            start,
+            end,
+            extra: Default::default(),
+        }
+    }
+
+    fn state_with_cuts(cuts: Vec<CutRange>) -> RenderState {
+        RenderState {
+            cuts,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn select_expr_keeps_everything_outside_the_cuts() {
+        // The export drops frames where this expression is false. Two cuts →
+        // keep = not(in cut A OR in cut B).
+        let expr = build_cut_select_expr(&[(1.5, 2.0), (4.0, 5.5)]);
+        assert_eq!(expr, "not(between(t,1.500,2.000)+between(t,4.000,5.500))");
+    }
+
+    #[test]
+    fn select_expr_single_cut() {
+        assert_eq!(
+            build_cut_select_expr(&[(2.0, 3.0)]),
+            "not(between(t,2.000,3.000))"
+        );
+    }
+
+    #[test]
+    fn ripple_delete_in_middle_offsets_into_post_trim_time() {
+        // Project trimmed to [10,20]; a ripple-deleted clip at original [12,14]
+        // must reach ffmpeg as post-trim [2,4] (the input is seeked by -ss 10).
+        let cuts = collect_export_cuts(&state_with_cuts(vec![cut(12.0, 14.0)]), 10.0, 20.0);
+        assert_eq!(cuts, vec![(2.0, 4.0)]);
+    }
+
+    #[test]
+    fn cut_outside_trim_is_dropped_and_straddling_is_clamped() {
+        // [0,5] is entirely before the trim → dropped; [8,12] straddles the in
+        // point → clamped to [10,12] → post-trim [0,2].
+        let cuts = collect_export_cuts(
+            &state_with_cuts(vec![cut(0.0, 5.0), cut(8.0, 12.0)]),
+            10.0,
+            20.0,
+        );
+        assert_eq!(cuts, vec![(0.0, 2.0)]);
+    }
+
+    #[test]
+    fn overlapping_cuts_merge() {
+        // post-trim [1,3] and [2,5] overlap → single [1,5].
+        let cuts = collect_export_cuts(
+            &state_with_cuts(vec![cut(11.0, 13.0), cut(12.0, 15.0)]),
+            10.0,
+            20.0,
+        );
+        assert_eq!(cuts, vec![(1.0, 5.0)]);
+    }
+
+    #[test]
+    fn no_cuts_yields_empty() {
+        assert!(collect_export_cuts(&state_with_cuts(vec![]), 0.0, 10.0).is_empty());
+    }
 }

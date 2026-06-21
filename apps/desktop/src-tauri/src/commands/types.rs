@@ -280,7 +280,12 @@ pub struct AppState {
     // manager through `Deref`, so the `Arc` is transparent to them.
     pub recording_manager: Arc<crate::recording::RecordingManager>,
     pub last_file_path: parking_lot::Mutex<Option<String>>,
-    pub config: parking_lot::Mutex<AppConfig>,
+    /// Read-mostly (output dir, tray pref, telemetry consent, cloud URL are read
+    /// on hot/concurrent paths; written only when the user changes a setting), so
+    /// a `RwLock` lets concurrent readers proceed without serializing. Writers
+    /// must mutate, snapshot, then drop the guard BEFORE calling `save_config` —
+    /// never hold the lock across the disk write.
+    pub config: parking_lot::RwLock<AppConfig>,
     /// Per-run cancellation tokens for active exports, keyed by export session id.
     /// `export_video` inserts a fresh `Arc<AtomicBool>` on entry and removes it on
     /// exit; `cancel_export` looks up a specific session and flips only that flag.

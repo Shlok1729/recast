@@ -1,4 +1,5 @@
 import { count, desc, eq, gte, inArray, type SQL } from "drizzle-orm";
+import { requireAdmin } from "$lib/admin/guard";
 import { getDb } from "$lib/db";
 import { auditLog, subscription, user, type AuditLog } from "$lib/db/schema";
 import type { PageServerLoad } from "./$types";
@@ -13,7 +14,12 @@ import type { PageServerLoad } from "./$types";
  * doesn't always play nicely with FILTER, and a per-metric failure surfaces a
  * specific Postgres error instead of one opaque "Failed query".
  */
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async (event) => {
+	// Defense-in-depth: every admin load re-asserts admin rather than trusting the
+	// parent layout load to have run first. A refactor that detaches this page
+	// from the layout must not silently expose user PII / audit log / sub counts.
+	await requireAdmin(event);
+
 	const db = getDb();
 	const now = new Date();
 	const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);

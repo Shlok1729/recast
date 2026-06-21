@@ -21,3 +21,8 @@
  * in `apps/desktop/docs/camera-recording-todo.md`.
  */
 export const CAMERA_OVERLAY_UI_ENABLED = false;
+
+// NOTE: the WebCodecs preview engine toggle moved to the experimental-features
+// store (`experimentalStore.webcodecsPreview`) so users can flip it at runtime
+// from Settings → Experimental and compare it against the classic `<video>`
+// engine. See `$lib/stores/experimental.svelte`.

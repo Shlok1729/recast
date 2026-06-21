@@ -64,14 +64,17 @@ export const PROFILES_ENABLED_STORAGE_KEY = "recast-profiles-enabled";
 export const RECORDING_QUALITY_STORAGE_KEY = "recast-recording-quality";
 export const RECORDING_FPS_STORAGE_KEY = "recast-recording-fps";
 
-/** Capture quality tier — mirrors the Rust `RecordingQuality` enum. */
-export type RecordingQuality = "balanced" | "high" | "pristine";
+/** Capture quality tier sent to the recorder. `"auto"` (the default) lets the
+ *  backend pick against the detected encoder — hardware → high, software →
+ *  balanced. The explicit tiers mirror the Rust `RecordingQuality` enum. */
+export type RecordingQuality = "auto" | "balanced" | "high" | "pristine";
 
-/** Read the persisted capture quality tier. Defaults to "balanced" (the
- *  historical behavior); any unrecognized value falls back to it too. */
+/** Read the persisted capture quality tier. Defaults to "auto" — the backend
+ *  resolves it to High on a GPU encoder (sharp master) or Balanced on the
+ *  software fallback. Any unrecognized value falls back to "auto" too. */
 export function loadRecordingQuality(): RecordingQuality {
-	const v = safeStorage.get<string>(RECORDING_QUALITY_STORAGE_KEY, "balanced");
-	return v === "high" || v === "pristine" ? v : "balanced";
+	const v = safeStorage.get<string>(RECORDING_QUALITY_STORAGE_KEY, "auto");
+	return v === "balanced" || v === "high" || v === "pristine" ? v : "auto";
 }
 
 export function persistRecordingQuality(q: RecordingQuality): void {

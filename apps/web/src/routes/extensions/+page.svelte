@@ -14,7 +14,6 @@
 		Blocks,
 		Check,
 		Download,
-		Github,
 		Hash,
 		Image as ImageIcon,
 		Lock,
@@ -25,6 +24,7 @@
 		Sparkles,
 		Waves,
 	} from "@lucide/svelte";
+	import { GithubBrand } from "@recast/ui/brand-icons";
 
 	// The six contribution kinds a pack can add. These map 1:1 to the editor's
 	// pickers, so the page reads as "this shows up where you already work".
@@ -77,7 +77,7 @@
 					variant="ghost"
 					class="gap-2"
 				>
-					<Github class="size-4" />
+					<GithubBrand class="size-4" />
 					Browse the registry
 				</Button>
 			</Reveal>
@@ -201,7 +201,7 @@
 							href="https://github.com/kanakkholwal/recast/tree/main/extensions"
 							class="gap-2"
 						>
-							<Github class="size-4" />
+							<GithubBrand class="size-4" />
 							Read the contributor guide
 						</Button>
 						<Button href="/download" variant="ghost" class="gap-2">

@@ -1,15 +1,11 @@
-<script module lang="ts">
-  const baseClass =
-    "group cursor-pointer inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground";
-
-</script>
 <script lang="ts">
-  import { isTauriApp } from "$lib/runtime/tauri";
+  import WindowControls from "$components/layout/window-controls.svelte";
   import { shortcutsDialog } from "$lib/shortcuts/registry.svelte";
-  import { Keyboard, Minus, Square, X } from "@lucide/svelte";
+  import { layoutMode } from "$lib/stores/layout-mode.svelte";
+  import { Keyboard } from "@lucide/svelte";
   import { cn } from "@recast/ui/utils";
+  import { platform } from "@tauri-apps/plugin-os";
   import type { Snippet } from "svelte";
-  import { onMount } from "svelte";
 
   interface Props {
     children?: Snippet;
@@ -18,57 +14,30 @@
   }
 
   let { children, class: className, wrapperClass }: Props = $props();
-  let isTauri = $state(false);
-  let isMaximized = $state(false);
 
-  onMount(async () => {
-    isTauri = await isTauriApp();
-    if (isTauri) {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      isMaximized = await getCurrentWindow().isMaximized();
-      getCurrentWindow().onResized(async () => {
-        isMaximized = await getCurrentWindow().isMaximized();
-      });
-    }
-  });
-
-  async function handleMinimize(e: MouseEvent) {
-    e.stopPropagation();
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().minimize();
-  }
-
-  async function handleToggleMaximize(e: MouseEvent) {
-    e.stopPropagation();
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const win = getCurrentWindow();
-      const maximized = await win.isMaximized();
-      if (maximized) {
-        await win.unmaximize();
-      } else {
-        await win.maximize();
-      }
-      isMaximized = !maximized;
-    } catch (err) {
-      console.error("Toggle maximize failed:", err);
-    }
-  }
-
-  async function handleClose(e: MouseEvent) {
-    e.stopPropagation();
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().close();
-  }
+  // Detected synchronously from the webview UA (same test the shortcuts
+  // registry and the `(app)` shell use) so there's no chrome flash on first
+  // paint; false under SSR.
+  const isMac = ["darwin", "ios"].includes(platform());
+  // Mirror the `(app)` shell's chrome modes so the editor titlebar follows the
+  // same preference. `os-native` follows the OS — macOS traffic lights lead the
+  // bar on the left, min/max/close sit on the right for Windows/Linux. `recast`
+  // keeps the unified min/max/close cluster on the right, identical on every OS.
+  const macLights = $derived(layoutMode.current === "os-native" && isMac);
 </script>
 
 <div
   data-recast-titlebar
   class={cn(
     "group h-10 flex items-center gap-1 border-b border-border/60 bg-background/70 backdrop-blur-xl shrink-0 select-none px-1 py-1 transition-all duration-300",
-    wrapperClass
+    wrapperClass,
   )}
 >
+  <!-- macOS · os-native: traffic lights lead the bar, before the content. -->
+  {#if macLights}
+    <WindowControls kind="mac" class="px-1.5" />
+  {/if}
+
   <!-- Drag region: only the content area, not the window controls -->
   <div
     class={cn("flex-1 flex items-center min-w-0 h-full font-sans", className)}
@@ -87,59 +56,14 @@
     onmousedown={(e) => e.stopPropagation()}
     aria-label="Keyboard shortcuts"
     title="Keyboard shortcuts (Ctrl + /)"
-    class={cn(baseClass, "shrink-0")}
+    class="group inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground"
   >
     <Keyboard size={15} />
   </button>
 
-  <!-- Window controls: outside the drag region so clicks aren't intercepted -->
-  {#if isTauri}
-    <div
-      class="shrink-0 flex items-center gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border/40"
-      onmousedown={(e) => e.stopPropagation()}
-      role="presentation"
-    >
-      <button
-        type="button"
-        onclick={handleMinimize}
-        aria-label="Minimize"
-        title="Minimize"
-        class={cn(baseClass)}
-      >
-        <Minus size={14} />
-      </button>
-      <button
-        type="button"
-        onclick={handleToggleMaximize}
-        aria-label={isMaximized ? "Restore" : "Maximize"}
-        title={isMaximized ? "Restore" : "Maximize"}
-        class={cn(baseClass)}
-      >
-        {#if isMaximized}
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 13 13"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1"
-          >
-            <rect x="3" y="0.5" width="9" height="9" rx="1.5" />
-            <rect x="0.5" y="3" width="9" height="9" rx="1.5" />
-          </svg>
-        {:else}
-          <Square size={14} />
-        {/if}
-      </button>
-      <button
-        type="button"
-        onclick={handleClose}
-        aria-label="Close"
-        title="Close"
-        class={cn(baseClass,"hover:bg-destructive/15 hover:text-destructive")}
-      >
-        <X size={16} />
-      </button>
-    </div>
+  <!-- Windows/Linux (and recast mode on every OS): min/max/close on the right.
+       Outside the drag region so clicks aren't intercepted. -->
+  {#if !macLights}
+    <WindowControls kind="win" class="shrink-0" />
   {/if}
 </div>

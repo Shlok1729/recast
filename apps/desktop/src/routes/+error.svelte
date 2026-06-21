@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import { config } from "$constants/app";
   import {
@@ -12,21 +12,21 @@
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
 
-  $: status = $page.status;
-  $: message = $page.error?.message || "An unexpected error occurred.";
+  const status = $derived(page.status);
+  const message = $derived(page.error?.message || "An unexpected error occurred.");
 
-  $: isNotFound = status === 404;
-  $: isServerError = status >= 500;
+  const isNotFound = $derived(status === 404);
+  const isServerError = $derived(status >= 500);
 
-  $: errorTitle = isNotFound
-    ? "Page not found"
-    : isServerError
-      ? "Server Error"
-      : "Something went wrong";
+  const errorTitle = $derived(
+    isNotFound ? "Page not found" : isServerError ? "Server Error" : "Something went wrong",
+  );
 
-  $: errorDesc = isNotFound
-    ? "Sorry, we couldn't find the page you're looking for."
-    : "Our servers ran into a bit of a hiccup. We're working on fixing it.";
+  const errorDesc = $derived(
+    isNotFound
+      ? "Sorry, we couldn't find the page you're looking for."
+      : "Our servers ran into a bit of a hiccup. We're working on fixing it.",
+  );
 
   function goBack() {
     history.back();

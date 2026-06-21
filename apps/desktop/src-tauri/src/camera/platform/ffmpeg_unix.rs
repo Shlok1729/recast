@@ -30,7 +30,10 @@ const FF_INPUT_FORMAT: &str = "v4l2";
 
 pub struct PlatformCameraSession {
     stop_flag: Arc<AtomicBool>,
-    thread_handle: JoinHandle<Result<PathBuf>>,
+    // `Option` so `stop()` can take the handle out (it needs the join result)
+    // while `Drop` can still detect "stopped without a clean `stop()`" and tear
+    // the capture thread + its FFmpeg child down instead of orphaning them.
+    thread_handle: Option<JoinHandle<Result<PathBuf>>>,
 }
 
 impl PlatformCameraSession {
@@ -48,15 +51,31 @@ impl PlatformCameraSession {
 
         Ok(Self {
             stop_flag,
-            thread_handle,
+            thread_handle: Some(thread_handle),
         })
     }
 
-    pub fn stop(self) -> Result<PathBuf> {
+    pub fn stop(mut self) -> Result<PathBuf> {
         self.stop_flag.store(true, Ordering::Release);
-        self.thread_handle
-            .join()
-            .map_err(|_| anyhow!("camera capture thread panicked"))?
+        match self.thread_handle.take() {
+            Some(handle) => handle
+                .join()
+                .map_err(|_| anyhow!("camera capture thread panicked"))?,
+            None => Err(anyhow!("camera session already stopped")),
+        }
+    }
+}
+
+impl Drop for PlatformCameraSession {
+    fn drop(&mut self) {
+        // Only fires when the session is dropped WITHOUT a clean `stop()` —
+        // a panic or early return between start and the caller's `stop()`.
+        // Without this the capture thread would spin forever and its FFmpeg
+        // child would be orphaned (a stuck webcam light + zombie process).
+        if let Some(handle) = self.thread_handle.take() {
+            self.stop_flag.store(true, Ordering::Release);
+            let _ = handle.join();
+        }
     }
 }
 
@@ -99,11 +118,21 @@ fn camera_capture_thread(
         .spawn()
         .context("failed to start FFmpeg camera capture")?;
 
+    // Drain stderr continuously on a side thread. REQUIRED, not just diagnostic:
+    // the camera FFmpeg runs for the whole (multi-minute) recording and writes
+    // periodic `frame=…` progress to stderr; without a drainer the OS pipe fills
+    // (smaller default buffers on macOS/Linux than Windows), FFmpeg blocks, and
+    // capture deadlocks mid-recording. See `crate::ffmpeg::StderrTail`.
+    let stderr_tail = child.stderr.take().map(crate::ffmpeg::StderrTail::spawn);
+
     while !stop_flag.load(Ordering::Acquire) {
         thread::sleep(Duration::from_millis(100));
         if let Ok(Some(status)) = child.try_wait() {
             if !status.success() {
-                let stderr = read_child_stderr(&mut child);
+                let stderr = stderr_tail
+                    .as_ref()
+                    .map(|t| t.snapshot())
+                    .unwrap_or_default();
                 return Err(anyhow!(
                     "FFmpeg camera process exited early ({FF_INPUT_FORMAT}): {stderr}"
                 ));
@@ -112,7 +141,20 @@ fn camera_capture_thread(
         }
     }
 
-    graceful_stop(&mut child);
+    let forced_kill = graceful_stop(&mut child);
+    let stderr = stderr_tail.map(|t| t.collect()).unwrap_or_default();
+
+    // A forced kill means FFmpeg didn't finalize within the timeout; the MP4
+    // `moov` atom is written last, so a killed multi-minute capture leaves a
+    // large-but-truncated, unplayable file the size check below would wave
+    // through. Reject it so the camera track is dropped rather than committing a
+    // corrupt clip into the .recast project.
+    if forced_kill {
+        return Err(anyhow!(
+            "camera capture did not finalize within the timeout and was terminated \
+             ({FF_INPUT_FORMAT}); dropping the camera track to avoid a corrupt file. {stderr}"
+        ));
+    }
 
     // Same MP4 sanity check as the Windows backend: FFmpeg can return 0
     // and still leave us with a malformed / empty file if the `q`
@@ -283,30 +325,21 @@ fn permission_hint() -> &'static str {
 /// to SIGKILL if it doesn't exit within ~5 s. The MP4 muxer needs the
 /// graceful path so the `moov` atom gets written; killing first
 /// produces an unplayable file.
-fn graceful_stop(child: &mut Child) {
+/// Returns `true` if FFmpeg had to be force-killed (didn't finalize in time) —
+/// the caller treats that as a corrupt-output signal.
+fn graceful_stop(child: &mut Child) -> bool {
     if let Some(ref mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(b"q");
         let _ = stdin.flush();
     }
     for _ in 0..50 {
         if let Ok(Some(_)) = child.try_wait() {
-            return;
+            return false;
         }
         thread::sleep(Duration::from_millis(100));
     }
     log::warn!("FFmpeg camera process did not exit gracefully, killing");
     let _ = child.kill();
     let _ = child.wait();
-}
-
-fn read_child_stderr(child: &mut Child) -> String {
-    use std::io::Read;
-    let mut stderr_str = String::new();
-    if let Some(ref mut stderr) = child.stderr {
-        let _ = stderr.read_to_string(&mut stderr_str);
-    }
-    if stderr_str.len() > 500 {
-        stderr_str.truncate(500);
-    }
-    stderr_str
+    true
 }

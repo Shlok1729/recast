@@ -19,6 +19,7 @@
 <p align="center">
   <a href="https://github.com/kanakkholwal/recast/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/license-Dual_License-blue.svg?style=flat-square" alt="License: Dual License (GPLv3 / Commercial)"></a>
   <a href="https://github.com/kanakkholwal/recast/actions/workflows/deploy-web.yml"><img src="https://github.com/kanakkholwal/recast/actions/workflows/deploy-web.yml/badge.svg" alt="Web deploy status"></a>
+<a href="https://deepwiki.com/kanakkholwal/recast"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 ## About

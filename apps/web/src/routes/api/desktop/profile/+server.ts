@@ -48,7 +48,8 @@ export const GET: RequestHandler = async ({ request }) => {
 
 	// Run the aggregate queries in parallel — they don't depend on each
 	// other and each is cheap (single-table indexed scan / counter read).
-	const [userRow, subRow, recastAgg, shareAgg, memberships] = await Promise.all([
+	const [userRow, subRow, recastAgg, shareAgg, memberships, workspaceRecastCounts] =
+		await Promise.all([
 		db
 			.select({
 				email: userTable.email,
@@ -100,17 +101,47 @@ export const GET: RequestHandler = async ({ request }) => {
 				id: organizationTable.id,
 				name: organizationTable.name,
 				role: memberTable.role,
+				plan: organizationTable.plan,
 			})
 			.from(memberTable)
 			.innerJoin(organizationTable, eq(memberTable.organizationId, organizationTable.id))
 			.where(eq(memberTable.userId, userId)),
+		// Live (non-deleted) recast count per workspace the user belongs to.
+		// The inner join to `member` both scopes to the user's workspaces and,
+		// because each recast matches exactly one of the user's membership rows,
+		// keeps the count equal to the workspace's total recast count.
+		db
+			.select({
+				workspaceId: recastTable.workspaceId,
+				count: count(),
+			})
+			.from(recastTable)
+			.innerJoin(
+				memberTable,
+				and(
+					eq(memberTable.organizationId, recastTable.workspaceId),
+					eq(memberTable.userId, userId),
+				),
+			)
+			.where(isNull(recastTable.deletedAt))
+			.groupBy(recastTable.workspaceId),
 	]);
 
 	if (!userRow) throw error(404, "user_not_found");
 
 	// Default upload target: the session's active org if the user is still a
 	// member, else their first workspace. null only if they belong to none.
-	const workspaces = memberships.map((m) => ({ id: m.id, name: m.name, role: m.role }));
+	const recastCountByWorkspace = new Map(
+		workspaceRecastCounts.map((r) => [r.workspaceId, Number(r.count) || 0]),
+	);
+	const workspaces = memberships.map((m) => ({
+		id: m.id,
+		name: m.name,
+		role: m.role,
+		// `organization.plan` is "free" | "pro" | "enterprise" (admin-managed).
+		plan: m.plan ?? "free",
+		recastsCount: recastCountByWorkspace.get(m.id) ?? 0,
+	}));
 	const activeId = session.user.activeOrganizationId ?? null;
 	const defaultWorkspaceId =
 		(activeId && workspaces.some((w) => w.id === activeId) ? activeId : workspaces[0]?.id) ??

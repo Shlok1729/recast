@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "$lib/db";
 import { share } from "$lib/db/schema";
+import { enforceRateLimit } from "$lib/server/rate-limit";
 import {
 	unlockCookieName,
 	unlockToken,
@@ -35,7 +36,15 @@ const COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
  * mismatch, 404 if the share doesn't exist, 400 if no password is set
  * (caller shouldn't be calling unlock then).
  */
-export const POST: RequestHandler = async ({ params, request, cookies }) => {
+export const POST: RequestHandler = async ({ params, request, cookies, getClientAddress }) => {
+	// Throttle password attempts per share+IP before touching the DB or hashing,
+	// so this can't be used to brute-force `share.passwordHash`.
+	const limited = await enforceRateLimit(
+		{ getClientAddress },
+		{ bucket: "share-unlock", id: params.id, limit: 10, windowMs: 60_000 },
+	);
+	if (limited) return limited;
+
 	let raw: unknown;
 	try {
 		raw = await request.json();
@@ -44,7 +53,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	}
 	const parsed = BodySchema.safeParse(raw);
 	if (!parsed.success) {
-		error(400, parsed.error.issues[0]?.message ?? "Invalid body");
+		error(422, parsed.error.issues[0]?.message ?? "Invalid body");
 	}
 
 	const db = getDb();

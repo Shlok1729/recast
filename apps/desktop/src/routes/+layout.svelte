@@ -9,7 +9,7 @@
 
   import { onNavigate } from "$app/navigation";
   import { page } from "$app/state";
-  import { launchRecordingPanel } from "$lib/ipc";
+  import { launchRecordingPanel, takePendingOpenFile } from "$lib/ipc";
   import { openProjectFromExternalPath } from "$lib/openProject";
   import { updater } from "$lib/stores/updater.svelte";
 
@@ -96,7 +96,6 @@
   import { Toaster, toast } from "@recast/ui/sonner";
   import { ModeWatcher, setMode } from "@recast/ui/theme";
   import { safeStorage } from "@recast/ui/persisted-state";
-  import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, tick } from "svelte";
   import { log } from "$lib/logger";
@@ -213,9 +212,7 @@
       if (getCurrentWebviewWindow().label !== "main") return;
 
       try {
-        const pending = await invoke<string | null>(
-          "take_pending_open_file",
-        );
+        const pending = await takePendingOpenFile();
         if (!cancelled && pending) {
           void openProjectFromExternalPath(pending);
         }

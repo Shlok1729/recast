@@ -13,8 +13,8 @@
  * window (label-based dedupe).
  */
 import { analytics } from "$lib/analytics/client";
+import { isRecordingActive, peekRecastProject } from "$lib/ipc";
 import { toast } from "@recast/ui/sonner";
-import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 function basename(path: string): string {
@@ -82,7 +82,7 @@ export async function openProjectFromExternalPath(
   // start the editor anyway from the recasts list if something's wedged.
   let recording = false;
   try {
-    recording = await invoke<boolean>("is_recording_active");
+    recording = await isRecordingActive();
   } catch (e) {
     console.warn("[open-recast] is_recording_active probe failed", e);
   }
@@ -92,7 +92,7 @@ export async function openProjectFromExternalPath(
   }
 
   try {
-    await invoke("peek_recast_project", { path });
+    await peekRecastProject(path);
   } catch (e) {
     toast.error(
       `Couldn't open "${basename(path)}" — ${describeError(e)}`,

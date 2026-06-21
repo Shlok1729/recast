@@ -163,9 +163,27 @@ pub fn spawn_capture_loop(
             // empty pipeline at t=0. DXGI returns the current desktop
             // immediately on most systems; we still cap the wait to keep
             // a stop request responsive (poll the stop flag every 100 ms).
+            //
+            // Bound the total wait: a healthy source (DXGI / avfoundation)
+            // delivers within a second or two, so a source that produces
+            // NOTHING means capture is broken — most commonly a missing macOS
+            // Screen Recording grant, where FFmpeg stays alive but emits zero
+            // bytes. Without this cap the loop spins forever and `stop()`'s
+            // `capture_handle.join()` hangs, so the Stop button looks dead and
+            // the user mashes it. Surface an actionable error instead.
+            const WARMUP_TIMEOUT: Duration = Duration::from_secs(10);
+            let warmup_start = Instant::now();
             let mut last_frame: Arc<[u8]> = loop {
                 if stop_flag.load(Ordering::Acquire) {
                     return Ok(());
+                }
+                if warmup_start.elapsed() >= WARMUP_TIMEOUT {
+                    return Err(anyhow::anyhow!(
+                        "no frames captured within {}s — the screen source produced \
+                         no data. On macOS, grant Screen Recording in System \
+                         Settings → Privacy & Security, then record again.",
+                        WARMUP_TIMEOUT.as_secs()
+                    ));
                 }
                 match source.capture_next(Duration::from_millis(100))? {
                     Some(bytes) => break Arc::<[u8]>::from(bytes),

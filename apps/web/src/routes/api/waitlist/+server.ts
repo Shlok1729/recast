@@ -1,10 +1,24 @@
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb } from "$lib/db";
 import { user, waitlist } from "$lib/db/schema";
+import { enforceRateLimit } from "$lib/server/rate-limit";
 import type { RequestHandler } from "./$types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Schema is the single source of truth for the request body. `source`/`name`
+// stay lenient (coerce non-strings to a safe default rather than rejecting) to
+// preserve the prior hand-rolled behaviour; only `email` gates the request.
+const BodySchema = z.object({
+	email: z
+		.string()
+		.transform((v) => v.trim().toLowerCase())
+		.refine((v) => EMAIL_RE.test(v), "Invalid email"),
+	source: z.unknown().transform((v) => (typeof v === "string" ? v.slice(0, 64) : null)),
+	name: z.unknown().transform((v) => (typeof v === "string" ? v.trim().slice(0, 80) : "")),
+});
 
 /**
  * Waitlist sign-up. Idempotent: hitting it twice with the same email is a
@@ -22,21 +36,28 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * or just signs in with a magic link. `role` stays at the plugin default
  * ("user") — admin promotion is a separate, deliberate flip.
  */
-export const POST: RequestHandler = async ({ request }) => {
-	let body: { email?: unknown; source?: unknown; name?: unknown } = {};
+export const POST: RequestHandler = async ({ request, getClientAddress }) => {
+	// Unauthenticated and creates a `user` row — throttle hard per IP so it
+	// can't be used to bulk-insert junk accounts.
+	const limited = await enforceRateLimit(
+		{ getClientAddress },
+		{ bucket: "waitlist", limit: 5, windowMs: 10 * 60_000 },
+	);
+	if (limited) return limited;
+
+	let raw: unknown;
 	try {
-		body = (await request.json()) as typeof body;
+		raw = await request.json();
 	} catch {
 		return json({ ok: false, error: "Invalid JSON" }, { status: 400 });
 	}
 
-	const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-	const source = typeof body.source === "string" ? body.source.slice(0, 64) : null;
-	const requestedName = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
-
-	if (!EMAIL_RE.test(email)) {
-		return json({ ok: false, error: "Invalid email" }, { status: 400 });
+	const parsed = BodySchema.safeParse(raw);
+	if (!parsed.success) {
+		return json({ ok: false, error: "Invalid email" }, { status: 422 });
 	}
+	const { email, source } = parsed.data;
+	const requestedName = parsed.data.name;
 
 	const db = getDb();
 

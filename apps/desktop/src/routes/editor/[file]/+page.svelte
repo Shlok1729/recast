@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
   import EditorToolbar from "$components/editor/EditorToolbar.svelte";
   import ExportDialog from "$components/editor/ExportDialog.svelte";
@@ -11,44 +12,43 @@
   import VideoPreview from "$components/editor/VideoPreview.svelte";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import EditorSkeleton from "$components/skeletons/EditorSkeleton.svelte";
-  import { rasterizeCursorSprites } from "$lib/export/rasterize-cursor";
-  import { expandTextAnnotations } from "$lib/export/rasterize-text";
   import type { ExportStateEvent } from "$lib/ipc";
   import {
     autosaveProject,
     cancelExport,
     clearAutosave,
     createExportId,
-    exportVideo,
     extractWaveform,
     generateThumbnails,
-    listenToExportState,
     loadEditorDocument,
+    openFileLocation,
+    refreshTray,
     saveProjectEdits,
-    suggestZoomRegions,
   } from "$lib/ipc";
+  import { generateAutoZoom } from "$lib/services/analysis";
+  import { buildExportRenderState, runExport } from "$lib/services/export";
   import { isShareSupported, shareRecording } from "$lib/share";
+  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
+  import { cloudShare } from "$lib/stores/cloudShare.svelte";
   import {
     createEditorStore,
-    framePaddingPixels,
     type VideoMetadata,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import { gdrive } from "$lib/stores/gdrive.svelte";
-  import { cloudShare } from "$lib/stores/cloudShare.svelte";
-  import { applyAutoZooms } from "$lib/zoom/auto-apply";
   import {
     ArrowLeft,
     CheckCircle2,
     Circle,
+    Cloud,
     ExternalLink,
     FlaskConical,
     FolderOpen,
-    Cloud,
     HardDriveUpload,
     Link2,
     LoaderCircle,
     RefreshCw,
+    Scissors,
     Share2,
     TriangleAlert,
     Upload,
@@ -59,9 +59,7 @@
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { browser } from "$app/environment";
-  import { onDestroy, onMount, tick } from "svelte";
-  import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
 
   import { log } from "$lib/logger";
   import { cubicOut } from "svelte/easing";
@@ -79,6 +77,12 @@
   const store = createEditorStore();
 
   let videoEl: HTMLVideoElement | null = $state(null);
+  // True while the WebCodecs preview engine drives the picture (its output-time
+  // clock owns `store.currentTime`). When set, `handleTimeUpdate` must NOT echo
+  // `videoEl.currentTime` back into the store: the `<video>` element free-runs
+  // through the raw (un-cut) recording, so feeding its time to the store fights
+  // the clock and snaps playback back across a cut. Bound from VideoPreview.
+  let webcodecsActive = $state(false);
   // VideoPreview binds its `captureFrame` to this slot so VideoPlayerControls
   // can trigger a WYSIWYG screenshot (composite, not raw video frame).
   let captureFrame = $state<(() => Promise<Blob | null>) | undefined>(undefined);
@@ -201,6 +205,15 @@
   function handleTimeUpdate() {
     if (!videoEl) return;
     if (store.isPlaying) {
+      // In the WebCodecs path the picture clock is the master and owns
+      // `store.currentTime`, and audio is slaved to it by `syncAudioToClock`
+      // (rAF) — NOT to this `<video>` element. The element free-runs through the
+      // raw recording (it doesn't skip cuts), so echoing its time into the store,
+      // running the trim-loop off it, or snapping audio to it all fight the clock
+      // and yank playback/audio back across a cut. Everything below is therefore
+      // legacy-`<video>`-path only; the clock path handles time, end/loop, and
+      // audio elsewhere.
+      if (webcodecsActive) return;
       store.currentTime = videoEl.currentTime;
       // Loop within trim region. Only relevant when trimEnd is set BELOW
       // the natural duration — at the natural end we rely on the `ended`
@@ -240,15 +253,55 @@
     micAudioEl?.pause();
   }
 
+  // Slave the audio tracks to the picture clock (WebCodecs path). The audio WAVs
+  // are the FULL recording, so to play the edited timeline they must skip the
+  // same cuts the picture does: `store.currentTime` is the cut-aware playhead the
+  // draw loop publishes, so we snap each element onto it whenever it drifts past
+  // a threshold. Normal playback runs both at 1× so they stay locked with no
+  // correction; the only correction is one snap at each cut boundary (where
+  // `store.currentTime` jumps the cut's length) and on a seek — exactly the
+  // events the old `<video>`-slaving handled late/twice, which is what made audio
+  // lag and repeat. Tighter than the visual threshold since audio desync is more
+  // audible, but not so tight that per-frame jitter causes constant re-seeks.
+  const AUDIO_SYNC_THRESHOLD = 0.12;
+  let audioSyncRaf: number | null = null;
+  function syncAudioToClock() {
+    audioSyncRaf = requestAnimationFrame(syncAudioToClock);
+    if (!store.isPlaying || !webcodecsActive) return;
+    const target = store.currentTime;
+    for (const el of [systemAudioEl, micAudioEl]) {
+      if (!el || el.paused) continue;
+      if (Math.abs(el.currentTime - target) > AUDIO_SYNC_THRESHOLD) {
+        el.currentTime = target;
+      }
+    }
+  }
+  function startAudioClockSync() {
+    if (audioSyncRaf === null) audioSyncRaf = requestAnimationFrame(syncAudioToClock);
+  }
+  function stopAudioClockSync() {
+    if (audioSyncRaf !== null) {
+      cancelAnimationFrame(audioSyncRaf);
+      audioSyncRaf = null;
+    }
+  }
+  onDestroy(stopAudioClockSync);
+
   // Play/pause audio elements in lockstep with the video via the store's
   // `isPlaying` flag (which is set by PlaybackControls, keyboard handler, etc.).
   $effect(() => {
     const playing = store.isPlaying;
+    // In the WebCodecs path the clock owns the time; align to it, not to the
+    // free-running <video> element. Read untracked so this effect doesn't re-run
+    // (re-aligning + replaying audio) on every clock tick.
+    const alignTo = untrack(() =>
+      webcodecsActive ? store.currentTime : (videoEl?.currentTime ?? 0),
+    );
     for (const el of [systemAudioEl, micAudioEl]) {
       if (!el) continue;
       if (playing) {
-        // Align audio to the video's current time before resuming.
-        if (videoEl) el.currentTime = videoEl.currentTime;
+        // Align audio to the current playhead before resuming.
+        el.currentTime = alignTo;
         void el.play().catch((err) => {
           console.warn("Audio play failed:", err);
         });
@@ -256,6 +309,9 @@
         el.pause();
       }
     }
+    // Keep audio locked to the clock while playing on the WebCodecs path.
+    if (playing && webcodecsActive) startAudioClockSync();
+    else stopAudioClockSync();
   });
 
   // Apply volume/mute from the store's audio settings to both audio elements.
@@ -268,9 +324,14 @@
     if (micAudioEl) micAudioEl.volume = vol;
   });
 
-  // Snap audio to the video's time whenever the user scrubs.
+  // Snap audio to the video's time whenever the user scrubs. WebCodecs path:
+  // audio follows the clock (`syncAudioToClock`), and the `<video>` element gets
+  // seeked by its own transport-correction (to a cut-aware time, but mid-stream),
+  // so snapping audio to those events would fight the clock and reintroduce the
+  // lag/repeat. Skip it there — paused-scrub audio realigns on the next play via
+  // the play/pause effect.
   function handleVideoSeeked() {
-    if (!videoEl) return;
+    if (!videoEl || webcodecsActive) return;
     const t = videoEl.currentTime;
     for (const el of [systemAudioEl, micAudioEl]) {
       if (el) el.currentTime = t;
@@ -454,37 +515,15 @@
     if (!cursorPath) return;
     autoZoomRunning = true;
     try {
-      const suggestions = await suggestZoomRegions(cursorPath);
-      const dur = store.metadata?.duration ?? 0;
-      const w = store.metadata?.width ?? 0;
-      const h = store.metadata?.height ?? 0;
-      const bounds = {
-        start: store.inPoint,
-        end: store.outPoint > 0 ? store.outPoint : dur,
-      };
-      if (bounds.end <= bounds.start) {
-        store.autoZoomApplied = true;
-        return;
-      }
-      // Single coalesced undo entry covering all auto-applied regions.
-      store.pushUndoState();
-      const result = applyAutoZooms(store, suggestions, bounds, w, h);
-      store.autoZoomApplied = true;
-      // Persist immediately so a crash before the 30 s autosave tick doesn't
-      // re-run auto-zoom on next open and double up regions.
-      if (documentPath) {
-        try {
-          await autosaveProject(
-            documentPath,
-            JSON.stringify(store.toRenderState()),
-          );
-        } catch (err) {
-          console.warn("Auto-zoom autosave failed:", err);
-        }
-      }
-      if (result.applied > 0) {
+      // generateAutoZoom latches store.autoZoomApplied itself (it's persisted
+      // document state) on all non-error paths, before its own autosave.
+      const outcome = await generateAutoZoom(store, cursorPath, {
+        documentPath,
+      });
+      if (outcome.reason === "bad-bounds") return;
+      if (outcome.applied > 0) {
         toast.success(
-          `Added ${result.applied} focus moment${result.applied === 1 ? "" : "s"}`,
+          `Added ${outcome.applied} focus moment${outcome.applied === 1 ? "" : "s"}`,
           {
             description: "Tweak, remove, or turn off in the Focus panel.",
             action: {
@@ -642,9 +681,7 @@
       // selectable from there immediately. Pass `isRecording: null` to
       // signal "list changed, don't touch the recording flag" — the
       // panel window is the authoritative source for that.
-      void import("@tauri-apps/api/core").then(({ invoke }) => {
-        invoke("refresh_tray", { isRecording: null }).catch(() => {});
-      });
+      void refreshTray(null).catch(() => {});
     } else if (next.kind === "cancelled") {
       toast.info("Export cancelled");
     } else {
@@ -710,68 +747,19 @@
     exportNow = exportStartedAt;
     resetPrep();
 
-    const unlistenExportState = await listenToExportState(
-      exportId,
-      handleExportState,
-    );
-    // Tauri's IPC layer — that round-trip can lag visibly on some systems
-
     try {
-      // Hybrid-raster pass: replace text annotations with image-kind ones
-      // whose `path` is a base64-encoded PNG. Rust's draw_image consumes
-      // both file paths and `data:` URLs uniformly.
-      const renderState = store.toRenderState();
-      const meta = store.metadata;
-      const paddingPx = framePaddingPixels(renderState.padding ?? 0, meta);
-      const canvasW = meta ? meta.width + paddingPx * 2 : 0;
-      const canvasH = meta ? meta.height + paddingPx * 2 : 0;
-      // Run the two hybrid-raster passes in parallel — they don't depend
-      // on each other and the cursor SVG decode is non-trivial on cold
-      // boot (Image() onload is async even for inline blobs). This trims
-      // perceived "Preparing…" time roughly in half on projects with text.
-      prepText = renderState.annotations.some((a) => a.kind.kind === "text")
-        ? "running"
-        : "done";
-      prepCursor = store.cursorSettings.style !== "dot" ? "running" : "done";
-      const [expandedAnnotations, cursorSprites] = await Promise.all([
-        expandTextAnnotations(renderState.annotations, canvasW, canvasH).then(
-          (r) => {
-            prepText = "done";
-            return r;
+      // Build the exact payload Rust renders: hybrid-raster passes (text →
+      // PNG, cursor → sprite sheet) plus per-lane enable toggles. The prep
+      // sub-stages drive the "Preparing…" UI via these hooks.
+      const { renderState: finalRenderState, metadata: meta } =
+        await buildExportRenderState(store, {
+          hooks: {
+            onText: (s) => (prepText = s),
+            onCursor: (s) => (prepCursor = s),
+            onSending: (s) => (prepSending = s),
           },
-        ),
-        rasterizeCursorSprites(
-          store.cursorSettings.style,
-          store.cursorSettings.size * 16,
-        ).then((r) => {
-          prepCursor = "done";
-          return r;
-        }),
-      ]);
-      prepSending = "running";
-      // Honor the per-lane "enable" toggles. The underlying data is preserved
-      // on the store; here we just hand the export pipeline the active set,
-      // so toggling a lane off bypasses its effect in the rendered file.
-      const finalRenderState = {
-        ...renderState,
-        annotations: store.annotationsGloballyHidden ? [] : expandedAnnotations,
-        zoomRegions: store.focusEnabled ? renderState.zoomRegions : [],
-        cuts:
-          experimentalStore.silenceDetection && store.cutsEnabled
-            ? renderState.cuts
-            : [],
-        cursorSpriteRest: cursorSprites?.rest,
-        cursorSpritePress: cursorSprites?.press,
-        cursorSpriteRightPress: cursorSprites?.rightPress,
-        cursorSpriteDrag: cursorSprites?.drag,
-        cursorSpriteHotspotRest: cursorSprites?.restHotspot,
-        cursorSpriteHotspotPress: cursorSprites?.pressHotspot,
-        cursorSpriteHotspotRightPress: cursorSprites?.rightPressHotspot,
-        cursorSpriteHotspotDrag: cursorSprites?.dragHotspot,
-        cursorSpriteSizePx: cursorSprites?.pixelSize,
-      };
+        });
 
-      prepSending = "done";
       // Capture the exact settings this export ran with — the single most
       // useful line when a user reports "my export looked wrong".
       log.info("export", "export_started", {
@@ -786,18 +774,20 @@
         padding: finalRenderState.padding ?? 0,
         durationSec: meta ? Math.round(meta.duration) : undefined,
       });
-      const path = await exportVideo(
-        documentPath || data.filePath,
-        store.exportFormat,
-        store.exportQuality,
-        finalRenderState,
+      const path = await runExport({
+        inputPath: documentPath || data.filePath,
+        format: store.exportFormat,
+        quality: store.exportQuality,
+        renderState: finalRenderState,
         exportId,
-        store.exportFormat === "gif" ? store.gifSettings : undefined,
-        store.exportSpeed,
+        gifSettings:
+          store.exportFormat === "gif" ? store.gifSettings : undefined,
+        speed: store.exportSpeed,
         // GIF carries its own fps in gifSettings; MP4/WebM use the picker
         // (null = keep source rate).
-        store.exportFormat === "gif" ? undefined : store.exportFps,
-      );
+        fps: store.exportFormat === "gif" ? undefined : store.exportFps,
+        onState: handleExportState,
+      });
       // Safety net: if the export-state success event was missed, fall back to
       // the Promise result. Don't overwrite if the listener already set it.
       if (!exportResult) {
@@ -825,7 +815,6 @@
         }
       }
     } finally {
-      unlistenExportState();
       if (activeExportId === exportId) {
         activeExportId = null;
       }
@@ -872,6 +861,20 @@
   );
   const isExportFlowOpen = $derived(exportPhase !== null);
 
+  // Silence-detection cuts only. Manual ripple deletes (`source: "manual"`) are
+  // a shipped feature — always honoured in preview and export regardless of the
+  // experimental flag — so they must NOT trip the "enable Silence detection"
+  // banner. Only auto-detected silence cuts depend on that flag's lane/UI.
+  const silenceCutCount = $derived(
+    store.cuts.filter((c) => c.source === "silence").length,
+  );
+  // Manual split/cut edits are gated behind the `timelineEditing` experiment.
+  // If a saved project carries them but the flag is off, the cuts are skipped —
+  // surface an opt-in so the work isn't silently lost (parallel to silence).
+  const manualCutCount = $derived(
+    store.cuts.filter((c) => c.source === "manual").length,
+  );
+
   function openExportOptions() {
     if (store.isExporting) return;
     exportOptionsOpen = true;
@@ -915,8 +918,7 @@
   async function revealExportInFolder() {
     if (exportResult?.kind !== "success") return;
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_file_location", { path: exportResult.path });
+      await openFileLocation(exportResult.path);
     } catch (err) {
       toast.error(`Could not open folder: ${err}`);
     }
@@ -1294,15 +1296,15 @@
        experimental flag is off, so the cut lane is hidden and the cuts will
        be silently ignored on export. Surface that loudly with an inline
        opt-in so users sharing projects across machines don't lose work. -->
-  {#if !isLoading && !error && store.cuts.length > 0 && !experimentalStore.silenceDetection}
+  {#if !isLoading && !error && silenceCutCount > 0 && !experimentalStore.silenceDetection}
     <div
-      class="flex items-center gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+      class="flex items-center gap-2.5 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] text-warning"
       role="status"
     >
       <FlaskConical class="size-3.5 shrink-0" />
       <VolumeX class="size-3.5 shrink-0" />
       <span class="min-w-0 flex-1 truncate">
-        This project has {store.cuts.length} silence cut{store.cuts.length === 1
+        This project has {silenceCutCount} silence cut{silenceCutCount === 1
           ? ""
           : "s"} — currently hidden and skipped on export. Enable
         <span class="font-semibold">Silence detection</span> to use them.
@@ -1310,9 +1312,36 @@
       <Button
         variant="outline"
         size="xs"
-        class="h-6 shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+        class="h-6 shrink-0 border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
         onclick={() =>
           experimentalStore.setEnabled("silenceDetection", true)}
+      >
+        Enable
+      </Button>
+    </div>
+  {/if}
+
+  <!-- Manual edits banner: the project has split/cut edits but the opt-in
+       timeline-editing feature is off, so they're hidden and skipped on export.
+       Surface an inline opt-in so the edits aren't silently dropped. -->
+  {#if !isLoading && !error && manualCutCount > 0 && !experimentalStore.timelineEditing}
+    <div
+      class="flex items-center gap-2.5 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] text-warning"
+      role="status"
+    >
+      <FlaskConical class="size-3.5 shrink-0" />
+      <Scissors class="size-3.5 shrink-0" />
+      <span class="min-w-0 flex-1 truncate">
+        This project has {manualCutCount} timeline edit{manualCutCount === 1
+          ? ""
+          : "s"} — currently hidden and skipped on export. Enable
+        <span class="font-semibold">Timeline editing</span> to use them.
+      </span>
+      <Button
+        variant="outline"
+        size="xs"
+        class="h-6 shrink-0 border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
+        onclick={() => experimentalStore.setEnabled("timelineEditing", true)}
       >
         Enable
       </Button>
@@ -1358,6 +1387,7 @@
               {store}
               bind:videoEl
               bind:captureFrame
+              bind:webcodecsActive
               {videoSrc}
               {cursorPath}
               {cameraSrc}
