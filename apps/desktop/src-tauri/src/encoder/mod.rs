@@ -359,6 +359,18 @@ pub fn spawn_encoder_loop(
             // drop frames during recording.
             args.extend(recording_codec_args(encoder, config.quality));
 
+            // Force a ~1-second keyframe interval (GOP). Every encoder here would
+            // otherwise use its default (~250 frames ≈ 4s at 60fps), which makes the
+            // recording expensive to SEEK: jumping to any point — scrubbing, or
+            // crossing a cut in the editor — must re-decode from the preceding
+            // keyframe, i.e. up to ~4s of frames, which at 4K is a multi-second
+            // freeze. A 1s GOP keeps that post-seek decode cheap so cuts/scrubbing
+            // stay responsive (this is how editable screen-recording footage is
+            // normally encoded). The size cost of the extra keyframes is small.
+            // `-g` is honoured by nvenc/amf/qsv/videotoolbox/libx264 alike.
+            args.push("-g".to_string());
+            args.push(config.fps.max(1).to_string());
+
             args.push(config.output_path.to_string_lossy().to_string());
 
             let mut command = Command::new(crate::ffmpeg::ffmpeg_path());

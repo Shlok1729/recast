@@ -20,8 +20,14 @@ export interface ChunkMeta {
 	durUs: number;
 	/** IDR / sync sample — a valid decode entry point. */
 	key: boolean;
-	/** Encoded bytes (avcC length-prefixed NAL units). */
-	data: Uint8Array;
+	/**
+	 * Encoded bytes (avcC length-prefixed NAL units), or `null` when not yet
+	 * fetched. Whole-file ingestion always has the bytes; the progressive path
+	 * leaves them `null` until the GOP is range-fetched (using the parallel
+	 * sample byte-map), then fills them in and nulls them again on Tier-1
+	 * eviction.
+	 */
+	data: Uint8Array | null;
 }
 
 /** Decode-order indices of keyframes, ascending. */
@@ -88,15 +94,25 @@ export function keyframeAtOrBefore(
  * keyframe `kf`, given the keyframe it's currently primed from (`anchorKey`,
  * -1 if never primed) and the next decode-index it would feed (`feedCursor`).
  *
- * A fresh GOP is needed when we've never primed, jumped BACKWARD to an earlier
- * keyframe, or there's a gap — the target GOP starts past where we've fed, i.e.
- * a forward jump across a cut. Continuous forward playback hits none of these,
- * so it never resets and frames just keep streaming.
+ * Reset cases: never primed; jumped BACKWARD to an earlier keyframe; or a
+ * forward GOP gap (target keyframe past where we've fed) — BUT only when that
+ * forward gap is a genuine discontinuity (`forwardIsJump`): a seek or a cut.
+ *
+ * The `forwardIsJump` guard is essential. The playback clock free-runs at
+ * realtime; if decode falls behind on a heavy stretch the playhead outruns the
+ * feed cursor and crosses keyframes the decoder hasn't reached yet. Resetting
+ * there would seek the decoder forward to each keyframe and SKIP the frames in
+ * between — freezing the picture on edit-heavy content. So when the requested
+ * time merely advanced smoothly (not a jump) we keep streaming contiguously and
+ * let the decoder catch up, decoding every frame. The caller decides whether the
+ * request was a jump (a large time delta since the last one). Defaults to true
+ * so existing callers keep the old "any forward gap resets" behaviour.
  */
 export function needsReset(
 	anchorKey: number,
 	feedCursor: number,
 	kf: number,
+	forwardIsJump = true,
 ): boolean {
-	return anchorKey === -1 || kf < anchorKey || kf > feedCursor;
+	return anchorKey === -1 || kf < anchorKey || (kf > feedCursor && forwardIsJump);
 }
