@@ -37,6 +37,20 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.7',
+		date: '2026-06-28',
+		highlights: [
+			'**Editing feels faster on every new recording** — recordings now capture a keyframe about twice a second, so seeking, scrubbing, and cutting in the editor no longer pause to re-decode several seconds of video.',
+			'**Free in-browser video tools on the web** — convert, trim, compress, and extract from a video right in your browser, with nothing uploaded.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Free client-side video tools on the Recast website (`/tools`): MP4 to GIF, trim, mute, MP4 to MP3, extract audio, video to images, MOV to MP4, MP4 ↔ WebM, compress, and resize. Everything runs in the browser through WebCodecs — files are never uploaded, and over-sized files are pointed at the desktop app, which has no limit. Each tool is its own page with a drag-and-drop upload, an input and output preview, and a download.' },
+			{ kind: 'added', summary: 'Experimental WebCodecs preview engine improvements (Settings → Experimental → "WebCodecs preview"): playback now crosses cuts without freezing, audio stays sample-accurate across cuts via a new Web Audio engine, the decoded-frame cache sizes itself to the recording\'s resolution so 4K/5K clips don\'t stall the decoder, and very large recordings stream in over byte-ranges instead of loading the whole file into memory.' },
+			{ kind: 'changed', summary: 'Recordings are encoded with a roughly half-second keyframe interval instead of the encoder default (about four seconds). Seeking, scrubbing, and crossing a cut in the editor are much quicker as a result, and export seeks speed up too, at a small increase in file size.' },
+			{ kind: 'fixed', summary: 'Website SEO: removed duplicate page metadata (the default social card was leaking onto pages that set their own, so scrapers picked the generic one), added a sitemap and a proper robots.txt, marked non-public pages `noindex`, gave the privacy and terms pages their own canonical and social cards, and added site-wide brand structured data.' },
+		],
+	},
+	{
 		version: '0.2.6',
 		date: '2026-06-10',
 		highlights: [
