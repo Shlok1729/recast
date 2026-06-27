@@ -34,6 +34,7 @@ import {
 	needsReset,
 	sampleAtOrBefore,
 } from "./frame-index";
+import { frameBudget } from "./frame-budget";
 import { GopByteBudget } from "./gop-byte-budget";
 import {
 	buildSampleTable,
@@ -44,8 +45,10 @@ import {
 import type { FromWorker, ToWorker } from "./webcodecs-protocol";
 
 /** Samples (decode order) to keep decoded ahead of the playhead. Small so we
- * don't keep many decoder output surfaces checked out (which stalls HW decode). */
-const DECODE_AHEAD = 6;
+ * don't keep many decoder output surfaces checked out (which stalls HW decode).
+ * RESOLUTION-ADAPTIVE: set from `frameBudget` at init so 4K/5K decodes fewer
+ * frames ahead (fewer large surfaces in flight). Defaults to the 1080p value. */
+let decodeAhead = 6;
 /** Cap on the decoder's in-flight queue so we don't overfeed during a burst. */
 const QUEUE_MAX = 4;
 /**
@@ -212,10 +215,13 @@ async function init(ab: ArrayBuffer): Promise<void> {
 			track.movie_timescale > 0
 				? track.movie_duration / track.movie_timescale
 				: 0;
+		const vw = track.video?.width ?? track.track_width;
+		const vh = track.video?.height ?? track.track_height;
+		decodeAhead = frameBudget(vw, vh).decodeAhead;
 		post({
 			type: "ready",
-			width: track.video?.width ?? track.track_width,
-			height: track.video?.height ?? track.track_height,
+			width: vw,
+			height: vh,
 			durationSec,
 			fps: durationSec > 0 ? track.nb_samples / durationSec : 30,
 		});
@@ -408,10 +414,13 @@ async function initProgressive(url: string, sizeBytes: number): Promise<void> {
 
 		const durationSec =
 			vtrack.movie_timescale > 0 ? vtrack.movie_duration / vtrack.movie_timescale : 0;
+		const vw = vtrack.video?.width ?? vtrack.track_width;
+		const vh = vtrack.video?.height ?? vtrack.track_height;
+		decodeAhead = frameBudget(vw, vh).decodeAhead;
 		post({
 			type: "ready",
-			width: vtrack.video?.width ?? vtrack.track_width,
-			height: vtrack.video?.height ?? vtrack.track_height,
+			width: vw,
+			height: vh,
 			durationSec,
 			fps: durationSec > 0 ? vtrack.nb_samples / durationSec : 30,
 		});
@@ -511,7 +520,7 @@ function schedule(target: number): void {
 		scoutAnchorKf = -1;
 		diagResets++;
 	}
-	const end = Math.min(target + DECODE_AHEAD, chunks.length - 1);
+	const end = Math.min(target + decodeAhead, chunks.length - 1);
 	while (feedCursor <= end && decoder.decodeQueueSize < QUEUE_MAX) {
 		const c = chunks[feedCursor];
 		// Progressive: if this GOP's media bytes aren't resident yet, kick off a

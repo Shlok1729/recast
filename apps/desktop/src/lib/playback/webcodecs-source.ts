@@ -30,28 +30,19 @@
  * exhausts the decoder, so every cached frame has exactly one close path.
  */
 
+import { frameBudget } from "./frame-budget";
 import { chooseIngestion } from "./mp4-sample-table";
 import type { FromWorker, ToWorker } from "./webcodecs-protocol";
 
-/**
- * Hard cap on cached frames (display frame + forward lookahead). Kept SMALL on
- * purpose: each held VideoFrame keeps one of the hardware decoder's limited
- * output surfaces checked out, and holding too many starves that pool so the
- * decoder stalls (processes input but can't emit). A handful is enough for the
- * playhead + a little lookahead. See `#evict` for the retention policy.
- */
-const MAX_CACHED_FRAMES = 7;
-
-/**
- * Small protected holdout for scout-decoded frames (the first displayable
- * frame(s) of an upcoming post-cut GOP). Kept SEPARATE from the main cache so
- * the primary's count-based eviction — which anchors on the current (pre-cut)
- * display frame and drops the farthest-ahead first — can't throw away these
- * far-ahead frames before playback actually reaches the cut. A scout frame is
- * promoted/served via `frameAt` once the playhead crosses into its segment, and
- * dropped the moment the primary decodes the same timestamp for real.
- */
-const PREFETCH_HOLDOUT_MAX = 4;
+// The cache caps (primary `#cacheMax`, scout `#holdoutMax`) are RESOLUTION-
+// ADAPTIVE — set per source from `frameBudget(width, height)`. Each held
+// VideoFrame keeps one of the hardware decoder's limited output surfaces
+// checked out; at 4K/5K those surfaces are 4–7× larger, so holding the 1080p
+// count would starve the pool and stall the decoder. The scout holdout is kept
+// SEPARATE from the main cache so the primary's eviction (which anchors on the
+// pre-cut display frame and drops the farthest-ahead first) can't throw away
+// the pre-warmed post-cut frames before playback reaches the cut. See
+// `frame-budget.ts` for the sizing and `#evict` for the retention policy.
 
 /** Dev-only diagnostics (throughput + first-frame geometry). Silent in
  * production; kept for debugging decode regressions. */
@@ -61,9 +52,12 @@ export class WebCodecsVideoSource {
 	#worker: Worker;
 	/** Decoded frames, keyed by ctsUs. */
 	#cache = new Map<number, VideoFrame>();
-	/** Protected scout-decoded frames for an upcoming post-cut GOP (see
-	 * `PREFETCH_HOLDOUT_MAX`). Never touched by `#evict`. */
+	/** Protected scout-decoded frames for an upcoming post-cut GOP. Never touched
+	 * by `#evict`. Bounded by `#holdoutMax`. */
 	#prefetchCache = new Map<number, VideoFrame>();
+	/** Resolution-adaptive caps (set in the constructor from `frameBudget`). */
+	#cacheMax: number;
+	#holdoutMax: number;
 	/** Last requested presentation time (µs) — drives eviction. */
 	#currentUs = 0;
 	#disposed = false;
@@ -100,6 +94,16 @@ export class WebCodecsVideoSource {
 		this.height = meta.height;
 		this.durationSec = meta.durationSec;
 		this.fps = meta.fps;
+		// Size the decoded-frame caches to the resolution so 4K/5K sources don't
+		// starve the decoder's output-surface pool (the keystone stall).
+		const budget = frameBudget(meta.width, meta.height);
+		this.#cacheMax = budget.cacheMax;
+		this.#holdoutMax = budget.holdoutMax;
+		if (DIAG) {
+			console.log(
+				`[wc] frame budget ${meta.width}x${meta.height} → cache=${budget.cacheMax} holdout=${budget.holdoutMax} decodeAhead=${budget.decodeAhead}`,
+			);
+		}
 		// Take over message handling for the steady state (frames + late errors).
 		this.#worker.onmessage = (e: MessageEvent<FromWorker>) =>
 			this.#onMessage(e.data);
@@ -218,7 +222,7 @@ export class WebCodecsVideoSource {
 				this.#prefetchCache.get(ts)?.close();
 				this.#prefetchCache.set(ts, msg.frame);
 				// Bound the holdout by count (oldest first); it's protected from #evict.
-				while (this.#prefetchCache.size > PREFETCH_HOLDOUT_MAX) {
+				while (this.#prefetchCache.size > this.#holdoutMax) {
 					const oldest = this.#prefetchCache.keys().next().value as number;
 					this.#prefetchCache.get(oldest)?.close();
 					this.#prefetchCache.delete(oldest);
@@ -322,12 +326,12 @@ export class WebCodecsVideoSource {
 		}
 		// Bound forward lookahead: if still over cap, drop the farthest-ahead
 		// frames first so the display frame and the nearest upcoming frames stay.
-		if (this.#cache.size > MAX_CACHED_FRAMES) {
+		if (this.#cache.size > this.#cacheMax) {
 			const ahead = [...this.#cache.keys()]
 				.filter((ts) => ts > displayTs)
 				.sort((a, b) => b - a); // farthest future first
 			for (const ts of ahead) {
-				if (this.#cache.size <= MAX_CACHED_FRAMES) break;
+				if (this.#cache.size <= this.#cacheMax) break;
 				this.#cache.get(ts)?.close();
 				this.#cache.delete(ts);
 			}
