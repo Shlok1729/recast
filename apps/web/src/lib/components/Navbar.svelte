@@ -10,6 +10,7 @@
       links: [
         { label: "Features", href: "/features" },
         { label: "Extensions", href: "/extensions" },
+        { label: "Free Tools", href: "/tools" },
         { label: "Pricing", href: "/pricing" },
         { label: "Cloud Waitlist", href: "/waitlist" },
       ],

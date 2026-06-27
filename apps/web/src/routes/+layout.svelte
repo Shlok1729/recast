@@ -43,6 +43,47 @@
       chromelessPaths.has(page.url.pathname),
   );
 
+  // Only the public marketing/tool pages should be indexed; everything else
+  // (dashboard, admin, auth, onboarding, shares) is marked noindex.
+  const PUBLIC_PREFIXES = [
+    "/features",
+    "/extensions",
+    "/pricing",
+    "/download",
+    "/changelog",
+    "/privacy-policy",
+    "/terms-of-service",
+    "/tools",
+  ];
+  const indexable = $derived(
+    page.url.pathname === "/" ||
+      PUBLIC_PREFIXES.some(
+        (p) => page.url.pathname === p || page.url.pathname.startsWith(`${p}/`),
+      ),
+  );
+  // Site-wide brand structured data (helps search engines understand the brand
+  // and enables sitelinks). Emitted only on indexable pages.
+  const siteJsonLd = $derived(
+    JSON.stringify([
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        name: "Recast",
+        url: page.url.origin,
+        sameAs: [
+          "https://github.com/kanakkholwal/recast",
+          "https://x.com/kanakkholwal",
+        ],
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        name: "Recast",
+        url: page.url.origin,
+      },
+    ]),
+  );
+
   // Returning visitor who already accepted → re-enable replay + persistent id
   // before any events fire this session.
   $effect(() => {
@@ -76,6 +117,13 @@
     pageTitle="Recast - Record. Polish. Share."
   />
 {/if}
+<svelte:head>
+  {#if indexable}
+    {@html `<script type="application/ld+json">${siteJsonLd}</` + `script>`}
+  {:else}
+    <meta name="robots" content="noindex, nofollow" />
+  {/if}
+</svelte:head>
 <NavProgress />
 <ModeWatcher />
 <!-- Cmd/Ctrl+Shift+L from any route toggles light↔dark. Runs in prod

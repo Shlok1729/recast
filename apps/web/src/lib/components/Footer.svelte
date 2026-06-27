@@ -12,6 +12,7 @@
       links: [
         { label: "Features", href: "/features" },
         { label: "Extensions", href: "/extensions" },
+        { label: "Free Tools", href: "/tools" },
         { label: "Pricing", href: "/pricing" },
         { label: "Download", href: "/download" },
         { label: "Join Waitlist", href: "/waitlist" },

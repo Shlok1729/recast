@@ -5,6 +5,7 @@
 		Footer,
 		Reveal,
 		Section,
+		SeoMeta,
 	} from "$lib/components";
 	import { ShieldCheck } from "@lucide/svelte";
 
@@ -189,13 +190,11 @@
 	];
 </script>
 
-<svelte:head>
-	<title>Privacy Policy - Recast</title>
-	<meta
-		name="description"
-		content="How Recast collects, uses, and protects your information. Local-first by default; Cloud is opt-in."
-	/>
-</svelte:head>
+<SeoMeta
+	title="Privacy Policy"
+	description="How Recast collects, uses, and protects your information. Local-first by default; Cloud is opt-in."
+	eyebrow="Legal"
+/>
 
 <main class="text-foreground">
 	<Section spacing="none" class="relative overflow-hidden pt-36 pb-12 md:pt-48 md:pb-16">

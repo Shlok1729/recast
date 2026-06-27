@@ -5,6 +5,7 @@
 		Footer,
 		Reveal,
 		Section,
+		SeoMeta,
 	} from "$lib/components";
 	import { ScrollText } from "@lucide/svelte";
 
@@ -151,13 +152,11 @@
 	];
 </script>
 
-<svelte:head>
-	<title>Terms of Service - Recast</title>
-	<meta
-		name="description"
-		content="The rules that govern using Recast — desktop, website, and Cloud."
-	/>
-</svelte:head>
+<SeoMeta
+	title="Terms of Service"
+	description="The rules that govern using Recast — desktop, website, and Cloud."
+	eyebrow="Legal"
+/>
 
 <main class="text-foreground">
 	<Section spacing="none" class="relative overflow-hidden pt-36 pb-12 md:pt-48 md:pb-16">
