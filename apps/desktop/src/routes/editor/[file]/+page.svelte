@@ -35,6 +35,8 @@
     type VideoMetadata,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
+  import { AudioTimelineEngine } from "$lib/playback/audio-engine";
+  import { keptRegions } from "$lib/playback/audio-schedule";
   import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
   import { gdrive } from "$lib/stores/gdrive.svelte";
   import {
@@ -137,6 +139,13 @@
   let videoSrc = $state("");
   let systemAudioSrc = $state("");
   let micAudioSrc = $state("");
+  // Web Audio timeline engine: sample-accurate, cut-aware audio for the
+  // WebCodecs preview (no seeking → no drift/dropout). Falls back to the
+  // <audio> elements if it can't init/decode. `$state` so creation/failure
+  // re-runs the play effect to switch paths.
+  let audioEngine: AudioTimelineEngine | null = $state(null);
+  let audioEngineTried = false;
+  let audioEngineFailed = $state(false);
   let cursorPath = $state<string | null>(null);
   let cameraPath = $state<string | null>(null);
   let cameraSrc = $state("");
@@ -263,15 +272,33 @@
   // events the old `<video>`-slaving handled late/twice, which is what made audio
   // lag and repeat. Tighter than the visual threshold since audio desync is more
   // audible, but not so tight that per-frame jitter causes constant re-seeks.
+  // Steady-state drift past this hard-seeks audio back onto the playhead. Loose
+  // enough that the ~25Hz publish quantum doesn't cause constant re-seeks.
   const AUDIO_SYNC_THRESHOLD = 0.12;
+  // A cut crossing or a scrub makes the cut-aware playhead jump by far more than
+  // one publish quantum of realtime playback. We detect that and snap audio
+  // EXACTLY on it — which is what keeps audio aligned across cuts of ANY length,
+  // including short ones the drift threshold alone would let slip and accumulate.
+  const AUDIO_JUMP = 0.12;
   let audioSyncRaf: number | null = null;
+  let lastAudioTarget = -1;
   function syncAudioToClock() {
     audioSyncRaf = requestAnimationFrame(syncAudioToClock);
-    if (!store.isPlaying || !webcodecsActive) return;
+    if (!store.isPlaying || !webcodecsActive) {
+      lastAudioTarget = -1;
+      return;
+    }
     const target = store.currentTime;
+    const jumped =
+      lastAudioTarget < 0 || Math.abs(target - lastAudioTarget) > AUDIO_JUMP;
+    lastAudioTarget = target;
     for (const el of [systemAudioEl, micAudioEl]) {
-      if (!el || el.paused) continue;
-      if (Math.abs(el.currentTime - target) > AUDIO_SYNC_THRESHOLD) {
+      // CRITICAL: never stack a seek on an element that's still seeking (e.g.
+      // cold-start buffering) — each new currentTime= interrupts the last, so it
+      // never settles and the audio cuts out entirely. Wait for the current seek.
+      if (!el || el.paused || el.seeking || el.readyState < 2) continue;
+      // Snap exactly on a cut/seek (any length), or when steady drift grows.
+      if (jumped || Math.abs(el.currentTime - target) > AUDIO_SYNC_THRESHOLD) {
         el.currentTime = target;
       }
     }
@@ -286,21 +313,78 @@
     }
   }
   onDestroy(stopAudioClockSync);
+  onDestroy(() => audioEngine?.dispose());
 
-  // Play/pause audio elements in lockstep with the video via the store's
-  // `isPlaying` flag (which is set by PlaybackControls, keyboard handler, etc.).
+  // Kept original-time audio regions (trim minus cuts) and the current OUTPUT
+  // time — what the Web Audio engine schedules against.
+  function audioRegions() {
+    return keptRegions(store.inPoint, store.outPoint, store.effectiveCuts);
+  }
+  function outputNow() {
+    return originalToOutput(store.effectiveCuts, store.currentTime);
+  }
+  // Lazily build the Web Audio engine on first WebCodecs playback. Tried once;
+  // on failure (no Web Audio / nothing decodes) we mark it failed and the
+  // <audio> elements take over.
+  async function ensureAudioEngine() {
+    if (audioEngine || audioEngineTried) return;
+    audioEngineTried = true;
+    if (!systemAudioSrc && !micAudioSrc) {
+      audioEngineFailed = true;
+      return;
+    }
+    try {
+      const eng = await AudioTimelineEngine.create([
+        systemAudioSrc || null,
+        micAudioSrc || null,
+      ]);
+      const s = store.audioSettings;
+      eng.setVolume(s.volume, s.muted);
+      audioEngine = eng;
+    } catch (err) {
+      console.warn("Web Audio engine unavailable; using <audio> fallback:", err);
+      audioEngineFailed = true;
+    }
+  }
+
+  // Play/pause audio in lockstep with the store's `isPlaying`. On the WebCodecs
+  // path we drive the sample-accurate Web Audio engine (which schedules around
+  // cuts — no seeking); the <audio> elements are the fallback / legacy-<video>
+  // path. Reads `audioEngine`/`audioEngineFailed` reactively so creation/failure
+  // re-runs this and switches paths.
   $effect(() => {
     const playing = store.isPlaying;
-    // In the WebCodecs path the clock owns the time; align to it, not to the
-    // free-running <video> element. Read untracked so this effect doesn't re-run
-    // (re-aligning + replaying audio) on every clock tick.
+    const wc = webcodecsActive;
+    const eng = audioEngine;
+    const failed = audioEngineFailed;
+
+    if (wc && !failed) {
+      // Engine owns audio here: keep the <audio> elements and the seek loop off.
+      for (const el of [systemAudioEl, micAudioEl]) el?.pause();
+      stopAudioClockSync();
+      if (playing) {
+        void ensureAudioEngine();
+        if (eng) {
+          void eng.play(
+            untrack(() => audioRegions()),
+            untrack(() => outputNow()),
+          );
+        }
+      } else {
+        eng?.pause();
+      }
+      return;
+    }
+
+    // Fallback (engine failed) or legacy <video> path: slave the <audio>
+    // elements to the playhead, and make sure the engine is silent.
+    audioEngine?.pause();
     const alignTo = untrack(() =>
-      webcodecsActive ? store.currentTime : (videoEl?.currentTime ?? 0),
+      wc ? store.currentTime : (videoEl?.currentTime ?? 0),
     );
     for (const el of [systemAudioEl, micAudioEl]) {
       if (!el) continue;
       if (playing) {
-        // Align audio to the current playhead before resuming.
         el.currentTime = alignTo;
         void el.play().catch((err) => {
           console.warn("Audio play failed:", err);
@@ -309,9 +393,37 @@
         el.pause();
       }
     }
-    // Keep audio locked to the clock while playing on the WebCodecs path.
-    if (playing && webcodecsActive) startAudioClockSync();
+    if (playing && wc) startAudioClockSync();
     else stopAudioClockSync();
+  });
+
+  // Keep the engine locked to the playhead on a SEEK or a cut EDIT while
+  // playing. Cuts don't move OUTPUT time (it's gapless), so normal playback —
+  // including crossing a cut — never reschedules; only a real scrub/loop (output
+  // jump) or a change to the kept regions does. Runs at the publish rate; cheap.
+  const ENGINE_RESEEK_JUMP = 0.15;
+  let engineSyncOut = -1;
+  let lastRegionsKey = "";
+  $effect(() => {
+    const t = store.currentTime;
+    const cuts = store.effectiveCuts;
+    const eng = audioEngine;
+    if (!eng || !webcodecsActive || !store.isPlaying) {
+      engineSyncOut = -1;
+      lastRegionsKey = "";
+      return;
+    }
+    const out = originalToOutput(cuts, t);
+    const regions = keptRegions(store.inPoint, store.outPoint, cuts);
+    const regionsKey = regions
+      .map((r) => `${r.start.toFixed(3)}-${r.end.toFixed(3)}`)
+      .join(",");
+    const jumped =
+      engineSyncOut >= 0 && Math.abs(out - engineSyncOut) > ENGINE_RESEEK_JUMP;
+    const editsChanged = lastRegionsKey !== "" && regionsKey !== lastRegionsKey;
+    engineSyncOut = out;
+    lastRegionsKey = regionsKey;
+    if (jumped || editsChanged) eng.reschedule(regions, out);
   });
 
   // Apply volume/mute from the store's audio settings to both audio elements.
@@ -322,6 +434,7 @@
       : Math.max(0, Math.min(1, settings.volume / 100));
     if (systemAudioEl) systemAudioEl.volume = vol;
     if (micAudioEl) micAudioEl.volume = vol;
+    audioEngine?.setVolume(settings.volume, settings.muted);
   });
 
   // Snap audio to the video's time whenever the user scrubs. WebCodecs path:
@@ -448,6 +561,12 @@
     videoEl?.pause();
     systemAudioEl?.pause();
     micAudioEl?.pause();
+    // Tear down the Web Audio engine for the previous file; it rebuilds for the
+    // new one on first play.
+    audioEngine?.dispose();
+    audioEngine = null;
+    audioEngineTried = false;
+    audioEngineFailed = false;
     store.metadata = null;
     store.reset();
     store.thumbnailStrip = [];

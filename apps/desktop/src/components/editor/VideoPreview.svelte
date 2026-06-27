@@ -1246,6 +1246,12 @@ void main() {
 	// the boundary — that decoded frame masks the primary's seek latency.
 	const SCOUT_PRESEEK_LOOKAHEAD = 0.6;
 	const CUT_JUMP_LOOKAHEAD = 0.12;
+	// WebCodecs cross-cut decode-ahead: how far ahead (in OUTPUT seconds) of an
+	// upcoming cut to start warming the post-cut GOP on the worker's scout
+	// decoder, so crossing the cut doesn't freeze while the primary re-decodes
+	// from a keyframe. Wants to cover the post-cut GOP's decode time; ~1s GOP
+	// recordings are well covered, longer-GOP legacy files are partially helped.
+	const WC_PREFETCH_LOOKAHEAD = 2.0;
 	// How close the scout's landed time must be to the cut end to treat its
 	// frame as a valid stand-in (a seek may land a frame or two off target).
 	const SCOUT_READY_EPS = 0.1;
@@ -1397,6 +1403,29 @@ void main() {
 				cutSkipTarget = null;
 				scoutSeekTarget = null;
 			}
+		}
+
+		// Cross-cut decode-ahead: if playback will cross a cut within the lookahead
+		// window, warm the post-cut GOP on the worker's scout decoder NOW so the
+		// crossing is seamless instead of freezing while the primary re-decodes
+		// from a keyframe. Output time is gapless, so we look ahead in OUTPUT time
+		// and map back to original to find the next cut we'll reach. Issued every
+		// frame while approaching — the worker dedupes per post-cut GOP.
+		if (
+			usingPicClock &&
+			store.isPlaying &&
+			wcSource &&
+			wcReady &&
+			activeCuts.length > 0
+		) {
+			const lookaheadOrig = outputToOriginal(
+				store.effectiveCuts,
+				picClock.time + WC_PREFETCH_LOOKAHEAD,
+			);
+			const upcoming = activeCuts.find(
+				(c) => c.start > playbackTime && c.start <= lookaheadOrig,
+			);
+			if (upcoming) wcSource.prefetch(upcoming.end);
 		}
 
 		// Get the frame into the texture. With the WebCodecs engine we sample a
@@ -1819,7 +1848,7 @@ void main() {
 		wcSource?.dispose();
 		wcSource = null;
 		let cancelled = false;
-		WebCodecsVideoSource.create(src)
+		WebCodecsVideoSource.create(src, store.metadata?.sizeBytes)
 			.then((source) => {
 				if (cancelled) {
 					source.dispose();

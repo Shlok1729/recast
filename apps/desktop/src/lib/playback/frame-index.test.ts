@@ -88,4 +88,16 @@ describe("needsReset", () => {
 		// Playing in GOP@0 (fed to 20), user jumps to GOP@90 — gap.
 		expect(needsReset(0, 20, 90)).toBe(true);
 	});
+
+	it("does NOT reset on a forward GOP gap when it's lag, not a jump", () => {
+		// Decoder fell behind: playhead crossed keyframe 90 while we've only fed to
+		// 20. Same indices as the jump case, but the request advanced smoothly
+		// (forwardIsJump=false) → keep streaming contiguously, don't reset+skip.
+		expect(needsReset(0, 20, 90, false)).toBe(false);
+	});
+
+	it("still resets backward even when not a jump", () => {
+		// A backward move is always a discontinuity regardless of the jump flag.
+		expect(needsReset(60, 80, 30, false)).toBe(true);
+	});
 });

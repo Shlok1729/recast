@@ -30,18 +30,19 @@
  * exhausts the decoder, so every cached frame has exactly one close path.
  */
 
+import { frameBudget } from "./frame-budget";
+import { chooseIngestion } from "./mp4-sample-table";
 import type { FromWorker, ToWorker } from "./webcodecs-protocol";
 
-/** Decoded-frame cache window around the playhead, in seconds. */
-const BACK_WINDOW_S = 0.1;
-const FWD_WINDOW_S = 0.3;
-/**
- * Hard cap on cached frames. Kept SMALL on purpose: each held VideoFrame keeps
- * one of the hardware decoder's limited output surfaces checked out, and
- * holding too many starves that pool so the decoder stalls (processes input but
- * can't emit). A handful is enough for the playhead + a little lookahead.
- */
-const MAX_CACHED_FRAMES = 7;
+// The cache caps (primary `#cacheMax`, scout `#holdoutMax`) are RESOLUTION-
+// ADAPTIVE — set per source from `frameBudget(width, height)`. Each held
+// VideoFrame keeps one of the hardware decoder's limited output surfaces
+// checked out; at 4K/5K those surfaces are 4–7× larger, so holding the 1080p
+// count would starve the pool and stall the decoder. The scout holdout is kept
+// SEPARATE from the main cache so the primary's eviction (which anchors on the
+// pre-cut display frame and drops the farthest-ahead first) can't throw away
+// the pre-warmed post-cut frames before playback reaches the cut. See
+// `frame-budget.ts` for the sizing and `#evict` for the retention policy.
 
 /** Dev-only diagnostics (throughput + first-frame geometry). Silent in
  * production; kept for debugging decode regressions. */
@@ -51,6 +52,12 @@ export class WebCodecsVideoSource {
 	#worker: Worker;
 	/** Decoded frames, keyed by ctsUs. */
 	#cache = new Map<number, VideoFrame>();
+	/** Protected scout-decoded frames for an upcoming post-cut GOP. Never touched
+	 * by `#evict`. Bounded by `#holdoutMax`. */
+	#prefetchCache = new Map<number, VideoFrame>();
+	/** Resolution-adaptive caps (set in the constructor from `frameBudget`). */
+	#cacheMax: number;
+	#holdoutMax: number;
 	/** Last requested presentation time (µs) — drives eviction. */
 	#currentUs = 0;
 	#disposed = false;
@@ -72,6 +79,11 @@ export class WebCodecsVideoSource {
 	#framesSeen = 0;
 	#lastLogMs = 0;
 	#loggedDims = false;
+	// Worst "lateness" (playhead − frame ts, ms) seen this interval. Large values
+	// mean the decoder is falling behind the realtime clock for this content —
+	// e.g. heavy canvas edits at high resolution — i.e. the frame the cache now
+	// keeps (instead of the old window-evict) is arriving well after its time.
+	#maxLateMs = 0;
 
 	private constructor(
 		worker: Worker,
@@ -82,6 +94,16 @@ export class WebCodecsVideoSource {
 		this.height = meta.height;
 		this.durationSec = meta.durationSec;
 		this.fps = meta.fps;
+		// Size the decoded-frame caches to the resolution so 4K/5K sources don't
+		// starve the decoder's output-surface pool (the keystone stall).
+		const budget = frameBudget(meta.width, meta.height);
+		this.#cacheMax = budget.cacheMax;
+		this.#holdoutMax = budget.holdoutMax;
+		if (DIAG) {
+			console.log(
+				`[wc] frame budget ${meta.width}x${meta.height} → cache=${budget.cacheMax} holdout=${budget.holdoutMax} decodeAhead=${budget.decodeAhead}`,
+			);
+		}
 		// Take over message handling for the steady state (frames + late errors).
 		this.#worker.onmessage = (e: MessageEvent<FromWorker>) =>
 			this.#onMessage(e.data);
@@ -92,16 +114,33 @@ export class WebCodecsVideoSource {
 	 * answer `frameAt`. Rejects if the file has no decodable video track or the
 	 * codec/WebView isn't supported by WebCodecs — the caller should fall back
 	 * to the `<video>` path.
+	 *
+	 * `sizeBytes` (from the backend probe) selects the ingestion strategy: small
+	 * files load whole into memory (zero-network steady-state playback); large
+	 * 4K/5K recordings that would blow the WebView heap switch to progressive
+	 * HTTP-range ingestion (flat memory, the worker fetches the moov + GOPs on
+	 * demand). See `chooseIngestion`.
 	 */
-	static async create(url: string): Promise<WebCodecsVideoSource> {
+	static async create(url: string, sizeBytes?: number): Promise<WebCodecsVideoSource> {
 		if (typeof Worker === "undefined" || typeof VideoFrame === "undefined") {
 			throw new Error("WebCodecs/Worker unavailable in this WebView");
 		}
-		// Fetch the file on the main thread — the Tauri asset protocol is reliably
-		// reachable here — then transfer the bytes into the worker.
-		const res = await fetch(url);
-		if (!res.ok) throw new Error(`fetch failed: HTTP ${res.status}`);
-		const buffer = await res.arrayBuffer();
+		const strategy = chooseIngestion(sizeBytes);
+
+		// Build the init message. Whole-file fetches the bytes on the main thread
+		// (the asset protocol is reliably reachable here) and transfers them in;
+		// progressive hands the worker the URL so it can range-fetch lazily.
+		let initMsg: ToWorker;
+		let transfer: Transferable[] = [];
+		if (strategy === "progressive") {
+			initMsg = { type: "init-progressive", url, sizeBytes: sizeBytes as number };
+		} else {
+			const res = await fetch(url);
+			if (!res.ok) throw new Error(`fetch failed: HTTP ${res.status}`);
+			const buffer = await res.arrayBuffer();
+			initMsg = { type: "init", buffer };
+			transfer = [buffer];
+		}
 
 		const worker = new Worker(
 			new URL("./webcodecs-worker.ts", import.meta.url),
@@ -126,9 +165,7 @@ export class WebCodecsVideoSource {
 					}
 				};
 				worker.onerror = (e) => reject(new Error(e.message || "worker error"));
-				worker.postMessage({ type: "init", buffer } satisfies ToWorker, [
-					buffer,
-				]);
+				worker.postMessage(initMsg, transfer);
 			});
 			return new WebCodecsVideoSource(worker, meta);
 		} catch (err) {
@@ -159,19 +196,45 @@ export class WebCodecsVideoSource {
 					);
 				}
 				this.#framesSeen++;
+				this.#maxLateMs = Math.max(
+					this.#maxLateMs,
+					(this.#currentUs - msg.frame.timestamp) / 1000,
+				);
 				const nowMs = performance.now();
 				if (nowMs - this.#lastLogMs > 1000) {
 					console.log(
-						`[wc] decoded ${this.#framesSeen} frames/s · cache=${this.#cache.size} · currentSec=${(this.#currentUs / 1e6).toFixed(2)}`,
+						`[wc] decoded ${this.#framesSeen} frames/s · cache=${this.#cache.size} · currentSec=${(this.#currentUs / 1e6).toFixed(2)} · maxLate=${this.#maxLateMs.toFixed(0)}ms`,
 					);
 					this.#framesSeen = 0;
+					this.#maxLateMs = 0;
 					this.#lastLogMs = nowMs;
 				}
 			}
 
 			const ts = msg.frame.timestamp;
+			if (msg.fromScout) {
+				// Scout frame for an upcoming post-cut GOP. If the primary already
+				// has this timestamp, the scout copy is redundant — drop it.
+				if (this.#cache.has(ts)) {
+					msg.frame.close();
+					return;
+				}
+				this.#prefetchCache.get(ts)?.close();
+				this.#prefetchCache.set(ts, msg.frame);
+				// Bound the holdout by count (oldest first); it's protected from #evict.
+				while (this.#prefetchCache.size > this.#holdoutMax) {
+					const oldest = this.#prefetchCache.keys().next().value as number;
+					this.#prefetchCache.get(oldest)?.close();
+					this.#prefetchCache.delete(oldest);
+				}
+				this.onFrame?.();
+				return;
+			}
 			this.#cache.get(ts)?.close(); // never leak a replaced frame
 			this.#cache.set(ts, msg.frame);
+			// The primary now owns this timestamp for real — discard any scout copy.
+			this.#prefetchCache.get(ts)?.close();
+			this.#prefetchCache.delete(ts);
 			this.#evict();
 			this.onFrame?.();
 		} else if (msg.type === "error") {
@@ -223,26 +286,52 @@ export class WebCodecsVideoSource {
 				best = frame;
 			}
 		}
+		// Also consider the scout holdout — right after a cut the only in-segment
+		// frame yet decoded is the one the scout pre-warmed, which is what makes
+		// the crossing seamless instead of a hold.
+		for (const [ts, frame] of this.#prefetchCache) {
+			if (ts >= floorUs && ts <= tUs && ts > bestTs) {
+				bestTs = ts;
+				best = frame;
+			}
+		}
 		return best;
 	}
 
-	/** Drop frames outside the window around the playhead, closing each. */
+	/**
+	 * Evict around the frame that should currently be ON SCREEN — never by a
+	 * fixed time window. The display frame is the greatest timestamp at-or-before
+	 * the playhead; it is NEVER evicted, even if it arrived "late". This matters
+	 * because the playback clock free-runs at realtime while decode does not: a
+	 * costly frame (a Figma canvas edit, a dropdown opening — a large P-frame)
+	 * decodes slower, so it lands behind the clock. The old window-based eviction
+	 * dropped exactly those frames on arrival (ts < playhead − 100ms), which is
+	 * why heavy on-screen changes silently vanished while static playback stayed
+	 * smooth. Now a late frame is simply newer than the last displayed frame, so
+	 * it becomes the display frame and is shown (a touch late) rather than lost.
+	 */
 	#evict(): void {
-		const backUs = this.#currentUs - BACK_WINDOW_S * 1e6;
-		const fwdUs = this.#currentUs + FWD_WINDOW_S * 1e6;
+		// The frame we'd show right now.
+		let displayTs = -Infinity;
+		for (const ts of this.#cache.keys()) {
+			if (ts <= this.#currentUs && ts > displayTs) displayTs = ts;
+		}
+		// Frames strictly before the display frame are spent — forward playback
+		// won't revisit them, and a backward seek resets + refills the decoder.
 		for (const [ts, frame] of this.#cache) {
-			if (ts < backUs || ts > fwdUs) {
+			if (ts < displayTs) {
 				frame.close();
 				this.#cache.delete(ts);
 			}
 		}
-		if (this.#cache.size > MAX_CACHED_FRAMES) {
-			const sorted = [...this.#cache.keys()].sort(
-				(a, b) =>
-					Math.abs(b - this.#currentUs) - Math.abs(a - this.#currentUs),
-			);
-			for (const ts of sorted) {
-				if (this.#cache.size <= MAX_CACHED_FRAMES) break;
+		// Bound forward lookahead: if still over cap, drop the farthest-ahead
+		// frames first so the display frame and the nearest upcoming frames stay.
+		if (this.#cache.size > this.#cacheMax) {
+			const ahead = [...this.#cache.keys()]
+				.filter((ts) => ts > displayTs)
+				.sort((a, b) => b - a); // farthest future first
+			for (const ts of ahead) {
+				if (this.#cache.size <= this.#cacheMax) break;
 				this.#cache.get(ts)?.close();
 				this.#cache.delete(ts);
 			}
@@ -255,6 +344,8 @@ export class WebCodecsVideoSource {
 		this.#post({ type: "dispose" });
 		for (const frame of this.#cache.values()) frame.close();
 		this.#cache.clear();
+		for (const frame of this.#prefetchCache.values()) frame.close();
+		this.#prefetchCache.clear();
 		// The worker self-closes on dispose; terminate as a backstop.
 		this.#worker.terminate();
 	}
