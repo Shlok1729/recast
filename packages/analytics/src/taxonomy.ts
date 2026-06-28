@@ -34,6 +34,12 @@ export const ANALYTICS_EVENTS = [
 	"sign_out",
 	"consent_granted",
 	"consent_revoked",
+	// Experimental WebCodecs preview engine — the signal that gates default-on:
+	// init-success / fallback-rate / decode-fps, dimensioned by OS (PostHog's
+	// auto `$os`) + resolution. Drop these once the engine graduates.
+	"webcodecs_preview_init",
+	"webcodecs_preview_fallback",
+	"webcodecs_preview_perf",
 ] as const;
 
 export type AnalyticsEvent = (typeof ANALYTICS_EVENTS)[number];
@@ -80,5 +86,30 @@ export interface EventPropMap {
 		width?: number;
 		height?: number;
 		fps?: number;
+	};
+	webcodecs_preview_init: {
+		width?: number;
+		height?: number;
+		fps?: number;
+		/** Coarse bucket (e.g. "1080p", "4k") for easy cohorting. */
+		resolution?: string;
+		/** Ingestion strategy chosen for this source. */
+		ingestion?: "whole" | "progressive";
+	};
+	webcodecs_preview_fallback: {
+		/** Classified reason — never the raw error (no paths/PII). */
+		reason?: string;
+	};
+	webcodecs_preview_perf: {
+		/** Decoded frames/sec, averaged over the playback windows of this source. */
+		avg_fps?: number;
+		min_fps?: number;
+		/** Worst frame lateness vs the playback clock, ms. */
+		max_late_ms?: number;
+		width?: number;
+		height?: number;
+		/** Source media fps, for context against avg_fps. */
+		fps?: number;
+		resolution?: string;
 	};
 }

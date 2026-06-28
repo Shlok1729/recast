@@ -66,6 +66,8 @@ export class WebCodecsVideoSource {
 	readonly height: number;
 	readonly durationSec: number;
 	readonly fps: number;
+	/** Ingestion strategy this source was created with (telemetry/diagnostics). */
+	readonly ingestion: "whole" | "progressive";
 
 	/**
 	 * Called after a newly-decoded frame lands in the cache. The render loop is
@@ -74,26 +76,43 @@ export class WebCodecsVideoSource {
 	 */
 	onFrame: (() => void) | null = null;
 
-	// Dev-only diagnostics state (throughput + first-frame geometry). Gated by
-	// DIAG (import.meta.env.DEV) at the log sites — silent in production builds.
-	#framesSeen = 0;
-	#lastLogMs = 0;
+	/**
+	 * Emitted once on `dispose()` with aggregate decode throughput for this
+	 * source — the production `webcodecs_preview_perf` signal that gates the
+	 * default-on decision. Not called if playback never ran long enough to
+	 * sample a full window (e.g. the user only opened and closed the editor).
+	 */
+	onStats:
+		| ((s: { avgFps: number; minFps: number; maxLateMs: number }) => void)
+		| null = null;
+
+	// First-frame geometry log is dev-only (DIAG). The throughput counters below
+	// run ALWAYS — they're a few integer adds per frame — and feed the one
+	// aggregate `onStats` emit on dispose. The dev console log reuses them.
 	#loggedDims = false;
-	// Worst "lateness" (playhead − frame ts, ms) seen this interval. Large values
-	// mean the decoder is falling behind the realtime clock for this content —
-	// e.g. heavy canvas edits at high resolution — i.e. the frame the cache now
-	// keeps (instead of the old window-evict) is arriving well after its time.
-	#maxLateMs = 0;
+	// Aggregate decode throughput, accumulated over 1s windows of playback. Idle
+	// windows (scrub/pause, ≈0 fps) are dropped so the average reflects real
+	// playback. `#perfMaxLateMs` = worst frame lateness vs the clock (large at
+	// high res ⇒ throughput-bound). Emitted once via `onStats` on dispose.
+	#perfFrames = 0;
+	#perfWindowStart = 0;
+	#perfWindowFrames = 0;
+	#perfFpsSum = 0;
+	#perfFpsSamples = 0;
+	#perfMinFps = Infinity;
+	#perfMaxLateMs = 0;
 
 	private constructor(
 		worker: Worker,
 		meta: { width: number; height: number; durationSec: number; fps: number },
+		ingestion: "whole" | "progressive",
 	) {
 		this.#worker = worker;
 		this.width = meta.width;
 		this.height = meta.height;
 		this.durationSec = meta.durationSec;
 		this.fps = meta.fps;
+		this.ingestion = ingestion;
 		// Size the decoded-frame caches to the resolution so 4K/5K sources don't
 		// starve the decoder's output-surface pool (the keystone stall).
 		const budget = frameBudget(meta.width, meta.height);
@@ -167,7 +186,7 @@ export class WebCodecsVideoSource {
 				worker.onerror = (e) => reject(new Error(e.message || "worker error"));
 				worker.postMessage(initMsg, transfer);
 			});
-			return new WebCodecsVideoSource(worker, meta);
+			return new WebCodecsVideoSource(worker, meta, strategy);
 		} catch (err) {
 			worker.terminate();
 			throw err;
@@ -184,30 +203,45 @@ export class WebCodecsVideoSource {
 				msg.frame.close();
 				return;
 			}
-			if (DIAG) {
-				if (!this.#loggedDims) {
-					this.#loggedDims = true;
-					const f = msg.frame;
-					const vr = f.visibleRect;
-					console.log(
-						`[wc] geometry coded=${f.codedWidth}x${f.codedHeight} display=${f.displayWidth}x${f.displayHeight} ` +
-							`visible=${vr ? `${vr.x},${vr.y} ${vr.width}x${vr.height}` : "none"} ` +
-							`format=${f.format} declaredMeta=${this.width}x${this.height}`,
-					);
-				}
-				this.#framesSeen++;
-				this.#maxLateMs = Math.max(
-					this.#maxLateMs,
-					(this.#currentUs - msg.frame.timestamp) / 1000,
+			if (DIAG && !this.#loggedDims) {
+				this.#loggedDims = true;
+				const f = msg.frame;
+				const vr = f.visibleRect;
+				console.log(
+					`[wc] geometry coded=${f.codedWidth}x${f.codedHeight} display=${f.displayWidth}x${f.displayHeight} ` +
+						`visible=${vr ? `${vr.x},${vr.y} ${vr.width}x${vr.height}` : "none"} ` +
+						`format=${f.format} declaredMeta=${this.width}x${this.height}`,
 				);
+			}
+			// Throughput sampling (always on — a handful of int ops per frame).
+			// Per-second windows; idle/scrub windows (≈0 fps) are dropped so the
+			// aggregate reflects real playback. Emitted once on dispose via onStats.
+			this.#perfFrames++;
+			this.#perfMaxLateMs = Math.max(
+				this.#perfMaxLateMs,
+				(this.#currentUs - msg.frame.timestamp) / 1000,
+			);
+			{
 				const nowMs = performance.now();
-				if (nowMs - this.#lastLogMs > 1000) {
-					console.log(
-						`[wc] decoded ${this.#framesSeen} frames/s · cache=${this.#cache.size} · currentSec=${(this.#currentUs / 1e6).toFixed(2)} · maxLate=${this.#maxLateMs.toFixed(0)}ms`,
-					);
-					this.#framesSeen = 0;
-					this.#maxLateMs = 0;
-					this.#lastLogMs = nowMs;
+				if (this.#perfWindowStart === 0) {
+					this.#perfWindowStart = nowMs;
+					this.#perfWindowFrames = this.#perfFrames;
+				} else if (nowMs - this.#perfWindowStart >= 1000) {
+					const fps =
+						(this.#perfFrames - this.#perfWindowFrames) /
+						((nowMs - this.#perfWindowStart) / 1000);
+					if (fps > 1) {
+						this.#perfFpsSum += fps;
+						this.#perfFpsSamples++;
+						if (fps < this.#perfMinFps) this.#perfMinFps = fps;
+						if (DIAG) {
+							console.log(
+								`[wc] decode ${fps.toFixed(0)} fps · cache=${this.#cache.size} · maxLate=${this.#perfMaxLateMs.toFixed(0)}ms`,
+							);
+						}
+					}
+					this.#perfWindowStart = nowMs;
+					this.#perfWindowFrames = this.#perfFrames;
 				}
 			}
 
@@ -341,6 +375,15 @@ export class WebCodecsVideoSource {
 	dispose(): void {
 		if (this.#disposed) return;
 		this.#disposed = true;
+		// Emit the one aggregate throughput sample for this source before tearing
+		// down (the `webcodecs_preview_perf` signal). Only if playback actually ran.
+		if (this.#perfFpsSamples > 0) {
+			this.onStats?.({
+				avgFps: this.#perfFpsSum / this.#perfFpsSamples,
+				minFps: this.#perfMinFps,
+				maxLateMs: this.#perfMaxLateMs,
+			});
+		}
 		this.#post({ type: "dispose" });
 		for (const frame of this.#cache.values()) frame.close();
 		this.#cache.clear();
