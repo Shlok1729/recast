@@ -1,18 +1,14 @@
 /**
- * Tier-1 cache accounting for the WebCodecs progressive path: an LRU governed
- * by a BYTE budget over the *encoded* GOP bytes we've fetched.
+ * LRU cache accounting for the WebCodecs progressive path, governed by a BYTE
+ * budget over the *encoded* GOP bytes we've fetched.
  *
- * This is deliberately separate from the decoded-frame cache. Decoded
- * `VideoFrame`s must be bounded by a small COUNT (each checks out one of the
- * hardware decoder's limited output surfaces — too many stalls the decoder).
- * Encoded GOP bytes are cheap CPU RAM with no surface pressure, so they get a
- * generous byte ceiling instead, which is what makes scrubbing back and forth
- * over the same cut free (no re-fetch).
+ * Separate from the decoded-frame cache: decoded `VideoFrame`s must be bounded
+ * by a small COUNT (each holds one of the decoder's limited output surfaces),
+ * whereas encoded GOP bytes are cheap CPU RAM, so a generous byte ceiling lets
+ * scrubbing back and forth over the same cut stay re-fetch-free.
  *
- * This class only does the accounting — it tracks which GOPs are resident and
- * how big they are, and decides which to drop. The caller owns the actual bytes
- * (sample `.data`) and frees them for the keys this returns. Pure and
- * synchronous so it can be unit-tested without any media.
+ * Pure accounting only — the caller owns the actual bytes (sample `.data`) and
+ * frees the keys this returns.
  */
 export class GopByteBudget {
 	/** Resident GOPs keyed by keyframe decode-index → byte size. Insertion order

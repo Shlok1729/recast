@@ -3,9 +3,7 @@
 </script>
 
 <div class="flex flex-1 min-h-0">
-  <!-- Left column: preview + controls + timeline -->
   <div class="flex-1 flex flex-col min-h-0">
-    <!-- Sub-toolbar -->
     <div class="h-9 flex items-center gap-3 px-4 border-b border-border">
       <Skeleton class="h-6 w-24 rounded-md" />
       <Skeleton class="h-6 w-16 rounded-md" />
@@ -14,12 +12,10 @@
       </div>
     </div>
 
-    <!-- Preview area -->
     <div class="flex-1 flex items-center justify-center p-6">
       <Skeleton class="w-full max-w-225 aspect-video rounded-[24px]" />
     </div>
 
-    <!-- Playback controls -->
     <div class="shrink-0 px-4 py-2 border-t border-border">
       <div class="flex items-center justify-between">
         <Skeleton class="h-5 w-32" />
@@ -32,7 +28,6 @@
       </div>
     </div>
 
-    <!-- Timeline -->
     <div class="shrink-0 px-4 pb-3 pt-2 border-t border-border">
       <div class="flex items-center gap-2 mb-2">
         <Skeleton class="h-6 w-6 rounded" />
@@ -46,7 +41,6 @@
     </div>
   </div>
 
-  <!-- Right column: properties panel -->
   <div class="w-85 shrink-0 border-l border-border">
     <div class="p-4 border-b border-border space-y-3">
       <Skeleton class="h-5 w-24" />

@@ -1,12 +1,6 @@
-// Post-recording mouse-path smoothing.
-//
-// Raw captured mouse positions contain tremor and quantisation noise — even
-// a steady hand on a trackpad produces 1-3 px of jitter at idle. Dropping a
-// Gaussian window over the trajectory knocks that out while preserving
-// intentional motion. Anchoring the smoothed curve to exact click x/y around
-// mouse-down events keeps press targets pixel-perfect (Screen Studio's
-// signature trick — otherwise smoothing would round the corner through a
-// click and miss the target visibly).
+// Post-recording mouse-path smoothing: Gaussian window kills tremor/quantisation
+// jitter; anchoring to exact click x/y keeps press targets pixel-perfect
+// (otherwise smoothing rounds the corner through a click and misses the target).
 
 export interface CursorSampleLike {
 	timestampUs: number;
@@ -37,12 +31,7 @@ export interface SmoothResult {
 	clickAnchors: ClickAnchor[];
 }
 
-/**
- * Map the UI strength slider (0..100) to a Gaussian σ in ms.
- * 100 → 150 ms σ, which is heavy-handed but still feels responsive;
- * 50 → 75 ms σ, the sweet spot for typical hand tremor;
- * 0 disables smoothing entirely.
- */
+/** Map the UI strength slider (0..100) to a Gaussian σ in ms (0 disables). */
 export function smoothingStrengthToSigmaMs(strength: number): number {
 	return Math.max(0, Math.min(100, strength)) * 1.5;
 }
@@ -56,8 +45,8 @@ export function smoothCursorPath(
 	raw: CursorSampleLike[],
 	opts: SmoothingOptions
 ): SmoothResult {
-	// Detect click-down transitions regardless of smoothing state — callers
-	// use these for the visualisation even when smoothing is disabled.
+	// Detect click-down transitions even when smoothing is off — callers still
+	// use these for the visualisation.
 	const clickAnchors: ClickAnchor[] = [];
 	for (let i = 1; i < raw.length; i++) {
 		const prev = raw[i - 1];
@@ -77,10 +66,8 @@ export function smoothCursorPath(
 	const windowUs = sigmaUs * 3; // ±3σ catches ~99.7% of the weight
 	const snapUs = Math.max(0, opts.snapWindowMs) * 1000;
 
-	// Gaussian smoothing with a sliding window (lo..hi advances monotonically
-	// because samples are time-sorted). Complexity: O(N · w) where w is the
-	// average samples inside ±3σ — for 120 Hz input and σ=75 ms that's ~54,
-	// so a 5-minute recording smooths in well under 100 ms.
+	// Sliding-window Gaussian; lo..hi advance monotonically because samples are
+	// time-sorted. O(N·w) where w = samples inside ±3σ.
 	const smoothed: CursorSampleLike[] = new Array(raw.length);
 	let lo = 0;
 	let hi = 0;
@@ -116,10 +103,8 @@ export function smoothCursorPath(
 		}
 	}
 
-	// Click anchor: cosine ramp from smoothed → click → smoothed inside the
-	// snap window. falloff=1 at the click timestamp, 0 at the window edge,
-	// so the path glides into the exact click x/y and out again without a
-	// visible seam.
+	// Cosine snap ramp: falloff=1 at the click timestamp, 0 at the window edge,
+	// so the path glides into the exact click x/y and out without a seam.
 	if (opts.snapToClicks && snapUs > 0 && clickAnchors.length > 0) {
 		for (const anchor of clickAnchors) {
 			for (let i = 0; i < smoothed.length; i++) {

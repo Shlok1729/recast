@@ -12,17 +12,9 @@ import {
 } from "$lib/ipc";
 
 /**
- * Google Drive store.
- *
- * Mirrors the shape of {@link import("./updater.svelte").updater} — a small
- * `$state`-backed module singleton that the UI binds to directly. Holds the
- * current connection state, the connected account's email (best-effort
- * populated from Google's userinfo endpoint), and an `uploads` map keyed by
- * `uploadId`. The store is a thin shell over Tauri commands and events; the
- * actual OAuth + Drive REST plumbing lives in `commands/gdrive.rs`.
- *
- * Lazy imports keep this module safe to load in the web build, where the
- * Tauri runtime doesn't exist.
+ * Google Drive store — a `$state`-backed singleton the UI binds to. Thin shell
+ * over Tauri commands/events; the OAuth + Drive REST plumbing lives in
+ * `commands/gdrive.rs`. Lazy imports keep it safe to load in the web build.
  */
 
 export type GdriveUploadStatus = "uploading" | "complete" | "error" | "cancelled";
@@ -96,9 +88,8 @@ function createGdriveStore() {
 					webViewLink: payload.webViewLink,
 				};
 			}
-			// Merge into the persistent history so the exports list flips
-			// its action from "Upload" to "Copy link / Re-upload" without
-			// a roundtrip to disk. Re-uploads overwrite the prior entry.
+			// Merge into history so the exports list flips its action without a
+			// disk roundtrip. Re-uploads overwrite the prior entry.
 			uploadHistory[payload.sourcePath] = {
 				fileId: payload.fileId,
 				name: payload.name,
@@ -137,7 +128,7 @@ function createGdriveStore() {
 		if (!(await isTauriApp())) return;
 		try {
 			const records = await gdriveListUploads();
-			// Wipe then refill so deletions made elsewhere propagate.
+			// Wipe then refill so deletions elsewhere propagate.
 			for (const key of Object.keys(uploadHistory)) {
 				delete uploadHistory[key];
 			}
@@ -150,10 +141,8 @@ function createGdriveStore() {
 	}
 
 	/**
-	 * Start the OAuth flow. The Rust side opens the browser, awaits the
-	 * loopback callback, exchanges the code, persists the refresh token,
-	 * and emits `gdrive:connected` on success. We just need to flip
-	 * `connecting` while it's in flight.
+	 * Start the OAuth flow. The Rust side handles the browser/callback/token
+	 * exchange and emits `gdrive:connected`; we just flip `connecting`.
 	 */
 	async function connect() {
 		if (!(await isTauriApp())) return;
@@ -161,7 +150,7 @@ function createGdriveStore() {
 		connecting = true;
 		try {
 			await gdriveConnect();
-			// Success path: the `gdrive:connected` listener flips state.
+			// Success: the `gdrive:connected` listener flips state.
 		} catch (e) {
 			connecting = false;
 			console.error("[gdrive] connect failed", e);
@@ -181,11 +170,9 @@ function createGdriveStore() {
 	}
 
 	/**
-	 * Kick off an upload. Returns the synthetic upload id so callers can
-	 * pair UI state (toast cards, progress bars) to the same key the
-	 * store and Rust side use. The Promise resolves with the result or
-	 * rejects on failure — but the corner-card UI usually relies on the
-	 * `uploads` map updating via events, not on awaiting this Promise.
+	 * Kick off an upload. Resolves with the result or rejects on failure, but
+	 * the corner-card UI usually relies on the `uploads` map updating via
+	 * events rather than awaiting this.
 	 */
 	async function upload(path: string): Promise<GdriveUploadResult> {
 		if (!(await isTauriApp())) throw new Error("not running in Tauri");
@@ -203,9 +190,8 @@ function createGdriveStore() {
 		try {
 			return await gdriveUpload(path, uploadId);
 		} catch (e) {
-			// The Rust side already emitted `gdrive:upload-error` for the
-			// corner-card UI; re-throw for any caller that awaits the
-			// Promise (e.g. for inline error toasts).
+			// Rust already emitted `gdrive:upload-error` for the card; re-throw
+			// for callers that await (e.g. inline error toasts).
 			throw e;
 		}
 	}
@@ -223,11 +209,8 @@ function createGdriveStore() {
 		delete uploads[uploadId];
 	}
 
-	/**
-	 * Drop a path from upload history. Call when a local file is deleted
-	 * so its row stops claiming it was uploaded. The Drive file itself
-	 * isn't touched.
-	 */
+	/** Drop a path from upload history (e.g. local file deleted). The Drive
+	 *  file itself isn't touched. */
 	async function forgetUpload(localPath: string) {
 		delete uploadHistory[localPath];
 		if (!(await isTauriApp())) return;
@@ -243,20 +226,14 @@ function createGdriveStore() {
 		return uploadHistory[localPath];
 	}
 
-	/**
-	 * Look up an in-flight upload by its source file path. Used by list
-	 * views to render per-row progress without forcing every row to
-	 * scan the uploads map on every keystroke. Returns the most recently
-	 * started match if (somehow) multiple uploads target the same path.
-	 */
+	/** In-flight upload for a source path, most-recent first if several match. */
 	function getActiveUploadForPath(
 		localPath: string,
 	): GdriveUpload | undefined {
 		const list = Object.values(uploads).filter(
 			(u) => u.sourcePath === localPath && u.status === "uploading",
 		);
-		// Most recent uploadId wins (uploadIds are timestamp-prefixed in
-		// `upload()`, so lexicographic max = most recent).
+		// uploadIds are timestamp-prefixed, so lexicographic max = most recent.
 		list.sort((a, b) => b.uploadId.localeCompare(a.uploadId));
 		return list[0];
 	}

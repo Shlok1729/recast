@@ -1,7 +1,7 @@
 /**
  * Message protocol between the main thread (`webcodecs-source.ts`) and the
- * decode worker (`webcodecs-worker.ts`). Kept in its own module so both sides
- * share one definition and neither has to import the other's runtime code.
+ * decode worker (`webcodecs-worker.ts`). Own module so both sides share one
+ * definition without importing the other's runtime code.
  */
 
 /** Main → worker. */
@@ -31,10 +31,9 @@ export type FromWorker =
 			fps: number;
 	  }
 	/**
-	 * A decoded frame, transferred (listed in the postMessage transfer list).
-	 * `fromScout` marks frames produced by the prefetch (scout) decoder for an
-	 * upcoming post-cut GOP — the main side parks those in a small protected
-	 * holdout so the primary's eviction can't drop them before the cut is reached.
+	 * A decoded frame, transferred. `fromScout` marks frames from the prefetch
+	 * decoder for an upcoming post-cut GOP — the main side parks those in a
+	 * protected holdout so the primary's eviction can't drop them before the cut.
 	 */
 	| { type: "frame"; frame: VideoFrame; fromScout?: boolean }
 	| { type: "error"; message: string };

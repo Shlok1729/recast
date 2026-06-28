@@ -5,9 +5,7 @@
   import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import AnnotationLayerCard from "./AnnotationLayerCard.svelte";
 
-  // Annotation lane — sister of TimelineZoomLane. Same lifted-state pattern
-  // for the snap guide so visual feedback during a drag is consistent
-  // between lanes.
+  // Sister of TimelineZoomLane; same lifted snap-guide pattern.
 
   interface Props {
     store: EditorStore;

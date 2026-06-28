@@ -35,49 +35,32 @@
     "16:9": 16 / 9,
   };
 
-  // Shape options offered per aspect. Circle is 1:1-only — applying it to
-  // a non-square aspect produces an ellipse, which is rarely what the user
-  // wants and which the composited bubble in the editor doesn't render.
+  // Circle is 1:1-only — on a non-square aspect it'd be an ellipse, which the
+  // composited bubble in the editor doesn't render.
   function allowedShapesFor(a: AspectKey): ShapeKey[] {
     return a === "1:1"
       ? ["square", "rounded", "circle"]
       : ["square", "rounded"];
   }
 
-  // Window radius in CSS pixels for the "rounded" shape — matches the
-  // rounded-3xl token visually. "square" uses 0; "circle" uses a half-side
-  // radius and is only allowed on 1:1 aspect.
+  // CSS px radius for the "rounded" shape — matches the rounded-3xl token.
   const WINDOW_RADIUS = 20;
 
-  // Resize bounds, expressed as fractions of the primary screen's available
-  // logical dimensions. The cap exists because an oversized live preview
-  // (a) covers content the user is recording, and (b) makes the eventual
-  // composited bubble look ridiculous if the user accidentally records at
-  // that size. 25% of either axis is comfortably visible without dominating
-  // the frame.
+  // Max preview size as a fraction of the screen, so it never covers recorded
+  // content or balloons the composited bubble.
   const MAX_SCREEN_FRACTION = 0.25;
-  // Floor on the video width. Small enough to tuck into a corner, but bounded
-  // below by the control bar: the window width equals the video width, and the
-  // controls pill (aspect chip + shape + mirror + close, widest at the "16:9"
-  // label) is ~150px wide. Going narrower than that clipped the centered pill
-  // on both sides, so we floor at a width that always fits it.
+  // Min video width. Window width == video width, so this floors at the width
+  // of the controls pill (~150px, widest at the "16:9" label) to avoid clipping it.
   const CONTROL_BAR_MIN_WIDTH = 168;
   const MIN_LOGICAL_SIZE = CONTROL_BAR_MIN_WIDTH;
 
-  // Fixed-height strip reserved at the *bottom* of the window for the control
-  // bar. The bar lives outside the rounded/overflow-hidden video bubble so it
-  // never gets clipped by the circle/rounded mask and never sits over the
-  // camera feed. The window is this much taller than the video; the aspect
-  // lock (native + JS) only governs `windowHeight − CONTROL_BAR_HEIGHT`, and
-  // the preview state reports just the video rect so the recorded composite is
-  // unaffected. Keep in sync with the strip height in the markup below and the
-  // initial window height in `openCameraPreviewWindow` (ipc.ts).
+  // Bottom strip for the control bar, outside the rounded/clipped video bubble.
+  // The aspect lock governs only `windowHeight − CONTROL_BAR_HEIGHT`. Keep in
+  // sync with the strip height in markup and `openCameraPreviewWindow` (ipc.ts).
   const CONTROL_BAR_HEIGHT = 40;
 
-  // Cached max logical size for the current screen — recomputed on mount and
-  // whenever a resize crosses screens. Used by the aspect-snap helpers to
-  // clamp the box before calling setSize, since the OS-level max-size only
-  // bounds drag-resize and not our programmatic snap-to-aspect calls.
+  // Cached max logical size; aspect-snap helpers clamp against it because the
+  // OS max-size only bounds drag-resize, not our programmatic setSize calls.
   let maxLogicalW = $state(640);
   let maxLogicalH = $state(360);
 
@@ -94,8 +77,7 @@
   let isSnapping = false;
 
   const params = new URLSearchParams(window.location.search);
-  // Accept both legacy DirectShow names (passed as `deviceId` historically)
-  // and real browser MediaDevices ids — `openCameraStream` handles either.
+  // Accepts both legacy DirectShow names and browser MediaDevices ids.
   const deviceQuery = params.get("deviceId");
 
   $effect(() => {
@@ -105,9 +87,8 @@
   });
 
   onMount(() => {
-    // Make the WebView itself fully see-through so the inner rounded
-    // container is the only thing that paints — the OS window already has
-    // `transparent: true`, so corners outside the radius show the desktop.
+    // Make the WebView see-through so only the inner rounded container paints;
+    // the OS window is already transparent, so corners show the desktop.
     const html = document.documentElement;
     const body = document.body;
     html.style.background = "transparent";
@@ -135,10 +116,8 @@
     );
     const unlistenStopped = listen("camera-recording-stopped", () => {});
 
-    // Event-driven preview state push: only fire on actual window changes
-    // (move/resize) or user toggles (aspect/mirror). Replaces the old 350ms
-    // poll that did three IPC round-trips/sec into a Rust mutex even when
-    // nothing changed.
+    // Push preview state only on actual window changes, not on a poll
+    // (the old 350ms poll hit a Rust mutex thrice a second even when idle).
     const unlistenResize = getCurrentWindow().onResized(({ payload }) => {
       void snapToAspect(payload.width, payload.height);
       void reportPreviewState();
@@ -164,9 +143,7 @@
       status = "loading";
       statusMessage = "Connecting to camera…";
 
-      // Validation is best-effort and only meaningful for DirectShow names;
-      // skip silently if the query is a browser deviceId hash (validation
-      // would always fail on those).
+      // Validation only applies to DirectShow names; skip browser deviceId hashes.
       if (deviceQuery && !/^[a-f0-9]{40,}$/i.test(deviceQuery)) {
         try {
           const validation = await validateCameraSource(deviceQuery);
@@ -246,27 +223,18 @@
     getCurrentWindow().close();
   }
 
-  /**
-   * Compute and apply OS-level min/max size constraints. The cap is keyed off
-   * the screen's available *width* (`MAX_SCREEN_FRACTION` of it) — every aspect
-   * we offer is landscape-or-square (ratio ≥ 1), so height is always ≤ width
-   * and a square max box of side `0.25·screenW` bounds the window by width
-   * without ever clipping the proportional height. Called once on mount; the
-   * aspect-snap helpers clamp against `maxLogicalW/H` on top so programmatic
-   * setSize calls (cycling aspect) can't punch past the cap.
-   */
+  // Apply OS min/max size constraints. Cap is keyed off screen width; every
+  // aspect is landscape-or-square (ratio ≥ 1) so a square max box bounds the
+  // window by width without clipping the proportional height.
   async function applySizeConstraints() {
     const screenW = Math.max(window.screen.availWidth || 1920, 320);
     const maxW = Math.floor(screenW * MAX_SCREEN_FRACTION);
-    // Square bounding box for the *video*: width is the binding limit, height
-    // follows aspect. `maxLogicalW/H` are video dimensions; the window adds the
-    // control strip on top.
+    // Square video bounding box; the window adds the control strip on top.
     maxLogicalW = maxW;
     maxLogicalH = maxW;
 
-    // Loosest min height across aspects (the widest, 16:9, gives the shortest
-    // video for a given min width) so the OS floor never out-clamps the native
-    // per-aspect minimum. Window bounds add the control strip.
+    // Use the widest aspect (shortest video) for the min height so the OS floor
+    // never out-clamps the native per-aspect minimum.
     const widestRatio = Math.max(...Object.values(ASPECT_RATIO));
     const minWinH = Math.round(MIN_LOGICAL_SIZE / widestRatio) + CONTROL_BAR_HEIGHT;
 
@@ -284,14 +252,9 @@
     void applyNativeAspectLock();
   }
 
-  /**
-   * Hand the current aspect ratio to the Windows-native WM_SIZING constraint so
-   * the window resizes *proportionally while dragging* — you can't pull width
-   * or height independently, and it won't exceed MAX_SCREEN_FRACTION of the
-   * monitor width. No-op off Windows, where the `snapToAspect` handler below is
-   * the fallback. Re-invoked whenever the aspect changes so the ratio stays in
-   * sync. The drag rect is in physical pixels, so the min crosses as such.
-   */
+  // Hand the aspect ratio to the Windows-native WM_SIZING constraint so drag
+  // resizes proportionally. No-op off Windows, where `snapToAspect` is the
+  // fallback. The drag rect is in physical pixels, so the min crosses as such.
   async function applyNativeAspectLock() {
     try {
       const ratio = ASPECT_RATIO[aspect];
@@ -310,14 +273,7 @@
     }
   }
 
-  /**
-   * Fit a box of (w, h) with the given width/height ratio inside
-   * (maxLogicalW, maxLogicalH) without breaking the ratio. Returns the
-   * largest box that satisfies both bounds. Used by both `applyAspect`
-   * (cycling aspect) and `snapToAspect` (height-snap after drag-resize)
-   * since either path can derive a height that exceeds maxH on tall
-   * aspects, or a width that exceeds maxW after a height-only drag.
-   */
+  // Largest box of the given ratio that fits inside (maxLogicalW, maxLogicalH).
   function fitInsideMax(w: number, h: number, ratio: number): [number, number] {
     let outW = w;
     let outH = h;
@@ -337,8 +293,7 @@
     opts: { snap?: boolean } = {},
   ) {
     aspect = next;
-    // Keep the native WM_SIZING ratio in lockstep with the chosen aspect so the
-    // next drag is constrained to the new shape, not the previous one.
+    // Re-sync the native ratio so the next drag uses the new aspect.
     void applyNativeAspectLock();
     if (opts.snap) {
       const win = getCurrentWindow();
@@ -393,9 +348,8 @@
   function cycleAspect() {
     const nextIndex = (ASPECTS.indexOf(aspect) + 1) % ASPECTS.length;
     const next = ASPECTS[nextIndex];
-    // Coerce circle → rounded when moving off 1:1. A circular border on a
-    // non-square box renders as an ellipse, which is rarely desired and
-    // isn't supported by the composited bubble in the editor either.
+    // Circle → rounded off 1:1; a circle on a non-square box renders as an
+    // ellipse the editor's composited bubble doesn't support.
     if (next !== "1:1" && shape === "circle") {
       shape = "rounded";
     }
@@ -405,8 +359,7 @@
   function cycleShape() {
     const allowed = allowedShapesFor(aspect);
     const idx = allowed.indexOf(shape);
-    // If current shape isn't in the allowed set (shouldn't happen, but
-    // defensively), start from the first allowed option.
+    // Start from the first allowed option if the current shape isn't allowed.
     shape = allowed[(idx === -1 ? 0 : idx + 1) % allowed.length];
     void reportPreviewState();
   }
@@ -416,9 +369,7 @@
     void reportPreviewState();
   }
 
-  // CSS border-radius for the window's outer surface. `circle` uses 50%
-  // (the box is always 1:1 in that case, so it's a true circle). `rounded`
-  // matches the rounded-3xl design token; `square` is a hard cut.
+  // `circle` is 50% (box is always 1:1 then), `rounded` matches the token.
   const cssRadius = $derived.by(() => {
     switch (shape) {
       case "circle":
@@ -450,15 +401,11 @@
     const screenHeight = Math.max(window.screen.availHeight || 1, 1);
 
     const factor = window.devicePixelRatio || 1;
-    // The control strip sits at the *bottom* of the window; the recorded bubble
-    // is just the video region above it. Subtract the strip so the composite
-    // (which uses windowWidth/Height as the bubble rect) matches what's on
-    // screen and isn't stretched by the controls' height.
+    // Subtract the bottom control strip so the reported bubble rect is just the
+    // video region and the composite isn't stretched by the controls' height.
     const videoHeightPhys = Math.max(1, size.height - CONTROL_BAR_HEIGHT * factor);
     const widthLogical = size.width / factor;
-    // Relative corner radius proportional to shorter side, capped at 0.5
-    // (which paints as a full circle on a 1:1 box). Square → 0, circle →
-    // 0.5, rounded → WINDOW_RADIUS scaled to fraction-of-shorter-side.
+    // Corner radius as a fraction of the shorter side, capped at 0.5 (full circle).
     const shortLogical = Math.min(widthLogical, videoHeightPhys / factor);
     const cornerRadius =
       shape === "square"
@@ -496,10 +443,8 @@
   class="group/root relative flex h-screen w-full select-none flex-col scroll-m-0 scrollbar-none"
   data-tauri-drag-region
 >
-  <!-- Video bubble — the ONLY clipped/rounded surface. `flex-1` makes it
-       exactly the window height minus the control strip below, i.e. the video
-       region the aspect lock governs. Controls live outside it (next sibling)
-       so the rounded/circle mask never eats them. -->
+  <!-- Video bubble — the only clipped/rounded surface; `flex-1` is the window
+       height minus the control strip, the region the aspect lock governs. -->
   <div
     class="relative min-h-0 w-full flex-1 overflow-hidden bg-card transition-[border-radius] duration-150 ease-out motion-reduce:transition-none"
     data-tauri-drag-region
@@ -534,9 +479,8 @@
     {/if}
   </div>
 
-  <!-- Control strip — fixed-height row BELOW the bubble (outside its overflow),
-       so the pill is never clipped and never overlaps the camera. The window
-       reserves CONTROL_BAR_HEIGHT for it; the pill fades in on hover. -->
+  <!-- Control strip below the bubble (outside its overflow) so the pill is
+       never clipped; fades in on hover. -->
   <div
     class="flex w-full shrink-0 items-center justify-center"
     data-tauri-drag-region
@@ -602,9 +546,8 @@
 </div>
 
 <style>
-  /* Force-hide the scrollbar (and its reserved gutter) only for this page so
-     the rounded corners read through to the desktop without a Windows
-     scrollbar slot. The global stylesheet sets `scrollbar-gutter: stable`. */
+  /* Hide the scrollbar + gutter for this page only so the rounded corners read
+     through to the desktop (the global stylesheet sets scrollbar-gutter: stable). */
   :global(html) {
     background: transparent !important;
     scrollbar-width: none;

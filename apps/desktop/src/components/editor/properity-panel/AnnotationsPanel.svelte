@@ -1,5 +1,6 @@
 <script lang="ts">
   import { kindIcon, kindLabel } from "$lib/annotations/kind-label";
+  import { clockCentis as fmtTime } from "$lib/format/time";
   import {
     FONT_FAMILIES,
     FONT_WEIGHTS,
@@ -109,12 +110,6 @@
   }
 
 
-  function fmtTime(sec: number): string {
-    const s = Math.max(0, sec);
-    const m = Math.floor(s / 60);
-    const rem = s - m * 60;
-    return `${m}:${rem.toFixed(2).padStart(5, "0")}`;
-  }
 
   function updateSelected(updates: Partial<Annotation>, trackUndo = false) {
     if (!selected) return;

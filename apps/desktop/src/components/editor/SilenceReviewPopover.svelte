@@ -7,6 +7,10 @@
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import { overlapsAny } from "$lib/timeline/cuts";
   import {
+    clockDecis as formatTime,
+    compactDuration as formatDuration,
+  } from "$lib/format/time";
+  import {
     AlertTriangle,
     Check,
     Eye,
@@ -116,15 +120,6 @@
     }
   }
 
-  function formatTime(s: number): string {
-    const m = Math.floor(s / 60);
-    const rem = s - m * 60;
-    return `${m}:${rem.toFixed(1).padStart(4, "0")}`;
-  }
-
-  function formatDuration(s: number): string {
-    return s >= 1 ? `${s.toFixed(1)}s` : `${Math.round(s * 1000)}ms`;
-  }
 
   // Zoom regions and annotations a cut must not bisect — splitting one would
   // need overlay-time surgery the MVP intentionally avoids.

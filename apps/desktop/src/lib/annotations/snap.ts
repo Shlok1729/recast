@@ -1,7 +1,5 @@
-// Snap engine for annotation drag/place. Pure: takes a candidate UV point and
-// a list of anchors, returns the snapped point plus whichever anchors fired
-// (so the overlay can draw guides). Stores no state; the caller decides when
-// to invoke it (e.g. only on move-deltas above a hysteresis threshold).
+// Pure snap engine for annotation drag/place: candidate UV point + anchors →
+// snapped point plus the anchors that fired (so the overlay can draw guides).
 
 export type SnapAxis = "x" | "y";
 

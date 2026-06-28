@@ -1,11 +1,7 @@
-// Browser-side camera enumeration. The Rust ffmpeg/dshow enumeration returns
-// DirectShow friendly names, but the WebView's getUserMedia operates on
-// MediaDevices deviceIds. When those disagree (e.g., Phone Link or other
-// virtual cameras registered ahead of the real webcam), passing a DirectShow
-// name to getUserMedia silently fails and falling back to `video: true` lets
-// the browser pick its own default — which on Windows is often Phone Link.
-//
-// Use this module everywhere the WebView needs to open a specific camera.
+// Browser-side camera enumeration. Rust enumerates DirectShow friendly names but
+// getUserMedia operates on MediaDevices deviceIds; when they disagree, passing a
+// DirectShow name silently fails and `video: true` lets the browser pick its own
+// default (often Phone Link on Windows). Use this module to open a specific camera.
 
 const VIRTUAL_CAMERA_PATTERNS: RegExp[] = [
 	/phone\s*link/i,
@@ -35,15 +31,12 @@ export function isVirtualCameraLabel(label: string): boolean {
 }
 
 /**
- * Why camera enumeration couldn't produce a usable device — but only for the
- * cases that are a *blocker* rather than simply "no hardware":
- *   - `unavailable` → the WebView exposes no MediaDevices API at all (macOS
- *     WKWebView without NSCameraUsageDescription, or Linux WebKitGTK with
- *     media-stream off). A build/permission misconfig, not the user's doing.
- *   - `denied` → a camera exists but the OS/WebView refused capture (the user,
- *     or a policy, blocked access).
- * An empty result with NO error means genuinely no camera is connected;
- * callers distinguish that from these two so the UI can say the right thing.
+ * Why enumeration couldn't produce a usable device — only the *blocker* cases:
+ *   - `unavailable` → no MediaDevices API at all (macOS WKWebView without
+ *     NSCameraUsageDescription, or Linux WebKitGTK with media-stream off).
+ *   - `denied` → a camera exists but capture was refused.
+ * An empty result with NO error means genuinely no camera connected; callers
+ * distinguish that case so the UI can say the right thing.
  */
 export type CameraAccessReason = "unavailable" | "denied";
 
@@ -65,13 +58,10 @@ function isPermissionDenied(e: unknown): boolean {
 }
 
 /**
- * The WebView exposes no `navigator.mediaDevices` at all. On macOS this is
- * what WKWebView does when the bundle declares no `NSCameraUsageDescription`
- * (see src-tauri/Info.plist); on Linux it's WebKitGTK with `enable-media-stream`
- * off (see `enable_webview_media` in lib.rs). The whole MediaDevices API is
- * stripped rather than prompting, so enumerate/getUserMedia would throw the
- * opaque "undefined is not an object" instead of a real error. Surface
- * something the user can act on.
+ * Guard against the WebView stripping `navigator.mediaDevices` entirely (macOS
+ * WKWebView without NSCameraUsageDescription; Linux WebKitGTK with media-stream
+ * off). Without this the API throws an opaque "undefined is not an object"
+ * instead of an actionable error.
  */
 function assertMediaDevices(): MediaDevices {
 	const media = navigator.mediaDevices;
@@ -94,9 +84,8 @@ function assertMediaDevices(): MediaDevices {
 export async function enumerateCameras(): Promise<BrowserCamera[]> {
 	const media = assertMediaDevices();
 	let devices = await media.enumerateDevices();
-	// No videoinput entry at all → no camera is connected. Return empty (the
-	// "none" case) rather than probing — getUserMedia on absent hardware would
-	// either no-op or pop a needless prompt. Callers render "no camera found".
+	// No videoinput → no camera connected. Return empty rather than probing,
+	// which would no-op or pop a needless prompt.
 	if (!devices.some((d) => d.kind === "videoinput")) return [];
 
 	const labelsPopulated = devices.some(
@@ -104,7 +93,7 @@ export async function enumerateCameras(): Promise<BrowserCamera[]> {
 	);
 	if (!labelsPopulated) {
 		// Labels stay blank until capture is authorized once. Probe to unlock
-		// them — and to turn a silent block into an explicit, actionable error.
+		// them, and to surface a silent block as an actionable error.
 		try {
 			const probe = await media.getUserMedia({ video: true });
 			probe.getTracks().forEach((t) => t.stop());
@@ -115,8 +104,7 @@ export async function enumerateCameras(): Promise<BrowserCamera[]> {
 					"Camera access is blocked. Allow it in your system settings, then rescan.",
 				);
 			}
-			// NotReadableError (device busy) and friends are non-fatal: fall
-			// through and return the (still-unlabeled) device so it's visible.
+			// Device-busy and friends are non-fatal: keep the unlabeled device.
 			console.warn("[camera] label probe failed:", e);
 		}
 		devices = await media.enumerateDevices();

@@ -1,16 +1,9 @@
 /**
- * External-open pipeline for `.recast` files.
+ * External-open pipeline for `.recast` files (today: OS file association).
  *
- * Used whenever a project file arrives from outside the in-app recordings
- * list — today that's only the OS file association (double-click in
- * Explorer/Finder/Files), but the same helper is reusable for future
- * "File → Open…" menu items and drag-onto-app-icon flows.
- *
- * External opens always land in a fresh editor window — they never
- * navigate the main window. That's a deliberate UX contract: the user's
- * library view stays put, and a new project never disturbs unsaved edits
- * in another editor window. Same path opened twice → focus the existing
- * window (label-based dedupe).
+ * External opens always land in a fresh editor window, never navigating the
+ * main window — the library view stays put and unsaved edits elsewhere aren't
+ * disturbed. Same path opened twice → focus the existing window (label dedupe).
  */
 import { analytics } from "$lib/analytics/client";
 import { isRecordingActive, peekRecastProject } from "$lib/ipc";
@@ -58,28 +51,23 @@ export async function openProjectInNewWindow(path: string): Promise<void> {
     center: true,
     decorations: false,
   });
-  // No-op unless product analytics are on. No PII — the path never leaves.
+  // No PII — the path never leaves.
   analytics.capture("editor_opened");
 }
 
 /**
- * Validate, then open. Surfaces a toast and bails on each failure mode
- * the editor route can't recover from:
- *
- *   - Active recording → editor windows kick off FFmpeg thumbnail probes
- *     that compete with the capture pipeline for CPU. Refuse instead of
- *     degrading the recording.
- *   - File missing / unreadable → toast the OS error verbatim.
- *   - Not a valid zip / no metadata.json → "Not a valid Recast project".
- *
- * Always lands in a new editor window (never navigates main).
+ * Validate, then open. Toasts and bails on failure modes the editor can't
+ * recover from:
+ *   - Active recording → editor thumbnail probes would compete with capture
+ *     for CPU; refuse rather than degrade the recording.
+ *   - File missing/unreadable → toast the OS error verbatim.
+ *   - Not a valid project → "Not a valid Recast project".
  */
 export async function openProjectFromExternalPath(
   path: string,
 ): Promise<void> {
-  // Best-effort guard. If the IPC fails for any reason, treat it as
-  // "not recording" rather than blocking the open — the user can always
-  // start the editor anyway from the recasts list if something's wedged.
+  // Best-effort guard — a failed IPC treats it as "not recording" rather than
+  // blocking the open.
   let recording = false;
   try {
     recording = await isRecordingActive();

@@ -1,15 +1,11 @@
 /**
- * The "count down before capture starts" setting, shared between the Settings →
- * Recording panel (where it's chosen) and the recording panel window (where it's
- * applied). Backed by the shared `PersistedState` primitive so the two windows
- * stay in sync: Tauri v2 webviews share a localStorage origin, so changing the
- * value in Settings reaches an already-open panel live via the `storage` event,
- * no relaunch — the panel no longer needs its own listener.
+ * Pre-capture countdown setting, shared between Settings → Recording and the
+ * recording panel window via `PersistedState`. Tauri v2 webviews share a
+ * localStorage origin, so a Settings change reaches an open panel live via the
+ * `storage` event.
  *
- * Stored as a raw number string (e.g. `"3"`), matching the historical on-disk
- * format; `PersistedState`'s number serializer reads it back and falls back to
- * the default on `NaN`. `value` additionally coerces to a known option so a
- * stale / out-of-range stored number can never reach the UI.
+ * Stored as a raw number string (historical format); `value` coerces to a known
+ * option so a stale / out-of-range number can never reach the UI.
  */
 
 import { PersistedState } from "@recast/ui/persisted-state";

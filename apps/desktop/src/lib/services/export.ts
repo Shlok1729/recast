@@ -1,15 +1,8 @@
 /**
- * Export service — orchestration for turning an editor project into a rendered
- * file. This layer sits between the UI (the editor route) and the Rust export
- * pipeline, and is the agent-facing surface a future MCP server will call.
- *
- * It deliberately owns NO UI state (no progress rings, toasts, or dialog
- * phases). Callers feed in a project (the `EditorStore`) and receive either a
- * ready-to-render payload (`buildExportRenderState`) or the final file path
- * (`runExport`). Progress is surfaced through an optional `onState` callback so
- * the editor route can drive its own UI without this layer knowing about it.
- *
- * See ./README.md for how this fits the overall headless-core layering.
+ * Export service — turns an editor project into a rendered file. Sits between
+ * the UI and the Rust pipeline; the agent-facing surface a future MCP server
+ * calls. Owns NO UI state — progress is surfaced via an optional `onState`
+ * callback. See ./README.md for the headless-core layering.
  */
 
 import { rasterizeCursorSprites } from "$lib/export/rasterize-cursor";
@@ -48,13 +41,10 @@ export interface ExportRenderStatePayload {
 }
 
 /**
- * Build the exact render payload the Rust pipeline consumes from a project.
- *
- * This is the heart of "export" as an operation: it runs the two hybrid-raster
- * passes (text annotations → PNG, cursor → sprite sheet) and honors the
- * per-lane enable toggles (focus / annotations / cuts) without mutating the
- * store. The result is fully serializable, so an agent can build it, inspect
- * it, and pass it straight to {@link runExport}.
+ * Build the render payload the Rust pipeline consumes from a project: runs the
+ * two hybrid-raster passes (text → PNG, cursor → sprite sheet) and honors the
+ * per-lane enable toggles (focus/annotations/cuts) without mutating the store.
+ * Fully serializable, so an agent can build, inspect, and pass it to {@link runExport}.
  */
 export async function buildExportRenderState(
 	store: EditorStore,
@@ -72,10 +62,8 @@ export async function buildExportRenderState(
 	hooks?.onText?.(hasText ? "running" : "done");
 	hooks?.onCursor?.(hasStyledCursor ? "running" : "done");
 
-	// Run the two hybrid-raster passes in parallel — they don't depend on each
-	// other and the cursor SVG decode is non-trivial on cold boot (Image()
-	// onload is async even for inline blobs). This trims perceived "Preparing…"
-	// time roughly in half on projects with text.
+	// Run both hybrid-raster passes in parallel — independent, and the cursor SVG
+	// decode is non-trivial on cold boot (Image() onload is async even for blobs).
 	const [expandedAnnotations, cursorSprites] = await Promise.all([
 		expandTextAnnotations(renderState.annotations, canvasW, canvasH).then(
 			(r) => {
@@ -93,18 +81,13 @@ export async function buildExportRenderState(
 	]);
 
 	hooks?.onSending?.("running");
-	// Honor the per-lane "enable" toggles. The underlying data is preserved on
-	// the store; here we just hand the export pipeline the active set, so
-	// toggling a lane off bypasses its effect in the rendered file.
+	// Hand the pipeline only the active set per lane toggle; store data is preserved.
 	const finalRenderState: EditorRenderState = {
 		...renderState,
 		annotations: store.annotationsGloballyHidden ? [] : expandedAnnotations,
 		zoomRegions: store.focusEnabled ? renderState.zoomRegions : [],
-		// `effectiveCuts` already reflects what actually applies: manual splits/
-		// ripple deletes are always-on, auto silence still requires the
-		// `silenceDetection` opt-in, and both honor the cuts-lane toggle. Cuts that
-		// don't apply are preserved on the store but never reach the Rust pipeline,
-		// so the export matches the previewed edit.
+		// `effectiveCuts` = the flag-gated, lane-enabled subset, so the export
+		// matches the previewed edit. Inactive cuts stay on the store, not here.
 		cuts: store.effectiveCuts,
 		cursorSpriteRest: cursorSprites?.rest,
 		cursorSpritePress: cursorSprites?.press,
@@ -140,11 +123,9 @@ export interface RunExportOptions {
 
 /**
  * Run an export end to end: register the progress listener, invoke the Rust
- * pipeline, and tear the listener down when finished. Resolves to the output
- * file path; rejects (or emits an `error`/`cancelled` state event) on failure.
- *
- * UI lifecycle (isExporting flags, result overlays, ETA) stays with the caller
- * — this only owns the IPC round-trip and listener lifetime.
+ * pipeline, tear the listener down when finished. Resolves to the output path;
+ * rejects (or emits an `error`/`cancelled` event) on failure. UI lifecycle
+ * stays with the caller — this owns only the IPC round-trip and listener.
  */
 export async function runExport(opts: RunExportOptions): Promise<string> {
 	const unlisten = opts.onState

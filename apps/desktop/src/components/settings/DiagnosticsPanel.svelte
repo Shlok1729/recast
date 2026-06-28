@@ -13,7 +13,7 @@
     diagnostics.set(next);
     toast.success(
       next
-        ? "Diagnostic logging on — reproduce the issue, then open the logs folder"
+        ? "Diagnostic logging on. Reproduce the issue, then open the logs folder."
         : "Diagnostic logging off",
     );
   }
@@ -39,8 +39,8 @@
       Diagnostics
     </h2>
     <p class="mt-0.5 text-[11px] text-muted-foreground/80">
-      Detailed logs for troubleshooting. Off by default — turn this on only when
-      reproducing a bug, then send the log folder to support.
+      Detailed logs for troubleshooting. Turn this on while reproducing a bug,
+      then send the log folder to support.
     </p>
   </div>
 

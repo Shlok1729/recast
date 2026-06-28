@@ -1,0 +1,81 @@
+/**
+ * Pure, testable bits of the annotation canvas rendering: arrow head geometry,
+ * stroke dash patterns, and blur-variant tint colours. The imperative drawing
+ * (ctx.fill/stroke/clip etc.) stays in AnnotationOverlay — it's view-bound to
+ * the component's canvas/project helpers and isn't meaningfully unit-testable;
+ * these helpers are the maths it builds on.
+ */
+
+export type StrokeStyle = "solid" | "dashed" | "dotted";
+
+/** Canvas dash array for a stroke style, scaled by stroke width. Empty = solid. */
+export function strokeDashPattern(
+	style: StrokeStyle | undefined,
+	strokePx: number,
+): number[] {
+	if (style === "dashed") return [8 * strokePx, 6 * strokePx];
+	if (style === "dotted") return [2 * strokePx, 4 * strokePx];
+	return [];
+}
+
+/**
+ * Tint overlay for a blur annotation variant, or null when there's no tint.
+ * `color` variant parses a `#rrggbb` (with/without `#`); invalid colour → null.
+ */
+export function blurTint(variant: string, tintColor: string): string | null {
+	if (variant === "white") return "rgba(255,255,255,0.30)";
+	if (variant === "black") return "rgba(0,0,0,0.30)";
+	if (variant === "color") {
+		const m = /^#?([0-9a-fA-F]{6})$/.exec(tintColor.trim());
+		if (m) {
+			const v = parseInt(m[1], 16);
+			return `rgba(${(v >> 16) & 0xff},${(v >> 8) & 0xff},${v & 0xff},0.30)`;
+		}
+	}
+	return null;
+}
+
+export interface Point {
+	x: number;
+	y: number;
+}
+
+export interface ArrowGeometry {
+	/** Where the shaft ends (base of the head). */
+	lineEnd: Point;
+	/** The arrow tip (p2). */
+	tip: Point;
+	/** The two base corners of the head triangle. */
+	left: Point;
+	right: Point;
+}
+
+/**
+ * Arrow shaft + head triangle geometry from endpoints, stroke width, and head
+ * size (fraction of length). Returns null for a degenerate (sub-pixel) arrow.
+ */
+export function arrowGeometry(
+	p1: Point,
+	p2: Point,
+	strokePx: number,
+	headSize: number,
+): ArrowGeometry | null {
+	const dx = p2.x - p1.x;
+	const dy = p2.y - p1.y;
+	const len = Math.hypot(dx, dy);
+	if (len < 1) return null;
+	const headLen = Math.max(strokePx * 2, headSize * len);
+	const headWidth = headLen * 0.7;
+	const ux = dx / len;
+	const uy = dy / len;
+	const lineEndX = p2.x - ux * headLen;
+	const lineEndY = p2.y - uy * headLen;
+	const nx = -uy;
+	const ny = ux;
+	return {
+		lineEnd: { x: lineEndX, y: lineEndY },
+		tip: { x: p2.x, y: p2.y },
+		left: { x: lineEndX + nx * headWidth * 0.5, y: lineEndY + ny * headWidth * 0.5 },
+		right: { x: lineEndX - nx * headWidth * 0.5, y: lineEndY - ny * headWidth * 0.5 },
+	};
+}

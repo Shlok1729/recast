@@ -98,12 +98,6 @@
 			cap: "Limited",
 		},
 		{
-			feature: "Pause and resume mid-take",
-			recast: "Built in",
-			loom: "Paid",
-			cap: "Built in",
-		},
-		{
 			feature: "Hardware-accelerated export",
 			recast: "Built in",
 			loom: "Cloud render only",
@@ -117,9 +111,9 @@
 		},
 		{
 			feature: "Share to your own storage (Drive today)",
-			recast: "Built in",
+			recast: "Built in, free",
 			loom: "Not supported",
-			cap: "Not supported",
+			cap: "Pro only",
 		},
 		{
 			feature: "No account required to record",
@@ -136,8 +130,8 @@
 		{
 			feature: "Per-seat pricing",
 			recast: "None",
-			loom: "Per editor",
-			cap: "Per editor",
+			loom: "Per seat",
+			cap: "Per seat",
 		},
 	];
 

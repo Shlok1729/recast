@@ -35,9 +35,8 @@ export interface RegistryIndexEntry {
 	iconUrl?: string;
 }
 
-/** Compare two `x.y.z` versions. Returns -1 / 0 / 1 (a<b / a==b / a>b). Pack
- *  versions are strict semver per the schema, so a numeric 3-part compare is
- *  enough — pre-release suffixes aren't used. */
+/** Compare two `x.y.z` versions → -1 / 0 / 1. Numeric 3-part compare is enough:
+ *  pack versions are strict semver with no pre-release suffixes. */
 export function compareSemver(a: string, b: string): number {
 	const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
 	const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);
@@ -150,9 +149,8 @@ export async function loadRegistryIndex<T = unknown>(): Promise<T | null> {
 	}
 }
 
-/** Fetch a pack's full manifest (contributes + assets) for the details preview
- *  before install. Reuses the URL-allowlisted fetch the registry browse uses, so
- *  the same https/localhost gate applies. Returns null on any failure. */
+/** Fetch a pack's full manifest for the pre-install details preview. Reuses the
+ *  URL-allowlisted registry fetch, so the same https/localhost gate applies. */
 export async function fetchManifestPreview(
 	manifestUrl: string,
 ): Promise<ExtensionManifest | null> {

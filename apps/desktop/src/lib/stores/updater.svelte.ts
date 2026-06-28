@@ -2,17 +2,12 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import { isTauriApp } from "$lib/runtime/tauri";
 
 /**
- * Auto-updater store.
+ * Auto-updater store. On boot, compares the running build against `latest.json`;
+ * if newer, surfaces a non-blocking corner card. Download and install+relaunch
+ * are both explicit user actions, not automatic.
  *
- * Flow: on app boot we ask the Tauri updater plugin to compare the running
- * build against the `latest.json` manifest published with each GitHub release.
- * If a newer version exists we surface a non-blocking corner card offering to
- * download — the download itself does NOT start until the user clicks the
- * download action. Once downloaded, install + relaunch is deferred until they
- * explicitly click "Restart to update".
- *
- * All updater/process APIs are imported lazily so the module is safe to load
- * in the browser (web build) where the Tauri plugins don't exist.
+ * Updater/process APIs are imported lazily so the module loads safely in the
+ * web build where the Tauri plugins don't exist.
  */
 export type UpdaterStatus =
 	| "idle"
@@ -65,12 +60,8 @@ function createUpdaterStore() {
 	}
 
 	async function runCheck() {
-		// Production-only. `tauri dev` ships an unsigned, unpublished build —
-		// the updater plugin can't compare against `latest.json` in any
-		// meaningful way, and surfacing the corner card during local
-		// development just confuses contributors. Vite sets `import.meta.env.DEV`
-		// from the running mode, so this short-circuits cleanly for
-		// `tauri dev` while staying live for `tauri build` artefacts.
+		// Production-only: `tauri dev` ships an unsigned, unpublished build with
+		// nothing to compare against `latest.json`.
 		if (import.meta.env.DEV) return;
 		if (!(await isTauriApp())) return;
 		if (status === "checking" || status === "downloading") return;
@@ -89,10 +80,7 @@ function createUpdaterStore() {
 			version = found.version;
 			notes = found.body ?? null;
 			dismissed = false;
-			// Don't auto-download — surface the corner card and wait for the
-			// user to opt in via the Download button. Saves bandwidth for
-			// users on metered connections and matches the explicit-consent
-			// behavior users expect.
+			// Don't auto-download — wait for explicit opt-in (metered connections).
 			status = "update-available";
 		} catch (e) {
 			console.error("[updater] check failed", e);

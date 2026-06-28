@@ -1,51 +1,41 @@
 /**
  * WebCodecsVideoSource — frame-accurate video decode for the editor preview.
  *
- * This is the piece that fixes "playback freezes at a cut". The old preview
- * used an HTML `<video>` element as its frame source, so jumping over a cut
- * meant `video.currentTime = cut.end` — a native seek whose latency (decode
- * from the nearest keyframe) is the visible stall. We can't control that seek.
+ * Fixes "playback freezes at a cut". The old `<video>`-element preview crossed a
+ * cut via `video.currentTime = cut.end`, a native seek whose decode-from-keyframe
+ * latency is the visible stall and which we can't control. Here we own the decode
+ * pipeline instead:
+ *   - mp4box.js demuxes into encoded samples + the codec config, with a
+ *     presentation-time index.
+ *   - a WebCodecs `VideoDecoder` decodes on demand into `VideoFrame`s that WebGL
+ *     uploads directly (`texImage2D(..., videoFrame)`).
+ *   - decoded frames live in a bounded cache so frames around the playhead — and
+ *     across an upcoming cut — are already in memory; a "seek" becomes a cache
+ *     lookup + a short decode scheduled ahead of time, not a black-box stall.
  *
- * Here we own the decode pipeline instead, the way Cap does in Rust:
- *   - mp4box.js demuxes the recording into encoded H.264 samples + the avcC
- *     config, with a presentation-time index.
- *   - a WebCodecs `VideoDecoder` decodes on demand into `VideoFrame`s, which
- *     WebGL can upload directly (`texImage2D(..., videoFrame)`), same as a
- *     `<video>` element but without the element.
- *   - decoded frames live in a bounded cache (cf. Cap's 90-frame cache) so the
- *     frames around the playhead — and across an upcoming cut — are already in
- *     memory. A "seek" becomes a cache lookup + a short decode from the
- *     keyframe, scheduled ahead of time, not a black-box stall.
+ * Threading: demux, decoder, and decode-ahead all run in `webcodecs-worker.ts`.
+ * This class is the main-thread proxy: it owns the bounded decoded-frame cache
+ * (frames transferred from the worker), answers the render loop synchronously,
+ * and tells the worker where the playhead is.
  *
- * Threading: the demux, decoder, and decode-ahead scheduling all run in a
- * dedicated worker (`webcodecs-worker.ts`). This class is the main-thread
- * proxy — it owns the bounded decoded-frame cache (frames are transferred from
- * the worker) and answers the render loop synchronously, while telling the
- * worker where the playhead is so it can decode ahead. That keeps the WebView
- * main thread doing only the cheap work: the cache lookup + the WebGL upload.
- *
- * Ownership: `frameAt()` returns a frame owned by the cache. The caller uploads
- * it synchronously and must NOT close it. Frames are closed on eviction and on
- * `dispose()`. `VideoFrame`s are GPU-backed and refcounted — leaking them
- * exhausts the decoder, so every cached frame has exactly one close path.
+ * Ownership: `frameAt()` returns a frame owned by the cache — upload it
+ * synchronously, do NOT close it. `VideoFrame`s are GPU-backed and refcounted;
+ * leaking them exhausts the decoder, so every cached frame has exactly one close
+ * path (eviction or `dispose()`).
  */
 
 import { frameBudget } from "./frame-budget";
 import { chooseIngestion } from "./mp4-sample-table";
 import type { FromWorker, ToWorker } from "./webcodecs-protocol";
 
-// The cache caps (primary `#cacheMax`, scout `#holdoutMax`) are RESOLUTION-
-// ADAPTIVE — set per source from `frameBudget(width, height)`. Each held
-// VideoFrame keeps one of the hardware decoder's limited output surfaces
-// checked out; at 4K/5K those surfaces are 4–7× larger, so holding the 1080p
-// count would starve the pool and stall the decoder. The scout holdout is kept
-// SEPARATE from the main cache so the primary's eviction (which anchors on the
-// pre-cut display frame and drops the farthest-ahead first) can't throw away
-// the pre-warmed post-cut frames before playback reaches the cut. See
-// `frame-budget.ts` for the sizing and `#evict` for the retention policy.
+// The cache caps (primary `#cacheMax`, scout `#holdoutMax`) are resolution-
+// adaptive (see `frame-budget.ts`): each held VideoFrame keeps a decoder output
+// surface checked out, and at 4K/5K those are 4–7× larger, so the 1080p count
+// would starve the pool. The scout holdout is SEPARATE from the main cache so
+// the primary's eviction can't drop the pre-warmed post-cut frames before
+// playback reaches the cut. See `#evict` for the retention policy.
 
-/** Dev-only diagnostics (throughput + first-frame geometry). Silent in
- * production; kept for debugging decode regressions. */
+/** Dev-only diagnostics (throughput + first-frame geometry). */
 const DIAG = import.meta.env.DEV;
 
 export class WebCodecsVideoSource {
@@ -86,14 +76,10 @@ export class WebCodecsVideoSource {
 		| ((s: { avgFps: number; minFps: number; maxLateMs: number }) => void)
 		| null = null;
 
-	// First-frame geometry log is dev-only (DIAG). The throughput counters below
-	// run ALWAYS — they're a few integer adds per frame — and feed the one
-	// aggregate `onStats` emit on dispose. The dev console log reuses them.
 	#loggedDims = false;
-	// Aggregate decode throughput, accumulated over 1s windows of playback. Idle
-	// windows (scrub/pause, ≈0 fps) are dropped so the average reflects real
-	// playback. `#perfMaxLateMs` = worst frame lateness vs the clock (large at
-	// high res ⇒ throughput-bound). Emitted once via `onStats` on dispose.
+	// Aggregate decode throughput over 1s windows. Idle windows (scrub/pause,
+	// ≈0 fps) are dropped so the average reflects real playback. `#perfMaxLateMs`
+	// = worst frame lateness vs the clock. Emitted once via `onStats` on dispose.
 	#perfFrames = 0;
 	#perfWindowStart = 0;
 	#perfWindowFrames = 0;
@@ -213,9 +199,7 @@ export class WebCodecsVideoSource {
 						`format=${f.format} declaredMeta=${this.width}x${this.height}`,
 				);
 			}
-			// Throughput sampling (always on — a handful of int ops per frame).
-			// Per-second windows; idle/scrub windows (≈0 fps) are dropped so the
-			// aggregate reflects real playback. Emitted once on dispose via onStats.
+			// Throughput sampling (always on — a few int ops per frame).
 			this.#perfFrames++;
 			this.#perfMaxLateMs = Math.max(
 				this.#perfMaxLateMs,
@@ -302,14 +286,12 @@ export class WebCodecsVideoSource {
 	}
 
 	/**
-	 * Best cached frame to show at `tUs`: the greatest timestamp in
-	 * [floorUs, tUs]. `floorUs` is the start of the current kept segment — frames
-	 * before it belong to an earlier segment (inside a removed cut) and must NOT
-	 * be shown, or the picture steps BACK into deleted content right after a cut.
-	 * Within the segment we always return the closest frame at-or-before the
-	 * playhead (never null just because it's a little stale), so normal playback
-	 * stays smooth; null only when no in-segment frame is decoded yet, in which
-	 * case the caller holds the last frame.
+	 * Best cached frame to show at `tUs`: the greatest timestamp in [floorUs, tUs].
+	 * `floorUs` is the start of the current kept segment — frames before it are in
+	 * a removed cut and must NOT be shown, or the picture steps BACK into deleted
+	 * content right after a cut. Returns the closest at-or-before frame even if a
+	 * little stale; null only when no in-segment frame is decoded yet (caller holds
+	 * the last frame).
 	 */
 	#bestCached(tUs: number, floorUs: number): VideoFrame | null {
 		let best: VideoFrame | null = null;
@@ -333,16 +315,13 @@ export class WebCodecsVideoSource {
 	}
 
 	/**
-	 * Evict around the frame that should currently be ON SCREEN — never by a
-	 * fixed time window. The display frame is the greatest timestamp at-or-before
-	 * the playhead; it is NEVER evicted, even if it arrived "late". This matters
-	 * because the playback clock free-runs at realtime while decode does not: a
-	 * costly frame (a Figma canvas edit, a dropdown opening — a large P-frame)
-	 * decodes slower, so it lands behind the clock. The old window-based eviction
-	 * dropped exactly those frames on arrival (ts < playhead − 100ms), which is
-	 * why heavy on-screen changes silently vanished while static playback stayed
-	 * smooth. Now a late frame is simply newer than the last displayed frame, so
-	 * it becomes the display frame and is shown (a touch late) rather than lost.
+	 * Evict around the on-screen frame, never by a fixed time window. The display
+	 * frame (greatest timestamp at-or-before the playhead) is NEVER evicted, even
+	 * if it arrived late. This is the fix for the old window-based eviction that
+	 * dropped late frames on arrival (ts < playhead − 100ms): the clock free-runs
+	 * at realtime while a costly frame (a large P-frame) decodes slower and lands
+	 * behind, so heavy on-screen changes silently vanished. Now a late frame just
+	 * becomes the newest display frame and is shown a touch late rather than lost.
 	 */
 	#evict(): void {
 		// The frame we'd show right now.

@@ -17,13 +17,8 @@ export type BackgroundType = 'wallpaper' | 'image' | 'color' | 'gradient';
 
 
 export interface WallpaperOption {
-	/**
-	 * Stable identifier — matches the `id` in `assets/manifest.json`. Stored
-	 * in `backgroundValue` as `asset:<id>` so both preview and export can
-	 * resolve against the downloaded cache. No bundled thumbnail — the
-	 * LazyExternalImage component reads thumbs from the same downloaded
-	 * cache, with a CSS placeholder while nothing is available yet.
-	 */
+	/** Matches the `id` in `assets/manifest.json`. Stored in `backgroundValue`
+	 *  as `asset:<id>` so preview and export resolve against the downloaded cache. */
 	id: string;
 	label: string;
 }
@@ -71,11 +66,8 @@ export interface ShadowSettings {
 	color: string; // hex
 }
 
-//  Annotations 
-//
-// Position / size live in video UV space (0..1) so annotations follow zoom
-// and crop transforms without re-projection. `kind` is a discriminated union
-// so arrows / polygons / text / image slot in without churn later.
+// Annotations. Position/size live in video UV space (0..1) so they follow zoom
+// and crop transforms without re-projection. `kind` is a discriminated union.
 
 export type AnnotationStrokeStyle = "solid" | "dashed" | "dotted";
 
@@ -212,17 +204,10 @@ export const DEFAULT_ANNOTATION_STROKE: AnnotationStroke = {
 };
 export const DEFAULT_ANNOTATION_FILL = "rgba(59,130,246,0.20)";
 
-/**
- * Cursor style id — matches an entry in `lib/cursor/styles.ts`.
- *  - `dot`: the legacy soft white circle (rendered by the WebGL2 shader and
- *    the Rust export overlay; what users see by default).
- *  - Anything else: an SVG cursor sprite drawn by `CursorOverlayLayer` over
- *    the preview. Preview-only today; export currently falls back to `dot`.
- */
-// Bundled built-in cursor styles. The soft `dot` (default, shader-drawn) plus
-// the two system-accurate sets. The original macos/windows/outline/target
-// styles moved into the installable "Classic Cursors" pack and are addressed
-// as `ext:classic-cursors:<id>` once installed.
+// Bundled built-in cursor styles. `dot` is the default soft circle (drawn by
+// the WebGL2 shader and the Rust export overlay); the system sets are SVG
+// sprites. The legacy macos/windows/outline/target styles moved into the
+// installable "Classic Cursors" pack (`ext:classic-cursors:<id>`).
 export type CursorStyleId = 'dot' | 'macos-system' | 'windows-system';
 
 /**
@@ -623,12 +608,8 @@ export interface GradientSpec {
 export const MAX_GRADIENT_STOPS = 8;
 
 /**
- * Curated, product-grade gradient presets. Authored as full
- * `linear-gradient(<deg>, <stop>…)` strings — the exact source of truth that
- * the preview shader and the export rasteriser both parse, so what's shown is
- * what's rendered. Picked for richer contrast and saturation than the old
- * adjacent-tone ramps (which read as washed-out two-tone blends because only
- * the first two stops were ever sampled).
+ * Curated gradient presets, authored as full `linear-gradient(...)` strings —
+ * the exact source of truth the preview shader and export rasteriser both parse.
  */
 export const GRADIENT_PRESETS: { label: string; value: string }[] = [
 	{ label: 'Indigo', value: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%)' },
@@ -731,14 +712,11 @@ export function createEditorStore() {
 	let audioPath = $state<string | null>(null);
 	let microphonePath = $state<string | null>(null);
 	let metadata = $state<VideoMetadata | null>(null);
-	// Large, replace-only arrays use `$state.raw` — they're swapped wholesale by
-	// their async loaders and never mutated element-wise, so deep-proxying every
-	// element (thousands of entries) would be pure overhead. Only the array
-	// identity needs to be reactive. See AGENTS.md §4 (`$state.raw` for large
-	// immutable blobs).
+	// `$state.raw` for large replace-only arrays: swapped wholesale, never
+	// mutated element-wise, so deep-proxying thousands of entries is pure
+	// overhead — only the array identity needs reactivity. See AGENTS.md.
 	let thumbnailStrip = $state.raw<string[]>([]);
-	// Audio peak envelope (0..1 per bucket) for the timeline waveform.
-	// Transient — recomputed on document load, never persisted.
+	// Audio peak envelope (0..1 per bucket) for the timeline waveform. Transient.
 	let waveform = $state.raw<number[]>([]);
 
 	// Playback
@@ -798,12 +776,9 @@ export function createEditorStore() {
 	// effect. Cleared when the user resets back to source.
 	let lastAppliedPresetId = $state<string | null>(null);
 
-	// Raw cursor samples, shared between the preview (which runs the actual
-	// compositor) and the Cursor panel (which needs them for the trajectory
-	// minimap). Set by VideoPreview on load; read-only elsewhere.
-	// Cursor track — up to tens of thousands of sample objects for a long
-	// recording. Replace-only (swapped wholesale on load), so `$state.raw` avoids
-	// deep-proxying every sample. The name was already "Raw"; now it actually is.
+	// Raw cursor samples shared by the preview compositor and the Cursor panel's
+	// trajectory minimap. Set by VideoPreview on load; read-only elsewhere.
+	// `$state.raw`: tens of thousands of samples, replace-only on load.
 	let cursorSamplesRaw = $state.raw<CursorSampleLike[]>([]);
 
 	// Annotations + active tool (for the preview canvas's place-mode).
@@ -895,9 +870,8 @@ export function createEditorStore() {
 
 	// Export
 	let exportFormat = $state<ExportFormat>('mp4');
-	// Default to the recording's own resolution — for a screen recorder, the
-	// source is usually 1080p+ and downscaling to a fixed "HD" needlessly
-	// softens sharp text/UI. Users can still pick Small/HD/4K in the dialog.
+	// Default to source resolution — downscaling a 1080p+ screen recording to a
+	// fixed "HD" needlessly softens sharp text/UI.
 	let exportQuality = $state<ExportQuality>('source');
 	let exportSpeed = $state<ExportSpeed>('balanced');
 	// Output frame rate for MP4/WebM. `null` = keep the source recording's rate
@@ -1565,8 +1539,6 @@ export function createEditorStore() {
 		}
 		cuts = merged;
 	}
-
-	//
 
 	/** The clip's effective kept bounds [start, end] in original seconds. */
 	function clipBounds(): { start: number; end: number } {

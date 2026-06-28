@@ -134,12 +134,9 @@ export function hitTestAnnotation(
 		if (a.hidden) continue;
 		if (a.locked) continue;
 		if (a.kind.kind === "text") continue;
-		// Hit-test against the visibility *window* rather than the per-frame
-		// opacity. The fade-in ramp briefly drops opacity below the old 0.05
-		// threshold right after creation, which previously made fresh
-		// annotations un-selectable until the ramp finished. Skipping by window
-		// keeps selection responsive while still ignoring annotations that
-		// haven't started or have already ended.
+		// Test the visibility window, not per-frame opacity: the fade-in ramp
+		// briefly drops opacity below the old threshold, which made fresh
+		// annotations un-selectable until the ramp finished.
 		if (opts.t < a.start || opts.t > a.end) continue;
 
 		if (a.kind.kind === "arrow") {

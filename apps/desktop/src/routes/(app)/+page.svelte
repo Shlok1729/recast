@@ -11,6 +11,8 @@
     type RecordingEntry,
   } from "$lib/ipc";
   import { commandPalette } from "$lib/stores/command-palette.svelte";
+  import { formatSize, relativeDate } from "$lib/format/files";
+  import { openInEditor as openEditorWindow } from "$lib/library/editor-window";
   import {
     AppWindow,
     ArrowRight,
@@ -90,51 +92,12 @@
 
 
 
-  function formatSize(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
-  }
+  // Reactive wrapper: closes over `now` so the relative label re-renders as the
+  // clock ticks. The >1-week fallback here is a short date (no time).
+  const formatDate = (unix: number) => relativeDate(unix, { now });
 
-  function formatDate(unix: number) {
-    const diff = now / 1000 - unix;
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
-    return new Date(unix * 1000).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    });
-  }
-
-  function encodeEditorPath(path: string) {
-    return encodeURIComponent(btoa(encodeURIComponent(path)));
-  }
-
-  async function openInEditor(entry: RecordingEntry) {
-    const route = `/editor/${encodeEditorPath(entry.path)}`;
-    if (editorWindow === "new-window") {
-      const label = `editor-${encodeEditorPath(entry.path)
-        .replace(/[^a-zA-Z0-9]/g, "")
-        .slice(0, 48)}`;
-      const existing = await WebviewWindow.getByLabel(label);
-      if (existing) {
-        await existing.setFocus();
-        return;
-      }
-      new WebviewWindow(label, {
-        url: route,
-        title: `Editor - ${entry.filename}`,
-        width: 1440,
-        height: 960,
-        center: true,
-        decorations: false,
-      });
-    } else {
-      goto(route);
-    }
-  }
+  const openInEditor = (entry: RecordingEntry) =>
+    openEditorWindow(entry, editorWindow);
 
   async function showOutputFolder() {
     try {

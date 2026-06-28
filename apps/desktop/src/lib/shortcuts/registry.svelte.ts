@@ -1,24 +1,20 @@
 /**
- * Central keyboard-shortcut registry — the single source of truth for every
- * shortcut in the app.
+ * Central keyboard-shortcut registry — single source of truth for every shortcut.
  *
  * Two jobs:
- *   1. DOCUMENTATION. `shortcutDefs` lists every shortcut (categorised) so the
- *      Shortcuts dialog can render a complete, always-accurate reference. Add a
- *      shortcut once, here, and it shows up in the dialog automatically.
- *   2. DISPATCH. A single window listener (`dispatchShortcut`, wired in the root
- *      layout) handles the app/editor-level *mod-combo* shortcuts. Components
- *      attach their state-dependent handlers via `registerShortcutHandlers`; the
- *      dispatcher routes a matching keydown to the registered handler. Because
- *      there is exactly one dispatcher and one def per chord, two shortcuts can
- *      never both fire from one press — the class of "Ctrl triggers everything"
- *      bug this registry was created to kill.
+ *   1. `shortcutDefs` documents every shortcut so the Shortcuts dialog renders an
+ *      always-accurate reference.
+ *   2. A single window listener (`dispatchShortcut`) handles app/editor mod-combo
+ *      shortcuts; components attach state-dependent handlers via
+ *      `registerShortcutHandlers`. One dispatcher + one def per chord means two
+ *      shortcuts can never fire from one press (the "Ctrl triggers everything" bug
+ *      this was built to kill).
  *
- * Plain-key / focus-scoped shortcuts (annotation tools, timeline JKL transport,
- * arrow nudge, mute) are intentionally NOT centrally dispatched — they reuse
- * letters across contexts and rely on element focus / panel state to
- * disambiguate. They live in their components (each on its own `<svelte:window>`
- * so HMR can't leak them) and are listed here as `central: false` for the dialog.
+ * Plain-key / focus-scoped shortcuts (annotation tools, timeline JKL, nudge, mute)
+ * are deliberately NOT centrally dispatched — they reuse letters across contexts
+ * and rely on focus/panel state to disambiguate. They live in their components
+ * (each on its own `<svelte:window>` so HMR can't leak them) and appear here as
+ * `central: false` for the dialog.
  */
 
 import { commandPalette } from "$lib/stores/command-palette.svelte";
@@ -84,7 +80,6 @@ function canonical(mod: boolean, shift: boolean, alt: boolean, key: string): str
 }
 
 function chordFromEvent(e: KeyboardEvent): string {
-	// "Mod" unifies the platform primary modifier: ⌘ on macOS, Ctrl elsewhere.
 	const mod = IS_MAC ? e.metaKey : e.ctrlKey;
 	return canonical(mod, e.shiftKey, e.altKey, e.key);
 }
@@ -280,10 +275,8 @@ for (const def of shortcutDefs) {
 const handlers = new Map<string, Handler>();
 
 /**
- * Register handlers for one or more central shortcuts. Call from a component's
- * `onMount` and return the disposer (run on destroy) so the binding lives
- * exactly as long as the component. Deletion is identity-checked so a remount
- * race can't unregister a newer handler.
+ * Register handlers for central shortcuts; returns a disposer to run on destroy.
+ * Deletion is identity-checked so a remount race can't unregister a newer handler.
  */
 export function registerShortcutHandlers(map: Record<string, Handler>): () => void {
 	const entries = Object.entries(map);
@@ -313,7 +306,6 @@ function isEditableTarget(t: EventTarget | null): boolean {
  */
 export function dispatchShortcut(e: KeyboardEvent): void {
 	if (e.defaultPrevented || e.repeat) return;
-	// A bare modifier press is never a shortcut.
 	if (MODIFIER_KEYS.has(e.key)) return;
 	const def = centralByChord.get(chordFromEvent(e));
 	if (!def) return;

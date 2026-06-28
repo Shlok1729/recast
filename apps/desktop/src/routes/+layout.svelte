@@ -2,9 +2,7 @@
   import "@fontsource-variable/google-sans";
   import { TooltipProvider } from "@recast/ui/tooltip";
   import "../app.css";
-  // RecastPlayer theme — needs to load once globally so any route that
-  // mounts <RecastPlayer> (exports preview, future inline players) picks
-  // up the branded media-chrome styling.
+  // Loaded once globally so any route that mounts <RecastPlayer> gets its styling.
   import "@recast/player/styles.css";
 
   import { onNavigate } from "$app/navigation";
@@ -18,10 +16,9 @@
   // First-run privacy prompt — shown once in the main window only.
   let showFirstRun = $state(false);
 
-  // Analytics + global error capture. Overlay windows (panel, pickers,
-  // camera-preview) are skipped — they're transient chrome. The main window
-  // owns `app_opened` / identify / the first-run prompt; editor windows still
-  // get error capture (gated by the errors-consent flag inside the client).
+  // Analytics + global error capture. Overlay windows are skipped; the main
+  // window owns `app_opened` / identify / the first-run prompt. Editor windows
+  // still get error capture (gated by the errors-consent flag in the client).
   onMount(() => {
     if (isTransparentRoute) return;
 
@@ -34,8 +31,7 @@
       );
       if (getCurrentWebviewWindow().label !== "main") return;
 
-      // Hydrate the OS super-property, then record the launch. `app_opened`
-      // is a no-op unless the user has opted into product analytics.
+      // `app_opened` is a no-op unless the user opted into product analytics.
       try {
         const { platform } = await import("@tauri-apps/plugin-os");
         analytics.register({ os: platform() });
@@ -46,9 +42,8 @@
 
       if (!desktopConsent.hasSeenFirstRun) showFirstRun = true;
 
-      // Alias anonymous events to the cloud account on sign-in. The payload
-      // carries `userId` when the server provides it; otherwise identify is a
-      // no-op and only the anonymous install id is tracked.
+      // Alias anonymous events to the cloud account on sign-in; no-op without
+      // a `userId`, leaving only the anonymous install id tracked.
       const unlisten = await listen<{ userId?: string | null }>(
         "auth:signed-in",
         ({ payload }) => {
@@ -111,13 +106,8 @@
     TRANSPARENT_ROUTES.some((p) => page.url.pathname.startsWith(p)),
   );
 
-  // Cross-window toast bridge. The floating panel / camera-preview /
-  // picker windows are too narrow to host a 320px Sonner card themselves
-  // (they're in `TRANSPARENT_ROUTES` and don't render their own Toaster).
-  // They emit `ui:toast` events and we render them through the main
-  // window's Toaster instead. Keeps the in-window panel UI chrome-free
-  // while still giving users a polished notification language instead
-  // of the OS native alert popup.
+  // Cross-window toast bridge: transparent-route windows are too narrow to host
+  // a Sonner card, so they emit `ui:toast` and we render via the main Toaster.
   type UiToastPayload = {
     level: "error" | "warning" | "info" | "success";
     message: string;
@@ -146,24 +136,14 @@
     };
   });
 
-  // System-tray bridge. The tray icon emits high-level intent events that
-  // only make sense in the main window (the recording panel and overlay
-  // routes each have their own scoped listeners for tray actions that
-  // belong to them — e.g. panel listens for `tray:record-toggle` to stop
-  // an in-flight recording). Main-window handlers cover the cases where
-  // no recording is active: jump straight to the source picker for
-  // "Start Recording", run an updater check for "Check for Updates…".
+  // System-tray bridge. Main-window handlers cover tray actions when no
+  // recording is active; panel/overlay routes own the ones scoped to them.
   onMount(() => {
     if (isTransparentRoute) return;
     const offToggle = listen("tray:record-toggle", async () => {
-      // If a recording panel is already open, it owns the toggle — its
-      // own listener will stop the in-flight recording, and we deliberately
-      // do nothing here so we don't steal focus mid-stop. We only handle
-      // the "start from cold" path: open /panel in its own window (or
-      // focus it if it's already there). The panel restores the last
-      // source on mount, so no source-picker detour is needed.
-      //
-      // Label must stay in sync with `launchRecordingPanel()` in ipc.ts.
+      // If a panel is open it owns the toggle, so do nothing here (avoid
+      // stealing focus mid-stop). Otherwise open /panel; it restores the last
+      // source on mount. Label must stay in sync with launchRecordingPanel() in ipc.ts.
       const { getAllWebviewWindows } = await import(
         "@tauri-apps/api/webviewWindow"
       );
@@ -181,25 +161,12 @@
     };
   });
 
-  // OS file-association bridge. Two paths in:
-  //
-  //   * Cold start — the user double-clicked a .recast while the app was
-  //     not running. Rust parses argv in setup() and stashes the path in
-  //     AppState; we drain it once on mount via `take_pending_open_file`.
-  //   * Warm start — the user double-clicked while the app was already
-  //     running. tauri-plugin-single-instance forwards the ghost process's
-  //     argv to the running instance, which emits `app://open-recast`.
-  //     Close-to-tray keeps this listener alive even when main is hidden.
-  //
-  // Both paths funnel through openProjectFromExternalPath, which validates
-  // the file (metadata.json must parse), refuses while recording, and
-  // always spawns a fresh editor window — never navigates main, so the
-  // user's library view and any unsaved editor state stay put.
-  //
-  // Gated on `!isTransparentRoute` so secondary windows (panel, pickers,
-  // camera-preview) don't double-subscribe and race to spawn the window.
-  // Editor secondary windows aren't in TRANSPARENT_ROUTES but they're
-  // labelled `editor-*` rather than `main` — see the label check below.
+  // OS file-association bridge. Cold start: Rust stashes argv in AppState and we
+  // drain it via take_pending_open_file. Warm start: single-instance forwards
+  // argv and emits `app://open-recast`. Both funnel through
+  // openProjectFromExternalPath, which always spawns a fresh editor window
+  // (never navigates main). Gated to the main window so secondary windows don't
+  // race to spawn — editor windows are labelled `editor-*`, see the check below.
   onMount(() => {
     if (isTransparentRoute) return;
     let cancelled = false;
@@ -241,9 +208,8 @@
     };
   });
 
-  // Native macOS-style page transitions via the View Transitions API.
-  // Skipped for overlay/secondary windows (transparent routes) and when the
-  // user prefers reduced motion — CSS handles the reduced-motion case too.
+  // macOS-style page transitions via the View Transitions API. Skipped for
+  // overlay windows and reduced-motion (CSS handles that case too).
   onNavigate((navigation) => {
     if (typeof document === "undefined") return;
     if (!("startViewTransition" in document)) return;
@@ -265,13 +231,10 @@
     });
   });
 
-  // Kick off external-asset download (wallpapers etc.) on first paint. Safe in
-  // both browser and Tauri runtimes — no-op in the browser.
+  // Download external assets (wallpapers etc.) on first paint; no-op in browser.
   initAssets();
-  // Hydrate installed asset-pack extensions and register their contributions.
   initExtensions();
 
-  // Remove the boot splash screen after the app is mounted
   onMount(async () => {
     await tick();
     const boot = document.getElementById("boot");
@@ -282,8 +245,8 @@
 
     if (await isTauriApp()) {
       const theme = await getTauriTheme();
-      // Read-only — mode-watcher owns this key; we just defer to the OS theme
-      // when the user hasn't explicitly picked light/dark.
+      // Defer to the OS theme when the user hasn't picked light/dark. Read-only;
+      // mode-watcher owns this key.
       const stored = safeStorage.get<string>("mode-watcher-mode", "");
       if (theme && (!stored || stored === "system")) {
         setMode(theme);
@@ -291,16 +254,10 @@
     }
   });
 
-  // Diagnostic: record the TRUE fields of every modifier-involved keydown so a
-  // "phantom shortcut" report (e.g. "Ctrl alone toggles the sidebar") can be
-  // traced to the actual event. One Svelte-managed listener, gated through
-  // `log.debug` (emits only in dev or when Diagnostic logging is on), so it's
-  // silent in a normal release build. Plain typing is skipped to keep it
-  // readable. Reading guide: if a panel opens on a keydown whose logged `key`
-  // is "Control"/"Meta" (a bare modifier), the action came from a STALE
-  // listener running OLD code — a classic dev-server HMR leak — and a full
-  // `pnpm tauri dev` restart clears it. If you instead see the SAME keydown
-  // logged twice per physical press, listeners are accumulating.
+  // Logs modifier-involved keydowns to trace "phantom shortcut" reports. Gated
+  // through log.debug (dev / diagnostic only). If a bare-modifier `key`
+  // ("Control"/"Meta") triggers an action, it's a stale HMR listener — restart
+  // `pnpm tauri dev`. The same keydown logged twice means listeners are leaking.
   function logKeyDiagnostic(e: KeyboardEvent) {
     if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) return;
     const t = e.target as HTMLElement | null;
@@ -317,16 +274,9 @@
     });
   }
 
-  // Hard stop for "phantom shortcut" triggers. A modifier key pressed ALONE
-  // (Ctrl / Cmd / Shift / Alt with no other key) is never a shortcut, yet a
-  // stale listener left on `window` by a dev-server hot-reload can still act on
-  // it (the "bare Ctrl toggles the sidebar / palette" ghost). We swallow the
-  // lone-modifier keydown in the CAPTURE phase — which runs before every
-  // bubble-phase listener, ghosts included — so nothing downstream ever sees
-  // it. Harmless in production (nothing should react to a lone modifier);
-  // decisive against HMR ghosts in dev. A real combo like Ctrl+B is untouched:
-  // its keydown carries `key === "b"`, not a bare modifier, so it propagates
-  // normally. Registered via `$effect` so HMR re-establishes it on every patch.
+  // Swallow lone-modifier keydowns in the CAPTURE phase (before any bubble
+  // listener) so stale HMR ghosts can't act on them. A real combo like Ctrl+B
+  // carries `key === "b"` and propagates normally. `$effect` re-registers on HMR.
   const BARE_MODIFIER_KEYS = new Set([
     "Control",
     "Shift",
@@ -347,9 +297,8 @@
   });
 </script>
 
-<!-- One window keydown hook (Svelte allows only one): diagnostics first, then
-     the central shortcut dispatcher. The dispatcher is skipped on the small
-     overlay windows, which own their own minimal key handling. -->
+<!-- Svelte allows one window keydown hook: diagnostics, then the dispatcher
+     (skipped on overlay windows, which own their key handling). -->
 <svelte:window
   onkeydown={(e) => {
     logKeyDiagnostic(e);
@@ -360,20 +309,12 @@
 <TooltipProvider>
   <NavProgress />
   <ModeWatcher />
-  <!-- Overlay windows (panel, camera-preview, pickers) are too small to host
-       a Sonner toast without overflow. Gate the Toaster out of those routes so
-       downstream code that calls `toast.*` is just a no-op there — the main
-       window keeps its toaster as usual. -->
+  <!-- Gate the Toaster out of overlay windows (too small to host a Sonner card);
+       toast.* becomes a no-op there. -->
   {#if !isTransparentRoute}
-    <!-- Position/styling defaults live in @recast/ui/sonner so every
-         consumer (desktop, web) gets the same bottom-right glass-card
-         notification language matching the auto-updater stack. Override
-         here only if a specific route needs a different placement. -->
     <Toaster />
-    <!-- Command palette host: owns the ⌘K shortcut + dialog so they work on
-         every route (editor included), not just the (app) sidebar layout. -->
+    <!-- Owns the ⌘K shortcut + dialog so they work on every route, not just (app). -->
     <CommandPaletteHost />
-    <!-- Global keyboard-shortcut reference (opened from the titlebar or Mod+/). -->
     <ShortcutsDialog />
   {/if}
   <div

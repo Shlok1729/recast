@@ -11,6 +11,11 @@
     renameFile,
     type RecordingEntry,
   } from "$lib/ipc";
+  import {
+    formatSize,
+    getExtension,
+    relativeDate as relativeDateBase,
+  } from "$lib/format/files";
   import { morph } from "$lib/morph";
   import { isShareSupported, shareRecording } from "$lib/share";
   import { cloudShare } from "$lib/stores/cloudShare.svelte";
@@ -121,34 +126,9 @@
     thumbnails = next;
   }
 
-  function formatSize(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
-  }
-
-  function formatDate(unix: number) {
-    return new Date(unix * 1000).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function relativeDate(unix: number) {
-    const diff = Date.now() / 1000 - unix;
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
-    return formatDate(unix);
-  }
-
-  function getExtension(filename: string) {
-    const dot = filename.lastIndexOf(".");
-    return dot >= 0 ? filename.slice(dot + 1).toUpperCase() : "FILE";
-  }
+  // >1-week fallback keeps the time (date + time), matching this list's history.
+  const relativeDate = (unix: number) =>
+    relativeDateBase(unix, { withTime: true });
 
   async function copyPath(entry: RecordingEntry) {
     try {

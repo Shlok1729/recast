@@ -1,11 +1,6 @@
 /**
- * Typed IPC wrappers for Tauri backend commands.
- *
- * All invoke() calls should go through these functions instead of using
- * raw invoke() strings. This gives us:
- * - Type safety for arguments and return values
- * - Single place to update if command signatures change
- * - Better IDE autocomplete
+ * Typed IPC wrappers for Tauri backend commands. All `invoke()` calls route
+ * through here so argument/return types live in one place.
  */
 
 import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
@@ -15,20 +10,14 @@ import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { platform } from "@tauri-apps/plugin-os";
 
-// `alwaysOnTop` works fine on Windows (DWM handles z-order cleanly) but on
-// some Linux compositors (notably KWin under Wayland) an undecorated,
-// transparent, always-on-top window can hold input focus in a way the user
-// can't break out of — clicks pass through to it instead of the main window
-// behind, so close/minimize/maximize on the main window stop working. Drop
-// the flag on Linux until we have a proper compositor-side fix.
-// Lazy, not a top-level `const` — calling `platform()` at module-eval time
-// would make ipc.ts unsafe to *import* outside the Tauri webview (web build,
-// SSR analysis). Several stores (gdrive/consent/diagnostics) import this module
-// and guard actual calls behind `isTauriApp()`, so the module itself must be
-// import-safe; `platform()` only runs when a window helper actually needs it.
+// Some Linux compositors (KWin/Wayland) let an undecorated transparent
+// always-on-top window trap input focus, breaking the main window's controls —
+// so drop `alwaysOnTop` on Linux. Lazy, not a top-level `const`: calling
+// `platform()` at module-eval time would make this module unsafe to import
+// outside the Tauri webview (web/SSR builds import it but guard calls).
 const isLinux = () => platform() === "linux";
 
-//  Types matching Rust structs 
+// Types matching Rust structs
 
 export interface DisplayInfo {
 	id: number;
@@ -81,7 +70,7 @@ export interface AutosaveState {
 	editsJson: string;
 }
 
-//  System commands
+// System commands
 
 /** One encoder candidate (H.264 or HEVC) and whether it really initializes
  *  here. Mirrors the Rust `EncoderAvailability` struct (`probe_video_encoders`). */
@@ -216,7 +205,7 @@ export function renameFile(path: string, newName: string): Promise<string> {
 	return invoke<string>("rename_file", { path, newName });
 }
 
-//  Recording commands
+// Recording commands
 
 export interface RecordingOptions {
 	systemAudio?: boolean;
@@ -280,8 +269,7 @@ export function startRecording(
 	options?: RecordingOptions,
 	region?: RegionRect | null,
 ): Promise<RecordingStartResult> {
-	// No-op unless the user opted into product analytics. No PII — source kind,
-	// capture rate, and quality tier only.
+	// No PII — source kind, capture rate, quality tier only.
 	analytics.capture("recording_started", {
 		source_kind: targetType,
 		fps: options?.fps ?? "default",
@@ -354,7 +342,7 @@ export function listExports(): Promise<RecordingEntry[]> {
 	return invoke<RecordingEntry[]>("list_exports");
 }
 
-//  Recast Cloud commands
+// Recast Cloud commands
 
 /** Result of a successful cloud upload + share-link creation. */
 export interface CloudShareResult {
@@ -446,7 +434,7 @@ export function recastCloudForgetUpload(path: string): Promise<void> {
 	return invoke<void>("recast_cloud_forget_upload", { path });
 }
 
-//  Editor commands
+// Editor commands
 
 export function loadEditorDocument(path: string): Promise<EditorDocument> {
 	return invoke<EditorDocument>("load_editor_document", { path });
@@ -524,7 +512,7 @@ export function cancelExport(exportId: string): Promise<void> {
 	return invoke("cancel_export", { exportId });
 }
 
-//  Zoom suggestions (auto-focus) 
+// Zoom suggestions (auto-focus)
 
 export type ZoomSuggestionReason = "click" | "settleAfterMotion";
 
@@ -545,7 +533,7 @@ export function suggestZoomRegions(cursorPath: string): Promise<ZoomSuggestion[]
 	return invoke<ZoomSuggestion[]>("suggest_zoom_regions", { cursorPath });
 }
 
-//  Silence detection
+// Silence detection
 
 /** Tunable thresholds for `detectSilence`; omit any field to use the default. */
 export interface SilenceDetectOptions {
@@ -610,7 +598,7 @@ export function extractWaveform(
 	});
 }
 
-//  Autosave / Recovery commands 
+// Autosave / Recovery commands
 
 export function autosaveProject(projectPath: string, editsJson: string): Promise<void> {
 	return invoke("autosave_project", { projectPath, editsJson });
@@ -632,7 +620,7 @@ export function getRecoverableSessions(): Promise<AutosaveState[]> {
 	return invoke<AutosaveState[]>("get_recoverable_sessions");
 }
 
-//  External asset cache 
+// External asset cache
 
 export interface AssetInstallFailure {
 	id: string;
@@ -667,7 +655,7 @@ export function hydrateCachedAssets(): Promise<HydratedAsset[]> {
 	return invoke<HydratedAsset[]>("hydrate_cached_assets");
 }
 
-//  Declarative asset-pack extensions
+// Declarative asset-pack extensions
 
 /** A manifest-local asset (downloaded + sha256-verified by the installer). */
 export interface ExtensionAssetEntry {
@@ -793,7 +781,6 @@ export function fetchExtensionRegistry<T = unknown>(indexUrl: string): Promise<T
 }
 
 
-// start recording
  export async function launchRecordingPanel() {
     const existing = await WebviewWindow.getByLabel("recording-panel");
     if (existing) {
@@ -823,17 +810,12 @@ export function fetchExtensionRegistry<T = unknown>(indexUrl: string): Promise<T
     panelWin.once("tauri://error", (e) => console.error(e));
   }
 
-// Floating webcam preview window. Mirrors `launchRecordingPanel` — same
-// pattern (label-dedupe + Tauri error listener) so it stays consistent and we
-// don't end up with route-level navigation when WebviewWindow construction
-// fails silently.
+// Floating webcam preview window.
 //
-// IMPORTANT: this window MUST be excluded from screen capture, otherwise
-// DXGI Desktop Duplication captures it as part of the desktop and bakes
-// the camera bubble into the recorded screen video. We invoke
-// `exclude_window_from_capture` (Windows: SetWindowDisplayAffinity with
-// WDA_EXCLUDEFROMCAPTURE) on the `tauri://created` event — earlier than
-// that and the HWND isn't reachable yet.
+// MUST be excluded from screen capture or DXGI Desktop Duplication bakes the
+// camera bubble into the recorded screen video. `exclude_window_from_capture`
+// (Windows: SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE) runs on
+// `tauri://created` — any earlier and the HWND isn't reachable yet.
 export async function openCameraPreviewWindow() {
   const existing = await WebviewWindow.getByLabel("camera-preview");
   if (existing) {
@@ -872,9 +854,7 @@ export async function openCameraPreviewWindow() {
     try {
       await excludeWindowFromCapture("camera-preview");
     } catch (err) {
-      // Non-fatal: the preview will still appear, but its pixels will
-      // leak into screen captures. Surface to the console so users
-      // diagnosing "why is my face in the recording?" can find it.
+      // Non-fatal, but the preview's pixels will leak into screen captures.
       console.warn(
         "Failed to exclude camera-preview from screen capture:",
         err,
@@ -883,12 +863,8 @@ export async function openCameraPreviewWindow() {
   });
 }
 
-//  System tray, diagnostics & misc commands
-//
-// Primitive-typed one-offs that previously called `invoke()` raw from scattered
-// stores/components. Routed here so the whole IPC surface is typed in one place
-// (see the module header). Callers in web-safe stores still guard with
-// `isTauriApp()` before calling — these wrappers don't, they're thin.
+// System tray, diagnostics & misc commands.
+// These wrappers are thin — web-safe callers guard with `isTauriApp()` themselves.
 
 /** Exclude a window (by Tauri label) from screen capture (Windows
  *  `SetWindowDisplayAffinity`). No-op on platforms without an equivalent. */
@@ -946,12 +922,9 @@ export function setDiagnosticLogging(enabled: boolean): Promise<void> {
 	return invoke<void>("set_diagnostic_logging", { enabled });
 }
 
-//  Recast Cloud — account / auth
-//
-// Canonical shapes for the `auth_*` and cloud-endpoint commands. These live
-// here (not in the cloud stores) so the IPC contract has one home; the stores
-// import these types + the wrappers below. All are `#[serde(rename_all =
-// "camelCase")]` on the Rust side EXCEPT `AuthStartResult` (noted inline).
+// Recast Cloud — account / auth.
+// All are `#[serde(rename_all = "camelCase")]` on the Rust side EXCEPT
+// `AuthStartResult` (noted inline).
 
 export interface AuthPlan {
 	id: string;
@@ -1037,11 +1010,8 @@ export function setCloudApiUrl(url: string | null): Promise<CloudApiConfig> {
 	return invoke<CloudApiConfig>("set_cloud_api_url", { url });
 }
 
-//  Google Drive
-//
-// Types + wrappers for the `gdrive_*` commands (OAuth + Drive upload). The
-// gdrive store guards every call with `isTauriApp()` and tracks in-flight UI
-// state itself; these wrappers are thin.
+// Google Drive — `gdrive_*` commands (OAuth + Drive upload). Thin wrappers; the
+// gdrive store guards every call with `isTauriApp()`.
 
 export interface GdriveStatus {
 	connected: boolean;

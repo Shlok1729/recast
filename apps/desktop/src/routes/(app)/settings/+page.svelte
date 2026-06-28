@@ -1112,8 +1112,8 @@
                     Experimental
                   </h2>
                   <p class="mt-0.5 text-[11px] text-muted-foreground/80">
-                    Unfinished features hidden by default — opt in if you want to try
-                    them. They may move, break, or disappear.
+                    Unfinished features, off by default. Turn one on to try it;
+                    it may change or break.
                   </p>
                 </div>
                 <div

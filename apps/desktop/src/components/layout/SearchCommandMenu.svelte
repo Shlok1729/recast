@@ -5,10 +5,8 @@
   import { Kbd } from "@recast/ui/kbd";
   import { cn } from "@recast/ui/utils";
 
-  // Trigger-only. The dialog and the global ⌘K binding live in
-  // CommandPaletteHost.svelte (mounted once at the root layout) so they
-  // remain available on routes that don't include the sidebar — e.g. the
-  // editor route.
+  // Trigger-only; the dialog and ⌘K binding live in CommandPaletteHost
+  // (mounted at the root layout, so it works on sidebar-less routes).
   let { iconOnly } = $props<{ iconOnly?: boolean }>();
 </script>
 

@@ -443,6 +443,18 @@
 		emitState();
 	}
 
+	// PiP events aren't in Svelte's typed video attributes; bind them directly.
+	$effect(() => {
+		const el = videoEl;
+		if (!el) return;
+		el.addEventListener("enterpictureinpicture", handleEnterPictureInPicture);
+		el.addEventListener("leavepictureinpicture", handleLeavePictureInPicture);
+		return () => {
+			el.removeEventListener("enterpictureinpicture", handleEnterPictureInPicture);
+			el.removeEventListener("leavepictureinpicture", handleLeavePictureInPicture);
+		};
+	});
+
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!videoEl) return;
 		const target = event.target as HTMLElement | null;
@@ -571,8 +583,6 @@
 			onratechange={handleRateChange}
 			onseeked={handleSeeked}
 			onended={handleEnded}
-			onenterpictureinpicture={handleEnterPictureInPicture}
-			onleavepictureinpicture={handleLeavePictureInPicture}
 		>
 			{#if thumbnails}
 				<track kind="metadata" src={thumbnails} label="thumbnails" default />
@@ -609,8 +619,6 @@
 			onratechange={handleRateChange}
 			onseeked={handleSeeked}
 			onended={handleEnded}
-			onenterpictureinpicture={handleEnterPictureInPicture}
-			onleavepictureinpicture={handleLeavePictureInPicture}
 		>
 			{#if thumbnails}
 				<track kind="metadata" src={thumbnails} label="thumbnails" default />

@@ -15,11 +15,8 @@
   } from "./timeline-helpers";
   import { snapTime, type SnapResult, type SnapTarget } from "./timeline-snap";
 
-  // Annotation timeline card. Mirrors ZoomLayerCard's drag/resize/snap
-  // behaviour but operates on annotations (visible via store.annotations,
-  // mutated through store.updateAnnotation). Visual treatment is
-  // deliberately distinct — outline only, no sparkline — so the two lanes
-  // are distinguishable at a glance.
+  // Mirrors ZoomLayerCard's drag/resize/snap on annotations; outline-only
+  // (no sparkline) so the two lanes are distinguishable at a glance.
 
   interface Props {
     store: EditorStore;
@@ -69,9 +66,7 @@
   const tOf = (xPx: number) =>
     outputToOriginal(store.effectiveCuts, xPx / pixelsPerSecond);
   const left = $derived(xOf(annotation.start));
-  // 28px lets a single icon stay grabbable even on a one-frame annotation.
-  // Subtitle (start time) appears once the card is wide enough to fit it
-  // alongside the kind label.
+  // 28px keeps a one-frame annotation grabbable.
   const width = $derived(
     Math.max(xOf(annotation.end) - xOf(annotation.start), 28),
   );

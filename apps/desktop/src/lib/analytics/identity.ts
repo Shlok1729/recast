@@ -1,19 +1,17 @@
 /**
- * The persistent, anonymous install id — the desktop's analytics `distinct_id`
- * before sign-in. Stored under the same `trace_install_id` localStorage key the
- * `user-store` defines, so the JS analytics client, the Rust crash reporter, and
- * the user store all attribute to the same anonymous person.
+ * Persistent anonymous install id — the analytics `distinct_id` before sign-in.
+ * Shares the `trace_install_id` localStorage key with `user-store` and the Rust
+ * crash reporter so all three attribute to the same anonymous person.
  *
- * Standalone module (no analytics/posthog imports) so both the consent store and
- * the analytics client can read it without an import cycle.
+ * Standalone (no analytics/posthog imports) to avoid an import cycle with the
+ * consent store and analytics client.
  */
 import { safeStorage } from "@recast/ui/persisted-state";
 
 const INSTALL_ID_KEY = "trace_install_id";
 
 export function getInstallId(): string {
-	// Keep the explicit sentinel for the truly storage-less case so the crash
-	// reporter still has a stable id during prerender / no-window contexts.
+	// Stable sentinel for storage-less contexts (prerender / no window).
 	if (typeof window === "undefined") return "anonymous-desktop";
 	let id = safeStorage.get<string>(INSTALL_ID_KEY, "");
 	if (!id) {

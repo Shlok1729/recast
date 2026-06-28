@@ -1071,7 +1071,7 @@
 					<SectionHeader
 						eyebrow="Coming next · Recast Cloud"
 						title="When a Drive link isn't enough."
-						description="For the moments a shared file can't express: knowing which prospect actually watched, gating an investor demo by viewer, branding the player as your product. Loom-style hosted demos, with more of the dials handed to you."
+						description="For the moments a shared file can't express: knowing which prospect actually watched, gating an investor demo by viewer, branding the player as your product. Loom-style hosted demos, with more of the controls in your hands."
 					/>
 
 					<ul class="mt-10 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">

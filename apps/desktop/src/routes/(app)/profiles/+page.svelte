@@ -48,29 +48,22 @@
   let nameInputEl = $state<HTMLInputElement | null>(null);
   let query = $state("");
 
-  // Device lists are loaded once on mount and refreshed each time the dialog
-  // opens (devices come and go between recordings). Camera enumeration may
-  // trigger a permission probe so we deliberately keep it off the critical
-  // mount path — re-fetch when the user actually needs to pick.
+  // Refreshed each time the dialog opens since devices come and go between
+  // recordings; camera enumeration may trigger a permission probe.
   let mics = $state<AudioDeviceInfo[]>([]);
   let cameras = $state<BrowserCamera[]>([]);
   let devicesLoading = $state(false);
 
-  // Device-aware combination math: cap is #countdowns × 2 × (2+#mics) ×
-  // (2+#cams) — each attached mic / camera unlocks a new "audio + this mic +
-  // that cam" slot, and each countdown override (Default/Off/3/5/10s) is its
-  // own dimension. With zero mics + zero cams this is 5 × 8 = 40.
+  // Combination cap = #countdowns × 2 × (2+#mics) × (2+#cams); each attached
+  // mic/camera and each countdown override is its own dimension.
   const totalCombinations = $derived(
     profilesStore.maxCombinations(mics, cameras),
   );
   const remainingSlots = $derived(profilesStore.freeSlots(mics, cameras));
   const isFull = $derived(remainingSlots === 0);
 
-  // ---- Editor dialog layout. The device pickers (the rows that make the
-  // dialog tall once mic + camera are on) live in a side panel that slides out
-  // when a device capability is enabled, so the dialog grows *wider* instead of
-  // *taller* — the same move the export dialog makes for GIF settings. Below
-  // `sm` the panel can't fit beside the form, so the pickers fall back inline.
+  // Device pickers live in a side panel so the dialog grows wider, not taller,
+  // when a capability is enabled. Below `sm` they fall back inline.
   const DIALOG_MAIN_W = 408;
   const DIALOG_ASIDE_W = 300;
   let viewportWidth = $state(
@@ -148,9 +141,8 @@
       camera: combo.camera,
       cameraDeviceId: combo.cameraDeviceId,
       cameraLabel: camDevice?.label ?? null,
-      // Carry the auto-picked countdown slot so the saved profile lands on the
-      // free combo (otherwise it always serializes as "inherit" and collides
-      // once the walk starts pinning countdowns to fill the space).
+      // Carry the auto-picked countdown so the profile lands on the free combo
+      // instead of serializing as "inherit" and colliding.
       countdown: combo.countdown,
       isDefault: profilesStore.profiles.length === 0,
     };
@@ -296,10 +288,8 @@
     draft = { ...draft, cameraDeviceId: dev.deviceId, cameraLabel: dev.label };
   }
 
-  // Per-profile countdown override. `null` = inherit the global Settings →
-  // Recording countdown; `0` = no countdown for this profile. Derived from the
-  // shared `COUNTDOWN_OPTIONS` so the picker and the combination math (which
-  // treats each value as its own slot) can never drift apart.
+  // `null` = inherit the global countdown; `0` = off. Derived from the shared
+  // COUNTDOWN_OPTIONS so the picker and the combination math can't drift.
   const countdownChoices: { value: number | null; label: string }[] =
     COUNTDOWN_OPTIONS.map((value) => ({
       value,
@@ -376,7 +366,6 @@
 
 <div class="h-full overflow-y-auto scrollbar-transparent no-scrollbar">
   <div class="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
-    <!-- Hero (matches the home page rhythm) -->
     <header class="flex flex-col gap-3">
       <span
         in:fly={{ y: 6, duration: 280, easing: cubicOut }}
@@ -405,10 +394,8 @@
         <Tooltip.Root>
           <Tooltip.Trigger>
             {#snippet child({ props })}
-              <!--
-                Wrap a span around the disabled button so pointer events still
-                reach the trigger — disabled native buttons swallow hover.
-              -->
+              <!-- Wrap the disabled button so the tooltip trigger still gets
+                   hover — disabled native buttons swallow pointer events. -->
               <span {...props as Record<string, unknown>} class="shrink-0">
                 <Button
                   onclick={addProfile}
@@ -466,8 +453,8 @@
       </p>
     </header>
 
-    <!-- Disabled banner: profiles still configurable, but the recording
-         panel won't auto-apply them until the system is re-enabled. -->
+    <!-- Profiles stay editable here but the recording panel won't auto-apply
+         them until re-enabled. -->
     {#if !profilesStore.enabled}
       <div
         in:fly={{ y: 8, duration: 240, easing: cubicOut }}
@@ -501,7 +488,6 @@
       </div>
     {/if}
 
-    <!-- Hero search bar (matches home page) -->
     <label
       in:fly={{ y: 8, duration: 280, delay: 60, easing: cubicOut }}
       class="group/search flex h-12 items-center gap-3 rounded-xl border border-border/60 bg-card/70 px-4 shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:border-border hover:bg-card hover:shadow-craft-sm focus-within:border-border focus-within:bg-card focus-within:shadow-craft-sm"
@@ -529,7 +515,6 @@
       {/if}
     </label>
 
-    <!-- Profile grid -->
     {#if filtered.length === 0}
       <div
         in:fade={{ duration: 200 }}
@@ -573,20 +558,16 @@
                 : "border-border/50 hover:border-border",
             )}
           >
-            <!-- Default cards get a single hairline of primary along the top edge —
-                 the cue is the accent, not a full warning-tinted surface. -->
             {#if profile.isDefault}
               <span
                 aria-hidden="true"
                 class="pointer-events-none absolute inset-x-3 top-0 h-px bg-linear-to-r from-transparent via-primary/60 to-transparent"
               ></span>
             {/if}
-            <!-- Hover sheen: a soft top-edge highlight that fades in on hover -->
             <span
               aria-hidden="true"
               class="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-foreground/15 to-transparent opacity-0 transition-opacity duration-200 group-hover/card:opacity-100"
             ></span>
-            <!-- Top row: name + default badge + actions -->
             <div class="flex items-start gap-2">
               <button
                 type="button"
@@ -671,7 +652,6 @@
               </DropdownMenu.Root>
             </div>
 
-            <!-- Capability chip rail (native Badge) -->
             <div class="flex flex-wrap gap-1.5">
               {#each capabilities as cap (cap.field)}
                 {@const on = profile[cap.field]}
@@ -690,7 +670,6 @@
               {/each}
             </div>
 
-            <!-- Footer: default toggle pill -->
             <div class="flex items-center justify-between pt-1">
               {#if profile.isDefault}
                 <span in:scale={{ start: 0.85, duration: 220, easing: cubicOut }}>
@@ -728,7 +707,6 @@
           </div>
         {/each}
 
-        <!-- "New profile" call-to-card always at the end of the grid -->
         {#if !isFull}
           <button
             type="button"
@@ -761,7 +739,6 @@
   </div>
 </div>
 
-<!-- Edit dialog -->
 {#snippet toggleRow(
   field: "isDefault" | "systemAudio" | "microphone" | "camera",
   Icon: typeof Star,
@@ -877,8 +854,8 @@
   </div>
 {/snippet}
 
-<!-- Device picker rows, factored so they can render either inline (compact) or
-     inside the slide-out panel (wide) without duplicating the option mapping. -->
+<!-- Factored so they render either inline (compact) or in the slide-out panel
+     (wide) without duplicating the option mapping. -->
 {#snippet micPicker()}
   {@render deviceRow(
     Mic,
@@ -946,8 +923,7 @@
         {/if}
       </header>
 
-      <!-- Name spans the full width above the columns so the form column and
-           the device panel both start at the same Y. -->
+      <!-- Full-width so the form column and device panel start at the same Y. -->
       <div class="border-b border-border/30 px-5 py-4">
         <label
           for="profile-name-input"
@@ -966,9 +942,8 @@
       </div>
 
       <div class="flex items-stretch">
-        <!-- Form column: capability toggles + countdown. Fixed width on wide
-             screens so it doesn't reflow when the device panel slides in;
-             fluid on compact where the pickers fall back inline. -->
+        <!-- Fixed width on wide screens so it doesn't reflow when the device
+             panel slides in; fluid on compact. -->
         <div
           class="flex min-w-0 flex-col divide-y divide-border/30"
           style={isCompactDialog
@@ -1006,9 +981,8 @@
             {@render camPicker()}
           {/if}
 
-          <!-- Countdown override. "Default" inherits the global Settings →
-               Recording countdown; the rest pin a per-profile value for quick
-               access when switching profiles. -->
+          <!-- "Default" inherits the global countdown; the rest pin a
+               per-profile value. -->
           <div class="flex items-center gap-3 px-5 py-3">
             <span
               class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background/70 text-muted-foreground ring-1 ring-inset ring-border/40"
@@ -1052,10 +1026,8 @@
           </div>
         </div>
 
-        <!-- Device panel: slides out on wide screens when a device capability
-             is on. Holds the mic/camera selectors so the form column stays
-             short. The dialog's width transition does the morph; the fly adds
-             the lateral reveal. -->
+        <!-- Slides out on wide screens when a device capability is on, keeping
+             the form column short. Width transition morphs; fly adds the reveal. -->
         {#if showDevicePanel}
           <aside
             in:fly={{ x: 20, duration: 260, easing: cubicOut }}

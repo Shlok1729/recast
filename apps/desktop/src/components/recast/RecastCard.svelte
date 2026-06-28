@@ -74,9 +74,7 @@
 			></div>
 		{:else if item.icon}
 			{@const Icon = item.icon}
-			<!-- Icon-as-hero placeholder. Borrows the editor-tour rail's techy
-			     framing (dot grid + primary glow + glass tile) so a thumbnail-
-			     less recording reads as "ready for a frame" instead of empty. -->
+			<!-- Placeholder for thumbnail-less recordings: dot grid + glow + glass tile. -->
 			<div
 				aria-hidden="true"
 				class="absolute inset-0 opacity-60"
@@ -100,9 +98,7 @@
 			</div>
 		{/if}
 
-		<!-- CRT-style corner brackets. Always-on accent that ties recording
-		     tiles to the marketing rail's visual language. Sized smaller than
-		     the web card because the desktop tile is denser. -->
+		<!-- CRT-style corner brackets (smaller than the web card — denser tile). -->
 		<span aria-hidden="true" class="pointer-events-none absolute left-1.5 top-1.5 z-10 size-2 border-l border-t border-foreground/30"></span>
 		<span aria-hidden="true" class="pointer-events-none absolute right-1.5 top-1.5 z-10 size-2 border-r border-t border-foreground/30"></span>
 		<span aria-hidden="true" class="pointer-events-none absolute bottom-1.5 left-1.5 z-10 size-2 border-b border-l border-foreground/30"></span>

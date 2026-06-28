@@ -88,7 +88,7 @@
 
 <PanelSection
   title="Appearance"
-  hint="Stroke styles render in the preview. Glow is preview-only in v2 — exports fall back to a solid stroke."
+  hint="Stroke styles show in preview. Glow previews only; exports use a solid stroke for now."
   flush
 >
   <div class="flex flex-col gap-3">

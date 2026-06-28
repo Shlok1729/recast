@@ -1,9 +1,6 @@
-// Unit-interval cubic-bezier evaluator. Given the two middle control points
-// (x1, y1) and (x2, y2) with implicit anchors P0=(0,0) and P3=(1,1), returns
-// y for a given x. Same algorithm as Blink / WebKit: solve x(t)=x via
-// Newton-Raphson with a bisection fallback, then evaluate y(t).
-//
-// y may exceed [0,1] for overshoot curves (e.g. Bounce) — that's intentional.
+// Unit-interval cubic-bezier evaluator (implicit anchors P0=(0,0), P3=(1,1)),
+// returns y for a given x. Same as Blink/WebKit: solve x(t)=x via Newton-Raphson
+// with a bisection fallback. y may exceed [0,1] for overshoot curves (e.g. Bounce).
 
 export interface Easing {
 	x1: number;

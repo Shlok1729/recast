@@ -254,6 +254,13 @@
 <script lang="ts">
   import LazyExternalImage from "$components/common/LazyExternalImage.svelte";
   import {
+    aspectClass,
+    bgPreviewStyle,
+    frameInsetPct,
+    score,
+    wallpaperId,
+  } from "./preset-picker.logic";
+  import {
     Briefcase,
     Camera,
     Check,
@@ -292,21 +299,6 @@
   const currentPreset = $derived(
     currentId ? (PRESETS.find((p) => p.id === currentId) ?? null) : null,
   );
-
-  function score(p: Preset, q: string): number {
-    if (!q) return 1;
-    const n = q.toLowerCase();
-    const label = p.label.toLowerCase();
-    const cat = p.category.toLowerCase();
-    if (label.startsWith(n)) return 100;
-    if (cat.startsWith(n)) return 90;
-    if (label.includes(n)) return 80;
-    if (cat.includes(n)) return 60;
-    if ((p.description ?? "").toLowerCase().includes(n)) return 40;
-    if ((p.keywords ?? []).some((k) => k.toLowerCase().includes(n))) return 30;
-    if (p.aspect.toLowerCase().includes(n)) return 20;
-    return 0;
-  }
 
   const filtered = $derived(
     PRESETS.map((p) => ({ p, s: score(p, query) }))
@@ -461,40 +453,6 @@
       );
       el?.scrollIntoView({ block: "nearest" });
     });
-  }
-
-  function bgPreviewStyle(p: Preset): string {
-    if ((p.bg === "gradient" || p.bg === "color") && p.value)
-      return `background:${p.value}`;
-    return "background:var(--color-muted)";
-  }
-
-  // WYSIWYG-ish frame inset. `padding` is a percent of the shorter source edge
-  // and the canvas is source+padding on each side, so the video occupies
-  // 1/(1+2p) of that edge — mirror that here so the thumbnail frames like the
-  // real export.
-  function frameInsetPct(padding: number): number {
-    const p = Math.max(0, padding) / 100;
-    return Math.min(20, (p / (1 + 2 * p)) * 100);
-  }
-
-  function wallpaperId(p: Preset): string {
-    return (p.value ?? "").replace(/^asset:\/\/?/, "").replace(/^asset:/, "");
-  }
-
-  function aspectClass(aspect: string): string {
-    switch (aspect) {
-      case "1:1":
-        return "aspect-square";
-      case "9:16":
-        return "aspect-[9/16]";
-      case "16:9":
-        return "aspect-video";
-      case "1.91:1":
-        return "aspect-[1.91/1]";
-      default:
-        return "aspect-video";
-    }
   }
 
   function categoryIcon(category: string): typeof Sparkles {

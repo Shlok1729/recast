@@ -29,17 +29,14 @@
 		type AuthStatus,
 		type AuthUsage,
 	} from "$lib/ipc";
-
-	/** Title-case a workspace role for the badge ("owner" → "Owner"). */
-	function roleLabel(role: string): string {
-		return role ? role[0]!.toUpperCase() + role.slice(1) : "Member";
-	}
-
-	function planLabel(plan: string): string {
-		if (plan === "pro") return "Pro";
-		if (plan === "enterprise") return "Enterprise";
-		return "Free";
-	}
+	import { formatBytes } from "$lib/format/bytes";
+	import {
+		formatMemberSince,
+		formatUserCode,
+		initials,
+		planLabel,
+		roleLabel,
+	} from "./cloud-signin.logic";
 
 	/**
 	 * "Sign in to Recast Cloud" row. Recast Cloud is the Loom-style sharing
@@ -88,36 +85,6 @@
 		};
 	}
 
-	/** "K", "KK", "?" — feeds the avatar fallback. */
-	function initials(name: string | null, email: string | null): string {
-		const source = (name ?? email ?? "").trim();
-		if (!source) return "?";
-		const parts = source.split(/\s+/).filter(Boolean);
-		if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-		return source.slice(0, 2).toUpperCase();
-	}
-
-	/** "1.2 GB", "640 MB", "0 B". */
-	function formatBytes(bytes: number): string {
-		if (!bytes || bytes < 0) return "0 B";
-		const units = ["B", "KB", "MB", "GB", "TB"];
-		let i = 0;
-		let value = bytes;
-		while (value >= 1024 && i < units.length - 1) {
-			value /= 1024;
-			i++;
-		}
-		return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-	}
-
-	/** "May 2026". */
-	function formatMemberSince(iso: string | null): string | null {
-		if (!iso) return null;
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return null;
-		return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-	}
-
 	const dashboardUrl = "https://recast.nexonauts.com/dashboard/settings/profile";
 
 	async function openDashboard() {
@@ -137,13 +104,6 @@
 	const busy = $derived(inFlight !== null);
 	let unlisteners: UnlistenFn[] = [];
 	let destroyed = false;
-
-	function formatUserCode(code: string): string {
-		const clean = code.replace(/-/g, "").toUpperCase();
-		if (clean.length <= 4) return clean;
-		const half = Math.floor(clean.length / 2);
-		return `${clean.slice(0, half)}-${clean.slice(half)}`;
-	}
 
 	async function loadStatus() {
 		try {

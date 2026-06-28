@@ -1,6 +1,5 @@
-// Shared annotation palette constants — colors, fills, and text typography
-// options. Centralised so the main panel and the appearance sub-panel can't
-// drift out of sync (they previously each declared their own copies).
+// Shared annotation palette constants — centralised so the main panel and the
+// appearance sub-panel can't drift out of sync.
 
 /** Quick stroke / text color swatches. Mirrors the cursor highlight palette. */
 export const STROKE_SWATCHES = [

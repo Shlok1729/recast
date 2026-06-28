@@ -1,9 +1,7 @@
 import type { Easing } from "$lib/easing/cubic-bezier";
 import type { ZoomRegion } from "$lib/stores/editor-store.svelte";
 
-// Pure helpers extracted from Timeline.svelte. Keeping these out of the
-// Svelte component lets the timeline subviews share them without re-importing
-// the orchestrator, and makes them unit-testable in isolation.
+// Pure helpers extracted from Timeline.svelte so subviews share them and they stay unit-testable.
 
 export function effectiveFps(metadataFps: number | undefined): number {
 	const f = metadataFps ?? 0;
@@ -18,14 +16,12 @@ export function frameStep(fps: number): number {
 	return 1 / fps;
 }
 
-// Floor on the clip length: at least 2 frames so the trimmed range is never
-// sub-frame. Scales naturally with fps (60fps → ~33ms; 30fps → ~66ms).
+// At least 2 frames so a trimmed range is never sub-frame.
 export function minClipDuration(fps: number): number {
 	return 2 * frameStep(fps);
 }
 
-// SMPTE-style HH:MM:SS:FF (or MM:SS:FF for clips < 1 hour). Frame component
-// is zero-padded so the readout has constant width.
+// SMPTE-style HH:MM:SS:FF (MM:SS:FF for clips < 1 hour).
 export function formatTimecode(time: number, fps: number): string {
 	const t = Math.max(0, time);
 	const totalFrames = Math.round(t * fps);
@@ -42,11 +38,7 @@ export function formatTimecode(time: number, fps: number): string {
 		: `${mm}:${ss}:${ff}`;
 }
 
-// Display modes the timeline supports. Stored as a discriminated string so
-// it round-trips cleanly through component props.
-//   smpte   — HH:MM:SS:FF (full editorial timecode)
-//   seconds — M:SS.cs   (decimal seconds, useful at low zoom)
-//   frames  — Nf        (raw frame count, useful for frame-precision work)
+// smpte: HH:MM:SS:FF · seconds: M:SS.cs · frames: Nf
 export type TimeMode = "smpte" | "seconds" | "frames";
 
 export function formatFrames(time: number, fps: number): string {
@@ -54,8 +46,6 @@ export function formatFrames(time: number, fps: number): string {
 	return `${frames}f`;
 }
 
-// Single entry-point for all timeline labels. Sub-views call this with the
-// active TimeMode so the format flips everywhere at once.
 export function formatTimeByMode(
 	time: number,
 	mode: TimeMode,
@@ -91,8 +81,7 @@ export function greatestCommonDivisor(a: number, b: number): number {
 	return left || 1;
 }
 
-// Approximate polynomial-in-t eval; indistinguishable from the real
-// Newton-Raphson solve at sparkline resolution.
+// Polynomial-in-t approximation; indistinguishable from the real Newton-Raphson solve at sparkline resolution.
 export function approxEaseY(easing: Easing, x: number): number {
 	const a = 1 - 3 * easing.y2 + 3 * easing.y1;
 	const b = 3 * easing.y2 - 6 * easing.y1;
@@ -100,9 +89,7 @@ export function approxEaseY(easing: Easing, x: number): number {
 	return ((a * x + b) * x + c) * x;
 }
 
-// Path drawing 0..100 × 0..18 viewBox: the region's scale curve, normalised
-// so peak scale reaches the top of the box. Shows the rampIn/hold/rampOut
-// shape at a glance.
+// SVG path (100×18 viewBox) of the region's scale curve, normalised so peak scale hits the top.
 export function zoomSparklinePath(r: ZoomRegion): string {
 	const duration = Math.max(0.001, r.end - r.start);
 	const half = duration * 0.5;

@@ -2,19 +2,15 @@
 /**
  * WebCodecs decode worker — the off-main-thread half of the preview engine.
  *
- * Per the WebCodecs best-practices guide, the actual decode already runs on the
- * browser's internal threads; what we move here is everything *around* it that
- * would otherwise run on the WebView's main thread: the mp4box demux, the
- * sample-index build, the per-frame decoder `output()` callback, and the
- * decode-ahead scheduling. The main thread is left with just the WebGL upload
- * and the existing compositor.
+ * The decode itself runs on the browser's internal threads; what we move here is
+ * everything around it that would otherwise hit the WebView's main thread: the
+ * mp4box demux, the sample-index build, the decoder `output()` callback, and the
+ * decode-ahead scheduling. The main thread is left with the WebGL upload.
  *
- * The worker owns no decoded frames: each frame is transferred to the main
- * thread the instant it's decoded (transfer neuters the worker's handle, so we
- * never double-own or leak). The main side keeps the bounded cache and answers
- * the render loop synchronously. The worker only owns the encoded samples + the
- * decoder, and schedules feeding based on the playhead time the main thread
- * sends it.
+ * The worker owns no decoded frames: each is transferred to the main thread the
+ * instant it's decoded (transfer neuters the worker's handle, so no double-own
+ * or leak). The worker owns the encoded samples + the decoder and schedules
+ * feeding from the playhead time the main thread sends.
  */
 
 import {
@@ -44,20 +40,18 @@ import {
 } from "./mp4-sample-table";
 import type { FromWorker, ToWorker } from "./webcodecs-protocol";
 
-/** Samples (decode order) to keep decoded ahead of the playhead. Small so we
- * don't keep many decoder output surfaces checked out (which stalls HW decode).
- * RESOLUTION-ADAPTIVE: set from `frameBudget` at init so 4K/5K decodes fewer
- * frames ahead (fewer large surfaces in flight). Defaults to the 1080p value. */
+/** Samples (decode order) kept decoded ahead of the playhead. Small so we don't
+ * hold many output surfaces (stalls HW decode). Resolution-adaptive: set from
+ * `frameBudget` at init so 4K/5K decodes fewer ahead. Defaults to the 1080p value. */
 let decodeAhead = 6;
 /** Cap on the decoder's in-flight queue so we don't overfeed during a burst. */
 const QUEUE_MAX = 4;
 /**
  * A forward jump in requested time bigger than this (µs) is treated as a seek or
- * a cut — the only case where we reset the decoder to a downstream keyframe and
- * skip ahead. A smaller forward step is normal playback (≈ one frame) or, on a
- * heavy stretch, the clock outrunning a lagging decoder; there we keep streaming
- * contiguously rather than resetting, so no on-screen content is skipped. (A cut
- * shorter than this just streams through its handful of removed frames, which the
+ * cut — the only case where we reset the decoder to a downstream keyframe and
+ * skip ahead. A smaller forward step is normal playback or a lagging decoder;
+ * there we keep streaming contiguously so no on-screen content is skipped. (A
+ * cut shorter than this streams through its removed frames, which the
  * compositor's segment floor hides anyway.)
  */
 const SEEK_JUMP_US = 300_000;
@@ -69,16 +63,15 @@ const MOOV_FETCH_CHUNK = 256 * 1024;
 /**
  * Tier-1 budget (bytes) for the progressive path's cache of *encoded* GOP bytes.
  * Generous because encoded bytes are cheap CPU RAM with no decoder-surface
- * pressure (that's the separate, count-bounded decoded-frame cache). This is
- * what makes scrubbing back over a cut free. 256 MB holds a lot of encoded GOPs.
+ * pressure (that's the separate, count-bounded decoded-frame cache); this is what
+ * makes scrubbing back over a cut free.
  */
 const TIER1_BUDGET_BYTES = 256 * 1024 * 1024;
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-// DIAGNOSTICS: decoder output rate, queue depth, reset count — to tell whether
-// the decoder itself is slow vs. frames arriving late on main. Dev-only: silent
-// in production builds, kept around for debugging regressions.
+// Dev-only diagnostics: decoder output rate, queue depth, reset count — to tell
+// whether the decoder is slow vs. frames arriving late on main.
 const DIAG = import.meta.env.DEV;
 let diagDecoded = 0;
 let diagResets = 0;
@@ -97,7 +90,7 @@ let currentUs = 0;
 let lastScheduleUs = -1;
 let disposed = false;
 
-// --- Progressive (HTTP-range) ingestion state. Unused in whole-file mode. ---
+// Progressive (HTTP-range) ingestion state. Unused in whole-file mode.
 /** True once `init-progressive` set up a lazy, range-fetched sample table. */
 let progressive = false;
 /** Asset URL to range-fetch GOP media bytes from. */
@@ -117,11 +110,10 @@ let currentGen = 0;
 /** Last schedule() target, so a completed GOP fetch can resume feeding. */
 let lastTarget = 0;
 
-// --- Scout decoder (cross-cut decode-ahead). Purely additive: pre-decodes the
-// first displayable frame(s) of an upcoming post-cut GOP into the main cache so
-// crossing the cut doesn't freeze while the primary re-decodes from a keyframe.
-// If anything here fails it self-disables and playback falls back to the
-// primary-only "hold last frame until the post-cut GOP decodes" behaviour. ---
+// Scout decoder (cross-cut decode-ahead): pre-decodes the first displayable
+// frame(s) of an upcoming post-cut GOP into the main cache so crossing the cut
+// doesn't freeze while the primary re-decodes from a keyframe. Self-disables on
+// any error, falling back to the primary-only "hold last frame" behaviour.
 let scoutDecoder: VideoDecoder | null = null;
 /** Keyframe decode-index the scout is currently warming (dedup). -1 = idle. */
 let scoutAnchorKf = -1;
@@ -145,9 +137,8 @@ async function init(ab: ArrayBuffer): Promise<void> {
 		const file = createFile();
 		const collected: ChunkMeta[] = [];
 
-		// Resolve with track + config so they reach the linear flow as properly
-		// typed non-null locals — TS can't see assignments made inside these
-		// mp4box callbacks, and would otherwise narrow them to `never`.
+		// Resolve with track + config so they reach the linear flow as non-null
+		// locals — TS can't see assignments inside these mp4box callbacks.
 		const ready = new Promise<{ track: Track; cfg: VideoDecoderConfig }>((resolve, reject) => {
 			let track: Track | null = null;
 			let cfg: VideoDecoderConfig | null = null;
@@ -165,12 +156,12 @@ async function init(ab: ArrayBuffer): Promise<void> {
 				cfg = {
 					codec: vtrack.codec,
 					description: extractDescription(file, vtrack.id),
-					// Editor playback wants THROUGHPUT, not low latency. A
-					// latency-optimised decoder serialises and can tank to single-
-					// digit fps; prefer hardware and let it pipeline.
+					// Editor playback wants throughput, not low latency: a
+					// latency-optimised decoder serialises and can tank to
+					// single-digit fps. Prefer hardware and let it pipeline.
 					hardwareAcceleration: "prefer-hardware",
 					optimizeForLatency: false,
-					// codedWidth/Height intentionally omitted: the container reports
+					// codedWidth/Height omitted: the container reports
 					// the DISPLAY size (1920x1080) but the coded size is padded
 					// (1920x1088); a mismatched hint can confuse the decoder. It
 					// derives the true size from the SPS in `description`.
@@ -230,8 +221,8 @@ async function init(ab: ArrayBuffer): Promise<void> {
 	}
 }
 
-/** Build the shared VideoDecoder (same output/error wiring for both ingestion
- * paths): transfer each decoded frame to the main thread, log throughput in DEV. */
+/** The shared VideoDecoder (same wiring for both ingestion paths): transfer each
+ * decoded frame to the main thread, log throughput in DEV. */
 function makeDecoder(): VideoDecoder {
 	return new VideoDecoder({
 		output: (frame) => {
@@ -251,17 +242,16 @@ function makeDecoder(): VideoDecoder {
 					diagLastLogMs = nowMs;
 				}
 			}
-			// Transfer ownership to the main thread; do NOT close after — the
-			// transfer detaches our handle.
+			// Transfer to main; do NOT close after — transfer detaches our handle.
 			post({ type: "frame", frame }, [frame]);
 		},
 		error: (e) => post({ type: "error", message: String(e) }),
 	});
 }
 
-/** The scout decoder: same frame transfer, but it only forwards frames at/after
- * `scoutTargetTs` (the displayable post-cut frame onward) tagged `fromScout`, and
- * on ANY error it disables scouting rather than disturbing playback. */
+/** The scout decoder: forwards only frames at/after `scoutTargetTs` (the
+ * displayable post-cut frame onward) tagged `fromScout`, and disables scouting on
+ * any error rather than disturbing playback. */
 function makeScoutDecoder(): VideoDecoder {
 	return new VideoDecoder({
 		output: (frame) => {
@@ -344,10 +334,9 @@ function extractSampleTables(file: ISOFile, trackId: number): RawSampleTables {
 }
 
 /**
- * Progressive ingestion: fetch only the `moov` index up front via Range
- * requests (driven by mp4box's returned next-byte position, which skips a
- * front mdat to reach a tail moov), build the full sample byte-map, then leave
- * media bytes to be range-fetched per GOP on demand.
+ * Progressive ingestion: fetch only the `moov` index up front via Range requests
+ * (driven by mp4box's next-byte position, which skips a front mdat to reach a
+ * tail moov), build the sample byte-map, then range-fetch media per GOP on demand.
  */
 async function initProgressive(url: string, sizeBytes: number): Promise<void> {
 	if (typeof VideoDecoder === "undefined") {
@@ -365,9 +354,9 @@ async function initProgressive(url: string, sizeBytes: number): Promise<void> {
 			info = movie;
 		};
 
-		// Feed ranges until mp4box has parsed the moov (onReady). appendBuffer
-		// returns the next file position it needs; for a tail moov that jumps past
-		// the mdat payload so we don't download the media to find the index.
+		// Feed ranges until mp4box parses the moov. appendBuffer returns the next
+		// position it needs; for a tail moov that jumps past the mdat payload so
+		// we don't download media to find the index.
 		let pos = 0;
 		while (!info && pos < sizeBytes) {
 			const end = Math.min(pos + MOOV_FETCH_CHUNK, sizeBytes) - 1;
@@ -500,16 +489,14 @@ function schedule(target: number): void {
 	if (!decoder || !config) return;
 	lastTarget = target;
 	const kf = keyframeAtOrBefore(keyframes, target);
-	// A forward GOP gap only counts as a reset-worthy seek/cut when the requested
-	// time actually JUMPED. If it advanced smoothly (≈ a frame) or the decoder is
-	// just behind on a heavy stretch, we keep streaming so no frames are skipped.
+	// A forward GOP gap is a reset-worthy seek/cut only if the time JUMPED; a
+	// smooth advance or a lagging decoder streams on (see needsReset).
 	const forwardIsJump =
 		lastScheduleUs < 0 || Math.abs(currentUs - lastScheduleUs) > SEEK_JUMP_US;
 	lastScheduleUs = currentUs;
 	if (needsReset(anchorKey, feedCursor, kf, forwardIsJump)) {
-		// A reset abandons the old position: cancel in-flight GOP fetches so their
-		// late bytes (for a place we're no longer at) are dropped. Resident GOP
-		// bytes stay cached — that's what makes scrubbing back over a cut free.
+		// Cancel in-flight GOP fetches so their late bytes are dropped; resident
+		// GOP bytes stay cached (that's what makes scrubbing back over a cut free).
 		if (progressive) cancelInflight();
 		decoder.reset();
 		decoder.configure(config); // reset() drops the config

@@ -61,10 +61,8 @@
     };
   });
 
-  // Read the pre-converted URL straight from the store so we never call
-  // `convertFileSrc` here — that conversion happens once at `setPath` time.
-  // URL identity is stable across re-renders, which is what stops `<img>`
-  // elements from re-decoding when surrounding state churns.
+  // Pre-converted at setPath time (not here): stable URL identity keeps <img>
+  // from re-decoding when surrounding state churns.
   const fullUrl = $derived(assetsStore.urls[assetId]);
   const thumbUrl = $derived(assetsStore.thumbUrls[assetId]);
   const src = $derived.by(() => {
@@ -74,11 +72,9 @@
   });
   const showOfflineBadge = $derived(!src && !online);
 
-  // When `src` actually changes (initial mount, or thumb→full upgrade), check
-  // whether the rendered <img> is already complete from the WebView image
-  // cache. If yes, promote `loaded` synchronously — `onload` does not refire
-  // for an image that arrived already-decoded, which is the failure mode that
-  // produced the persistent skeleton flicker on tab return.
+  // On src change, promote `loaded` if the <img> is already cache-complete:
+  // `onload` doesn't refire for an already-decoded image (caused skeleton
+  // flicker on tab return).
   $effect(() => {
     if (src === lastSrc) return;
     lastSrc = src;

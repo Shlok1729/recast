@@ -148,7 +148,7 @@
 			<SectionHeader
 				eyebrow="Safe by design"
 				title="Installable, without the install-anything risk."
-				description="Plugins usually mean running someone else's code on your machine. Recast packs don't. They only carry assets, so the whole class of plugin supply-chain attacks simply doesn't apply."
+				description="Plugins usually mean running someone else's code. Recast packs don't run code at all. They only carry assets, so plugin supply-chain attacks don't apply."
 				align="center"
 			/>
 			<div class="mt-16 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border-low/40 bg-border-low/30 sm:grid-cols-2 lg:grid-cols-4">

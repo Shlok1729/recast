@@ -32,8 +32,7 @@
 
   interface Props {
     open: boolean;
-    /** Registry metadata (carries manifestUrl + version). Null when opened from
-     *  a purely-local install with no matching registry entry. */
+    /** Registry metadata (manifestUrl + version). Null for a local-only install. */
     entry: RegistryIndexEntry | null;
     /** The installed record, when this pack is installed. */
     installed: InstalledExtension | null;
@@ -41,9 +40,8 @@
 
   let { open = $bindable(), entry, installed }: Props = $props();
 
-  // Manifest drives the "what's inside" section. For an installed pack we
-  // already have it; for a registry entry we fetch the full manifest (the index
-  // only carries summary metadata) so the user sees contents before installing.
+  // Installed packs already carry the manifest; for a registry entry we fetch it
+  // (the index only has summary metadata) so contents show before install.
   let manifest = $state<ExtensionManifest | null>(null);
   let loadingManifest = $state(false);
   // Guards the load effect against re-fetching the same target on every re-run.
@@ -85,8 +83,7 @@
   const author = $derived(
     installed?.manifest.author ?? entry?.author ?? manifest?.author ?? null,
   );
-  // Only the registry index entry carries a description — the installable
-  // manifest drops it, so there's no manifest-side fallback.
+  // Only the registry entry carries a description; the manifest has none.
   const description = $derived(entry?.description ?? null);
   const updateAvailable = $derived(
     isInstalled && hasUpdate(installedVersion ?? "0.0.0", latestVersion),
@@ -117,11 +114,8 @@
   const assetCount = $derived(manifest?.assets?.length ?? 0);
 
   // Which action is in flight, so the matching button shows a spinner + verb.
-  // `installed`/`entry` are reactive props that change the instant the store
-  // updates, so action handlers MUST capture any name/id they need for the
-  // result toast BEFORE awaiting — otherwise the success line reads a prop
-  // that's already gone null and throws (the "Remove failed: …null… manifest"
-  // bug). Capture first, await second.
+  // GOTCHA: `installed`/`entry` are reactive props that go null the moment the
+  // store updates, so handlers must capture any name/id for the toast BEFORE awaiting.
   let pending = $state<null | "install" | "update" | "uninstall">(null);
 
   async function onInstall() {
@@ -152,8 +146,7 @@
 
   async function onUninstall() {
     if (!installed || pending) return;
-    // Capture name + id now — `installed` goes null the moment the store drops
-    // this pack, which happens before the await resolves.
+    // Capture before await: `installed` goes null when the store drops the pack.
     const { id, name: packName } = installed.manifest;
     pending = "uninstall";
     try {
@@ -183,7 +176,6 @@
     showCloseButton={false}
     class="top-[10%] w-[min(92vw,32rem)] max-w-none translate-y-0 gap-0 overflow-hidden rounded-xl p-0 ring-1 ring-border sm:max-w-none"
   >
-    <!-- Header -->
     <Dialog.Header class="space-y-0 border-b border-border px-4 py-2.5 text-left">
       <div class="flex items-center gap-2.5">
         {#if entry?.iconUrl}
@@ -224,10 +216,8 @@
       </div>
     </Dialog.Header>
 
-    <!-- Body -->
     <div class="max-h-[70vh] overflow-y-auto overflow-x-hidden">
       <div class="divide-y divide-border/30">
-        <!-- Description + safety -->
         <div class="px-4 py-3">
           {#if description}
             <p class="text-[11.5px] leading-relaxed text-pretty text-foreground/90">
@@ -250,7 +240,6 @@
             <Spinner class="size-5 text-muted-foreground" />
           </div>
         {:else if manifest}
-          <!-- What's inside -->
           {#if groups.length > 0}
             <div class="space-y-3 px-4 py-3">
               <h4
@@ -282,7 +271,6 @@
             </div>
           {/if}
 
-          <!-- Assets it manages -->
           {#if assetCount > 0}
             <div class="px-4 py-3">
               <div class="mb-1.5 flex items-center gap-1.5">
@@ -298,7 +286,6 @@
             </div>
           {/if}
 
-          <!-- Enabled toggle (installed only) -->
           {#if isInstalled}
             <div class="flex items-center justify-between gap-2 px-4 py-3">
               <span class="text-[11px] font-medium text-foreground">Enabled</span>
@@ -320,7 +307,6 @@
       </div>
     </div>
 
-    <!-- Footer -->
     <footer
       class="flex h-10 items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 text-[11px] text-muted-foreground"
     >

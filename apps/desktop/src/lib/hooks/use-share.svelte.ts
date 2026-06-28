@@ -8,10 +8,8 @@ type ShareData = {
   image?: string;
 };
 
-// Accept a getter function: () => ShareData
 export function useShare(getData: () => ShareData) {
-  // Static capability check — `navigator.share` isn't reactive, so read it once
-  // at call time rather than mirroring it into `$state` via an `$effect`.
+  // `navigator.share` isn't reactive — read it once rather than via `$effect`.
   const isNativeShareSupported =
     typeof navigator !== "undefined" && typeof navigator.share === "function";
 

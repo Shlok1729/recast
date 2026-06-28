@@ -1,16 +1,10 @@
 /**
  * Hybrid-raster export path for the SVG cursor sprite.
  *
- * Same pattern as `rasterize-text.ts`: the Rust export pipeline can decode
- * `data:image/png;base64,…` URLs (via `build_image_cache` in cursor_export.rs)
- * but has no SVG renderer. So at export start we rasterize each cursor sprite
- * (rest + optional pressed state) once via an offscreen canvas and ship the
- * resulting PNG data URLs through `RenderState`. Rust composites them per
- * frame at the cursor sample's canvas position.
- *
- * Rasterizing once per export amortises the SVG decode cost across thousands
- * of frames, and reuses the existing PNG decode + alpha-blend path on the
- * Rust side instead of bringing in a new sprite codec.
+ * Same pattern as `rasterize-text.ts`: Rust decodes `data:image/png;base64,…`
+ * URLs but has no SVG renderer, so we rasterize each cursor sprite once via an
+ * offscreen canvas and ship PNG data URLs through `RenderState`. Rust composites
+ * them per frame. Rasterizing once amortises the SVG decode across all frames.
  */
 
 import { resolveCursorSprite } from "$lib/registry";
@@ -39,9 +33,8 @@ export interface CursorSpriteBundle {
 	pixelSize: number;
 }
 
-// Re-rasterizing the same sprite twice in a row is wasted work — the SVG
-// strings and the requested size don't change between consecutive exports
-// of the same project. Key by `${style}:${size}`.
+// Keyed by `${style}:${size}` — SVG strings and size don't change between
+// consecutive exports of the same project.
 const cache = new Map<string, CursorSpriteBundle>();
 
 /**

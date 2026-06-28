@@ -64,13 +64,8 @@
   import { cubicOut } from "svelte/easing";
   import { fade, scale } from "svelte/transition";
 
-  // The panel window is too small to host its own Sonner Toaster; the
-  // main window's layout listens for `ui:toast` events and renders
-  // them through its always-mounted Toaster. Native `window.alert` is
-  // a last-resort fallback for the rare case where `emit` itself
-  // throws (no Tauri runtime, IPC unavailable). Sonner is the primary
-  // notification surface across the app — see
-  // `+layout.svelte` for the listener side of the bridge.
+  // The panel is too small for its own Toaster, so emit `ui:toast` for the main
+  // window to render (see +layout.svelte). alert() is the fallback if emit throws.
   type ToastLevel = "error" | "warning" | "info" | "success";
   function notify(level: ToastLevel, message: string, duration?: number) {
     emit("ui:toast", { level, message, duration }).catch((err) => {
@@ -96,50 +91,27 @@
 
   let selectedSource: TargetSource | null = $state(null);
   let isRecording = $state(false);
-  // True for the brief window between the countdown ending (or being skipped)
-  // and the `startRecording` IPC resolving. Without it, `countdownValue` goes
-  // null while we await the IPC, so `phase` falls back to "idle" and the bar
-  // flashes the full control set — expanding then collapsing — between the
-  // countdown and recording phases. Treating "starting" as "recording" keeps
-  // the morph a single countdown→recording crossfade.
+  // True between the countdown ending and startRecording resolving. Treating it
+  // as "recording" stops `phase` dipping to "idle" and flashing the full bar.
   let isStarting = $state(false);
-  // Stop IPC in-flight. On macOS, `stop_recording` joins the capture/encoder
-  // threads and finalizes the muxer, which can take a beat — without this
-  // guard a second click fired another `stopRecording()` (the first await
-  // hadn't resolved, so `isRecording` was still true), racing the backend's
-  // `guard.take()` and surfacing a bogus "recording is not running" error.
+  // Guards against a second stop click while stop_recording is in flight (it can
+  // take a beat on macOS), which would race the backend and error spuriously.
   let isStopping = $state(false);
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
 
-  // Countdown-before-recording. The effective duration (`countdownSeconds`) is
-  // derived from the *active profile's* override, falling back to the global
-  // `recordingCountdown` store — both reactive and both kept in sync across
-  // windows, so editing either on another page is reflected live here. That
-  // derived lives next to `activeProfile` below. `countdownValue` is the live
-  // integer tick (null unless counting down); `countdownProgress` (1 → 0) drives
-  // the depleting ring (already normalised against the chosen duration).
+  // `countdownValue` is the live integer tick (null unless counting down);
+  // `countdownProgress` (1 → 0) drives the depleting ring.
   let countdownValue = $state<number | null>(null);
   let countdownProgress = $state(1);
   let countdownRaf: number | null = null;
-  // Circumference of the progress ring (r=16 in the 36×36 viewBox). The visible
-  // arc length is `C × progress`, so the dash offset is `C × (1 − progress)`.
+  // Ring circumference (r=16 in the 36×36 viewBox); dash offset = C × (1 − progress).
   const RING_C = 2 * Math.PI * 16;
 
-  // Panel sizing. The bar's width is driven by a Svelte `Tween` that follows
-  // the *measured* natural width of its content (the same morph technique as
-  // ExportFlowDialog) — buttery, rAF-driven, and consistent with the rest of
-  // the app's motion. The content declares its own size via `w-fit`; the bar
-  // just follows.
-  //
-  // Crucially, the Tauri window is left at its fixed launch size (520×72, sized
-  // in ipc.ts to hug the full idle bar with room for the drop shadow) and is
-  // NOT resized per phase. A centered, always-on-top window can't be resized
-  // and repositioned in a single atomic frame, so snapping it mid-morph made
-  // the bar visibly drift sideways. Instead the bar just morphs *centered
-  // inside the fixed window* — the transparent margins on either side double as
-  // a drag region. This mirrors ExportFlowDialog, which morphs a DOM element
-  // within a fixed viewport and never touches the window.
+  // The bar width tweens to follow its content's measured natural width. The
+  // Tauri window stays at its fixed launch size and is NOT resized per phase: a
+  // centered always-on-top window can't resize+reposition in one atomic frame,
+  // so the bar morphs centered inside it (transparent margins are a drag region).
   const BAR_W_IDLE = 488;
 
   let barContentEl = $state<HTMLElement | null>(null);
@@ -151,9 +123,8 @@
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-  // Watch the content's natural width and tween the bar to match. Uses the
-  // border box (includes the content's own padding) so the bar wraps it
-  // exactly, and rounds to whole px so sub-pixel jitter can't retrigger.
+  // Tween the bar to the content's natural width. Border box so the bar wraps
+  // exactly; rounded to whole px so sub-pixel jitter can't retrigger.
   $effect(() => {
     if (!barContentEl) return;
     const ro = new ResizeObserver((entries) => {
@@ -184,9 +155,7 @@
     else barWidth.target = measuredBarW;
   });
 
-  // Three visual phases. `idle` = full controls; `countdown` = big number +
-  // cancel; `recording` = collapsed transport. Derived so the markup can
-  // switch on a single value.
+  // `idle` = full controls; `countdown` = number + cancel; `recording` = transport.
   const phase = $derived<"idle" | "countdown" | "recording">(
     isRecording || isStarting
       ? "recording"
@@ -195,16 +164,14 @@
         : "idle",
   );
 
-  // Mirror the recording flag to the system tray so its "Start/Stop
-  // Recording" label and any tray-driven UX stays accurate. Best-effort:
-  // tray init may have failed (no icon registered) — the command is a
-  // no-op in that case.
+  // Mirror the recording flag to the tray label. Best-effort; no-op if tray
+  // init failed.
   $effect(() => {
     void refreshTray(isRecording);
   });
 
-  // Pause state. `pausedAccumMs` banks completed pauses; `pausedSince` marks
-  // an in-progress pause — the elapsed timer subtracts both so it freezes.
+  // `pausedAccumMs` banks completed pauses; `pausedSince` marks one in progress
+  // — the elapsed timer subtracts both so it freezes.
   let isPaused = $state(false);
   let pausedAccumMs = $state(0);
   let pausedSince: number | null = $state(null);
@@ -227,11 +194,8 @@
   let selectedCameraName = $state("Default");
   let cameraValidation = $state<CameraValidationResult | null>(null);
 
-  // Inline notice surface. The panel window is too narrow for a Sonner toast,
-  // so resolution outcomes (fallback / missing device / fresh profile applied)
-  // are surfaced via button tooltips and a transient profile-button highlight.
-  // micWarning / cameraWarning persist in tooltips until the next apply or
-  // manual toggle so the user can hover later to see what got swapped.
+  // Resolution outcomes (fallback / missing) surface in button tooltips since
+  // the panel can't host a toast; persist until the next apply or manual toggle.
   let micWarning = $state<string | null>(null);
   let cameraWarning = $state<string | null>(null);
 
@@ -252,12 +216,9 @@
     activeProfileId ? profilesStore.findById(activeProfileId) : null,
   );
 
-  // Effective countdown duration: the active profile's per-profile override
-  // (`0` = off, a number = pinned, `null`/absent = inherit) wins over the global
-  // setting. Derived straight off `activeProfile` rather than snapshotted at
-  // apply-time, so a live edit to the active profile (synced cross-window via
-  // `profilesStore`) updates the countdown immediately — this is what makes the
-  // per-profile value actually get respected, not just the global one.
+  // Active profile's override (0 = off, number = pinned, null = inherit) wins
+  // over the global setting. Derived off `activeProfile`, not snapshotted, so a
+  // live cross-window edit updates the countdown immediately.
   const countdownSeconds = $derived(
     activeProfile?.countdown ?? recordingCountdown.value,
   );
@@ -268,10 +229,8 @@
       return;
     }
 
-    // Browser MediaDevices ids are 64-char hex hashes; the Rust validator
-    // looks them up against DirectShow names and will always miss those.
-    // Skip validation in that case — `openCameraStream` itself is the source
-    // of truth for whether a browser-id camera will actually open.
+    // Skip browser MediaDevices ids (hex hashes) — the Rust validator only
+    // knows DirectShow names; openCameraStream is the source of truth there.
     if (/^[a-f0-9]{40,}$/i.test(deviceId)) {
       cameraValidation = {
         id: deviceId,
@@ -362,9 +321,7 @@
       }
     });
 
-    // Profile picker (separate Tauri window, like device-picker) emits this
-    // when the user confirms a selection. We resolve the id against the store
-    // and apply through the same path as ⌘1-⌘8 shortcuts.
+    // Profile-picker window applies through the same path as ⌘1-⌘8 shortcuts.
     const unlistenProfile = listen<{ id: string }>("profile-selected", (event) => {
       const target = profilesStore.findById(event.payload.id);
       if (target) handleProfileSwitch(target);
@@ -396,9 +353,8 @@
                   }
                 : undefined,
           };
-          // Restored a monitor — look up its current refresh rate (best
-          // effort, off the start path) so record-time fps clamping knows the
-          // display's ceiling without an extra probe at capture time.
+          // Look up the restored monitor's refresh rate so fps clamping knows
+          // the display ceiling without a capture-time probe.
           if (selectedSource?.type === "monitor") {
             const restoredId = selectedSource.id;
             getDisplays()
@@ -429,24 +385,19 @@
     profilesStore.hydrate();
 
     void initDevicesAndProfile();
-    // Warm the capability probe so the first mic/camera/system-audio toggle
-    // resolves instantly instead of waiting on a cold `capture_capabilities`.
+    // Warm the capability probe so the first device toggle resolves instantly.
     void loadCapabilities();
 
     window.addEventListener("keydown", handleGlobalShortcut);
 
-    // Intercept the window close while a recording is live so it gets
-    // finalized & saved instead of lost.
+    // Intercept close during a live recording so it's finalized, not lost.
     const closeReq = getCurrentWindow().onCloseRequested((event) => {
-      // Already finalizing (or nothing to finalize) — let the close proceed.
       if (isClosing || !isRecording) return;
       event.preventDefault();
       void finalizeAndClose();
     });
 
-    // Tray "Start/Stop Recording" routes here when the panel is open. The
-    // toggleRecording() function already does the right thing for either
-    // direction (start with current selection, or stop the in-flight one).
+    // Tray "Start/Stop Recording" routes here when the panel is open.
     const unlistenTrayToggle = listen("tray:record-toggle", () => {
       void toggleRecording();
     });
@@ -464,12 +415,8 @@
     };
   });
 
-  /**
-   * Load audio + video devices, then apply the user's default profile if the
-   * profile system is enabled. When profiles are off, fall back to the legacy
-   * behavior (default mic, first non-virtual camera, all toggles off except
-   * system audio).
-   */
+  // Load devices, then apply the default profile if enabled; otherwise seed
+  // defaults (default mic, first non-virtual camera, only system audio on).
   async function initDevicesAndProfile() {
     const [audioDevices, videoDevices] = await Promise.all([
       getAudioDevices().catch(() => [] as AudioDeviceInfo[]),
@@ -478,9 +425,8 @@
     mics = audioDevices;
     cameras = videoDevices;
 
-    // Always seed the "current" mic/camera selection with system defaults,
-    // even when applying a profile — that way if the user manually toggles
-    // mic/camera on later (without the profile), we have something to use.
+    // Seed defaults even when applying a profile, so a later manual toggle has
+    // something to use.
     const defaultMic = audioDevices.find((d) => d.isDefault) ?? audioDevices[0];
     if (defaultMic) {
       selectedMicId = defaultMic.id;

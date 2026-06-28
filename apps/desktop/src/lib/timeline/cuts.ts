@@ -1,13 +1,11 @@
 /**
  * Timeline cut model + time mapping.
  *
- * A `TimelineCut` is a removed range expressed on the **original-recording**
- * timeline (the same coordinate space zoom regions and annotations use). The
- * exported / played-back result is the recording minus the union of all cuts.
- *
- * Because cuts remove time from the middle, mapping between original time and
- * output (post-cut) time is piecewise — these helpers own that arithmetic so
- * the playhead, scrubber, and preview all agree.
+ * A `TimelineCut` is a removed range on the **original-recording** timeline
+ * (the same space zoom regions and annotations use); output = recording minus
+ * the union of all cuts. Mapping original↔output time is piecewise because cuts
+ * remove time from the middle — these helpers own that arithmetic so playhead,
+ * scrubber, and preview agree.
  */
 
 export type CutSource = "silence" | "manual";

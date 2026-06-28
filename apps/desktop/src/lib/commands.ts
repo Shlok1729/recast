@@ -20,12 +20,9 @@ import { GithubBrand } from "@recast/ui/brand-icons";
 import { toast } from "@recast/ui/sonner";
 import { setMode } from "@recast/ui/theme";
 
-// Hand external URLs off to the OS via the Tauri opener plugin. Plain
-// `window.open` in WebView2 opens an in-app popup (often blocked) instead
-// of routing to the user's default browser — which is why palette
-// commands silently did nothing before this helper existed. We dynamic-
-// import so this module stays usable from the web build, which doesn't
-// have the plugin and falls back to a regular `window.open`.
+// Open external URLs via the Tauri opener plugin: `window.open` in WebView2
+// pops an in-app (often blocked) window instead of the default browser. Dynamic
+// import keeps this usable from the web build, which falls back to `window.open`.
 async function openExternal(url: string) {
 	try {
 		const { openUrl } = await import("@tauri-apps/plugin-opener");

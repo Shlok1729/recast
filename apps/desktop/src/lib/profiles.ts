@@ -27,14 +27,9 @@ export interface RecordingProfile {
 	/** Browser MediaDevices id — what the camera-preview window consumes. */
 	cameraDeviceId: string | null;
 	/**
-	 * Per-profile countdown override (seconds) before capture starts. `null`
-	 * or absent means "inherit the global Settings → Recording countdown";
-	 * `0` explicitly disables the countdown for this profile. Lets a "quick
-	 * capture" profile start instantly while a "presentation" profile waits.
-	 * Part of the capability fingerprint (`capSig`) and the combination cap —
-	 * the pre-roll is a real differentiator, so "Screen, instant" and
-	 * "Screen, 5s" are two valid profiles that share devices but differ by
-	 * countdown. The option space is `COUNTDOWN_OPTIONS`.
+	 * Per-profile countdown override (seconds). `null`/absent = inherit the
+	 * global countdown; `0` = off. Part of `capSig`, so two profiles can share
+	 * devices but differ by pre-roll. Option space: `COUNTDOWN_OPTIONS`.
 	 */
 	countdown?: number | null;
 	isDefault: boolean;
@@ -53,25 +48,19 @@ interface RecordingProfileV1 {
 export const PROFILES_STORAGE_KEY = "recast-recording-profiles";
 export const PROFILES_ENABLED_STORAGE_KEY = "recast-profiles-enabled";
 
-// ---------- Global capture quality + frame rate ----------
-//
-// Capture rate and quality are capture-WIDE preferences (like the global
-// countdown), not per-device-combo settings, so they live outside the
-// profile records — this keeps them clear of the profile capability
-// fingerprint (`capSig`) and combination cap. Persisted globally and applied
-// to every recording regardless of which profile is active.
+// Global capture quality + frame rate. Capture-WIDE preferences (like the
+// global countdown), so they live outside profile records — kept clear of
+// `capSig` and the combination cap, applied to every recording.
 
 export const RECORDING_QUALITY_STORAGE_KEY = "recast-recording-quality";
 export const RECORDING_FPS_STORAGE_KEY = "recast-recording-fps";
 
-/** Capture quality tier sent to the recorder. `"auto"` (the default) lets the
- *  backend pick against the detected encoder — hardware → high, software →
- *  balanced. The explicit tiers mirror the Rust `RecordingQuality` enum. */
+/** Capture quality tier. `"auto"` lets the backend pick against the detected
+ *  encoder (hardware → high, software → balanced). Tiers mirror the Rust
+ *  `RecordingQuality` enum. */
 export type RecordingQuality = "auto" | "balanced" | "high" | "pristine";
 
-/** Read the persisted capture quality tier. Defaults to "auto" — the backend
- *  resolves it to High on a GPU encoder (sharp master) or Balanced on the
- *  software fallback. Any unrecognized value falls back to "auto" too. */
+/** Read the persisted capture quality tier. Unrecognized values → "auto". */
 export function loadRecordingQuality(): RecordingQuality {
 	const v = safeStorage.get<string>(RECORDING_QUALITY_STORAGE_KEY, "auto");
 	return v === "balanced" || v === "high" || v === "pristine" ? v : "auto";
@@ -92,19 +81,15 @@ export function persistRecordingFps(fps: number | null): void {
 	safeStorage.set(RECORDING_FPS_STORAGE_KEY, fps);
 }
 
-/** Sentinel slot for "use system default at recording time" — distinct from
- *  any specific device id, and distinct from "off". */
+// Slot sentinels — distinct from any specific device id and from each other.
 const DEFAULT_SLOT = "default";
 const OFF_SLOT = "off";
 
 /**
- * Per-profile countdown override option space — the single source of truth
- * shared by the editor UI, the dedup key (`capSig`), and the combination cap
- * (`maxCombinations` / `firstFreeCombo` / `freeSlots`). `null` = inherit the
- * global countdown; `0` = off; the rest pin an explicit pre-roll. Each value
- * is a distinct slot, so two profiles may share devices yet differ by
- * countdown alone. Keep `null` first so the auto-pick walk exhausts every
- * device combo at "inherit" before introducing pinned countdowns.
+ * Countdown override option space — single source of truth for the editor UI,
+ * `capSig`, and the combination cap. `null` = inherit global; `0` = off; rest
+ * pin an explicit pre-roll. Keep `null` first so the auto-pick walk exhausts
+ * every device combo at "inherit" before introducing pinned countdowns.
  */
 export const COUNTDOWN_OPTIONS: readonly (number | null)[] = [
 	null,
@@ -146,27 +131,19 @@ function camSlot(
 }
 
 /**
- * Capability fingerprint — uniqueness key for dedup, **including** device
- * identity. Two profiles with the same on/off shape but different mic/cam
- * IDs are intentionally distinct presets (e.g. "Studio" with the Yeti vs
- * "Mobile" with AirPods is two valid profiles).
- *
- * Slot vocabulary: `off` (capability disabled), `default` (enabled but no
- * specific device pinned — runtime picks the system default), or a literal
- * device id. The trailing segment is the countdown slot (`inherit` or the
- * literal seconds) so profiles can differ by pre-roll alone — see
- * `COUNTDOWN_OPTIONS`.
+ * Capability fingerprint — dedup key, **including** device identity (same
+ * on/off shape with different mic/cam ids are intentionally distinct presets).
+ * Slots: `off`, `default` (runtime picks system default), or a literal device
+ * id; trailing segment is the countdown slot. See `COUNTDOWN_OPTIONS`.
  */
 export function capSig(p: RecordingProfile): string {
 	return `${+p.systemAudio}|${micSlot(p)}|${camSlot(p)}|${countdownToken(p.countdown)}`;
 }
 
 /**
- * Total possible profile slots given currently-attached devices.
- * Math: `#countdowns × 2 (sysAudio) × (2 + #mics) × (2 + #cams)` — each kind's
- * slot space is { off, default, ...each specific device }, multiplied by the
- * per-profile countdown override options (`COUNTDOWN_OPTIONS`). With 0 mics
- * and 0 cams this is `#countdowns × 8` (5 × 8 = 40 for the default options).
+ * Total possible profile slots given currently-attached devices:
+ * `#countdowns × 2 (sysAudio) × (2 + #mics) × (2 + #cams)`, where each device
+ * kind's slot space is { off, default, ...each specific device }.
  */
 export function maxCombinations(micCount: number, camCount: number): number {
 	return COUNTDOWN_OPTIONS.length * 2 * (2 + micCount) * (2 + camCount);
@@ -182,17 +159,13 @@ interface CameraLite {
 }
 
 /**
- * First combo (walking the full cartesian product of currently-attached
- * devices) that no profile in `list` already uses. Returns null when every
- * attainable slot is taken.
+ * First combo in the cartesian product of attached devices that no profile in
+ * `list` already uses, or null when every attainable slot is taken.
  *
- * Walk order is intentional: the first new profile a user creates gets a
- * "system audio + default mic + default cam" template, then "+ off cam",
- * etc. Specific device ids come last so a fresh user with one mic doesn't
- * land on the literal-id slot before exhausting the off/default slots.
- * Countdown is the outermost dimension with `inherit` first, so the whole
- * device cartesian is exhausted at "inherit the global countdown" before any
- * pinned pre-roll is auto-assigned.
+ * Walk order is intentional: off/default slots before specific device ids
+ * (so a one-mic user doesn't land on a literal-id slot first), and countdown
+ * outermost with `inherit` first (exhaust the device cartesian before pinning
+ * a pre-roll).
  */
 export function firstFreeCombo(
 	list: RecordingProfile[],
@@ -254,9 +227,7 @@ export function ensureExactlyOneDefault(
 	});
 }
 
-/** Hand-build the seed set for first launch. Three profiles covering the
- *  most common shapes so users see the value of the system without having
- *  to click "New profile" before recording. */
+/** Seed set for first launch: three profiles covering the common shapes. */
 export function seedProfiles(): RecordingProfile[] {
 	const id = () => crypto.randomUUID();
 	return [
@@ -328,8 +299,8 @@ function isV2(p: unknown): p is RecordingProfile {
  * unparseable, or every entry was unrecognizable. Never throws.
  */
 export function loadProfiles(): RecordingProfile[] {
-	// `safeStorage` returns [] for missing key / no-window / malformed JSON /
-	// non-array data — every empty-ish case funnels into the seed below.
+	// `safeStorage` returns [] for missing key / no-window / malformed JSON,
+	// so every empty-ish case funnels into the seed below.
 	const parsed = safeStorage.get<unknown[]>(PROFILES_STORAGE_KEY, []);
 	if (!Array.isArray(parsed) || parsed.length === 0) return seedProfiles();
 
@@ -349,7 +320,7 @@ export function loadProfiles(): RecordingProfile[] {
 			});
 			continue;
 		}
-		// Drop unrecognized rows silently — better than throwing on the whole list.
+		// Drop unrecognized rows rather than throwing on the whole list.
 	}
 
 	if (migrated.length === 0) return seedProfiles();
@@ -361,9 +332,7 @@ export function persistProfiles(list: RecordingProfile[]): void {
 	safeStorage.set(PROFILES_STORAGE_KEY, list);
 }
 
-/** Read the on/off flag for the whole profile system. Defaults to enabled.
- *  The `true` fallback drives the boolean serializer, which reads the existing
- *  raw "true"/"false" values and returns true when the key is unset. */
+/** Read the on/off flag for the whole profile system. Defaults to enabled. */
 export function loadProfilesEnabled(): boolean {
 	return safeStorage.get<boolean>(PROFILES_ENABLED_STORAGE_KEY, true);
 }
@@ -372,8 +341,8 @@ export function persistProfilesEnabled(enabled: boolean): void {
 	safeStorage.set(PROFILES_ENABLED_STORAGE_KEY, enabled);
 }
 
-/** Pick the user's default profile, or the first one if no default flag is
- *  set. Returns null only when the list is empty. */
+/** The default profile, or the first one if no default flag is set; null only
+ *  when the list is empty. */
 export function findDefaultProfile(
 	list: RecordingProfile[],
 ): RecordingProfile | null {
@@ -381,7 +350,7 @@ export function findDefaultProfile(
 	return list.find((p) => p.isDefault) ?? list[0];
 }
 
-// ---------- Device resolution ----------
+// Device resolution
 
 export type DeviceResolution<T> =
 	| { kind: "matched"; device: T }
@@ -402,9 +371,7 @@ export type DeviceResolution<T> =
  *   3. System default exists → fallback (saved device gone).
  *   4. Nothing available → missing.
  *
- * Pure function — never reads from the store and never toasts. Callers
- * surface the result however the calling surface needs (panel toasts,
- * editor inline warnings, etc.).
+ * Pure — never reads the store or toasts; callers surface the result.
  */
 export function resolveMic(
 	profile: RecordingProfile,

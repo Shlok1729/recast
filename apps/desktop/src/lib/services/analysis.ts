@@ -1,14 +1,8 @@
 /**
- * Analysis service — orchestration for the "understand this recording and
- * suggest edits" operations. Today that's smart auto-zoom (detect clicks +
- * motion settle → place focus regions); silence detection lives alongside it.
- *
- * Like the export service, this owns NO UI state (no toasts, no run-guards).
- * It performs the IPC + computation + persistence and returns a structured
- * outcome; the caller decides how to surface it. This is the surface a future
- * MCP "auto-edit" tool will call.
- *
- * See ./README.md for how this fits the overall headless-core layering.
+ * Analysis service — "understand this recording and suggest edits" orchestration
+ * (currently smart auto-zoom). Owns NO UI state: does IPC + computation +
+ * persistence and returns a structured outcome; the caller surfaces it. This is
+ * the surface a future MCP "auto-edit" tool calls. See ./README.md for layering.
  */
 
 import { autosaveProject, suggestZoomRegions } from "$lib/ipc";
@@ -29,13 +23,10 @@ export interface GenerateAutoZoomOptions {
 }
 
 /**
- * Detect focus candidates from a cursor track and place focus regions on the
- * project. Pushes a single coalesced undo entry covering all placed regions.
- *
- * Sets the persisted `autoZoomApplied` latch (it's part of the project
- * document) before the autosave so a crash can't trigger a re-run on reopen.
- * Returns an outcome describing what happened; it does NOT toast or guard
- * against concurrent runs — those are UI concerns the caller owns.
+ * Detect focus candidates from a cursor track and place focus regions, under a
+ * single coalesced undo entry. Sets the persisted `autoZoomApplied` latch before
+ * autosave so a crash can't re-run on reopen. Does NOT toast or guard concurrent
+ * runs — those are the caller's concern.
  */
 export async function generateAutoZoom(
 	store: EditorStore,
@@ -56,12 +47,10 @@ export async function generateAutoZoom(
 		return { applied: 0, reason: "bad-bounds" };
 	}
 
-	// Single coalesced undo entry covering all auto-applied regions.
 	store.pushUndoState();
 	const result = applyAutoZooms(store, suggestions, bounds, w, h);
-	// Latch BEFORE the autosave below so the persisted document records that
-	// auto-zoom already ran — otherwise a crash before the next 30s autosave
-	// tick would re-run auto-zoom on reopen and double up regions.
+	// Latch BEFORE autosave so a crash before the next tick can't re-run and
+	// double up regions on reopen.
 	store.autoZoomApplied = true;
 
 	if (opts.documentPath) {

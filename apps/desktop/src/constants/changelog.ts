@@ -37,6 +37,19 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.8',
+		date: '2026-06-28',
+		highlights: [
+			'**Camera and microphone work on macOS again** — fixed a permissions problem that stopped macOS from capturing your camera and mic.',
+		],
+		changes: [
+			{ kind: 'changed', summary: 'Tightened copy across the desktop app and website. Removed em dashes and over-explanation from settings, experimental-feature, and editor-panel descriptions, and from a few marketing sections, so the text says what a feature does without explaining how it works internally.' },
+			{ kind: 'fixed', summary: 'Website build no longer fails during prerender. A leftover static `robots.txt` was shadowing the dynamic `/robots.txt` route, so the route was never prerendered and the build errored out. The static file is gone; `/robots.txt` and `/sitemap.xml` now come from their routes.' },
+			{ kind: 'fixed', summary: 'Corrected the Loom and Cap comparison on the Features page. Dropped a "pause and resume is paid in Loom" row (it is free), changed Cap\'s "share to your own storage" from "Not supported" to "Pro only" (Cap Pro supports custom S3 and Google Drive), and relabelled per-seat pricing.' },
+			{ kind: 'fixed', summary: 'Fix camera and microphone permissions not working on macOS' },
+		],
+	},
+	{
 		version: '0.2.7',
 		date: '2026-06-28',
 		highlights: [

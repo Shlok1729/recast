@@ -22,23 +22,19 @@
     routeKey === "/" ? "Home" : routeKey.replace(/^\//, "").split("/")[0],
   );
 
-  // Detected synchronously from the webview UA (same test the shortcuts
-  // registry uses) so there's no chrome flash on first paint; false under SSR.
+  // Detected synchronously from the UA so there's no chrome flash on first
+  // paint; false under SSR.
   const isMac =
     typeof navigator !== "undefined" &&
     /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent || "");
 
-  // The sidebar is always the inset (rounded panel) layout. Only the titlebar
-  // differs: `os-native` lifts a real, full-width window titlebar to the very
-  // top — outside the sidebar/content shell — with OS-placed controls (macOS
-  // traffic lights top-left, min/max/close top-right on Windows/Linux). `recast`
-  // keeps the unified titlebar embedded in the content header, same on every OS.
+  // Only the titlebar differs by mode: `os-native` lifts a full-width window
+  // titlebar above the shell with OS-placed controls; `recast` embeds it in the
+  // content header.
   let osNative = $derived(layoutMode.current === "os-native");
 
   onMount(() => {
-    // Surface "What's new" once per release (skip if we landed on the changelog
-    // already) and kick off the background update check — both non-blocking
-    // bottom-right cards.
+    // Surface "What's new" once per release (skip if already on the changelog).
     if (page.url.pathname.startsWith("/whats-new")) {
       whatsNew.markSeen();
     } else {
@@ -48,8 +44,7 @@
   });
 </script>
 
-<!-- Sidebar + content. Identical in both modes; in `recast` it also carries the
-     embedded unified titlebar at the top of the content area. -->
+<!-- In `recast` mode this also carries the embedded titlebar at the top. -->
 {#snippet shell()}
   <AppSidebar variant="inset" />
   <Sidebar.Inset
@@ -102,15 +97,10 @@
 {/snippet}
 
 {#if osNative}
-  <!--
-    True window titlebar: full-width, topmost. It lives *inside* the provider so
-    the sidebar trigger gets its context, but is `fixed top-0` so it still
-    renders as a real window titlebar above the shell (a fixed ancestor doesn't
-    trap a fixed child). macOS traffic lights on the left; min/max/close on the
-    right for Windows/Linux. The whole bar is a drag region; the buttons opt
-    out. The `.os-native-shell` rule in app.css offsets the viewport-fixed
-    sidebar down by the titlebar height.
-  -->
+  <!-- Inside the provider so the sidebar trigger has context, but `fixed top-0`
+       so it renders as a real window titlebar above the shell. The whole bar is
+       a drag region; buttons opt out. `.os-native-shell` (app.css) offsets the
+       fixed sidebar down by the titlebar height. -->
   <Sidebar.Provider
     class="os-native-shell fixed inset-x-0 bottom-0 top-10 min-h-0"
   >

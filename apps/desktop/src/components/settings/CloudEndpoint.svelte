@@ -87,8 +87,8 @@
 				Server endpoint
 			</span>
 			<span class="text-[11px] text-muted-foreground">
-				Self-hosting Recast Cloud? Point the app at your server. Leave blank
-				to use the default. Changing this signs you out of the current server.
+				Self-hosting Recast Cloud? Point the app at your server. Changing
+				this signs you out of the current server.
 			</span>
 		</div>
 

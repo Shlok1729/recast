@@ -19,6 +19,11 @@
     type Rect,
   } from "$lib/annotations/uv";
   import { FRAME_ANCHORS, snap, type SnapAnchor } from "$lib/annotations/snap";
+  import {
+    arrowGeometry,
+    blurTint,
+    strokeDashPattern,
+  } from "./annotation-draw.logic";
   import type {
     Annotation,
     AnnotationKind,
@@ -246,16 +251,7 @@
           ctx.filter = "none";
           // Variant tint sits on top of the blurred copy so it reads
           // as a deliberate privacy treatment rather than just a smudge.
-          let tint: string | null = null;
-          if (k.variant === "white") tint = "rgba(255,255,255,0.30)";
-          else if (k.variant === "black") tint = "rgba(0,0,0,0.30)";
-          else if (k.variant === "color") {
-            const m = /^#?([0-9a-fA-F]{6})$/.exec(k.tintColor.trim());
-            if (m) {
-              const v = parseInt(m[1], 16);
-              tint = `rgba(${(v >> 16) & 0xff},${(v >> 8) & 0xff},${v & 0xff},0.30)`;
-            }
-          }
+          const tint = blurTint(k.variant, k.tintColor);
           if (tint) {
             ctx.fillStyle = tint;
             ctx.fillRect(x, y, w, h);
@@ -290,20 +286,9 @@
     const r = rectPx();
     const p1 = projectUV(k.x1, k.y1, t);
     const p2 = projectUV(k.x2, k.y2, t);
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1) return;
-
     const strokePx = Math.max(2, a.stroke.width * r.w);
-    const headLen = Math.max(strokePx * 2, k.headSize * len);
-    const headWidth = headLen * 0.7;
-    const ux = dx / len;
-    const uy = dy / len;
-    const lineEndX = p2.x - ux * headLen;
-    const lineEndY = p2.y - uy * headLen;
-    const nx = -uy;
-    const ny = ux;
+    const geo = arrowGeometry(p1, p2, strokePx, k.headSize);
+    if (!geo) return;
 
     ctx.save();
     ctx.globalAlpha = opacity;
@@ -315,16 +300,16 @@
 
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(lineEndX, lineEndY);
+    ctx.lineTo(geo.lineEnd.x, geo.lineEnd.y);
     ctx.stroke();
 
     // Reset dash before the head fill so it isn't striped.
     ctx.setLineDash([]);
 
     ctx.beginPath();
-    ctx.moveTo(p2.x, p2.y);
-    ctx.lineTo(lineEndX + nx * headWidth * 0.5, lineEndY + ny * headWidth * 0.5);
-    ctx.lineTo(lineEndX - nx * headWidth * 0.5, lineEndY - ny * headWidth * 0.5);
+    ctx.moveTo(geo.tip.x, geo.tip.y);
+    ctx.lineTo(geo.left.x, geo.left.y);
+    ctx.lineTo(geo.right.x, geo.right.y);
     ctx.closePath();
     ctx.fill();
 
@@ -339,14 +324,8 @@
   ) {
     ctx.lineWidth = strokePx;
     const style = a.stroke.style ?? "solid";
-    if (style === "dashed") {
-      ctx.setLineDash([8 * strokePx, 6 * strokePx]);
-    } else if (style === "dotted") {
-      ctx.setLineDash([2 * strokePx, 4 * strokePx]);
-      ctx.lineCap = "round";
-    } else {
-      ctx.setLineDash([]);
-    }
+    ctx.setLineDash(strokeDashPattern(style, strokePx));
+    if (style === "dotted") ctx.lineCap = "round";
   }
 
   /** Apply the optional preview-only glow (rendered before fill/stroke). */

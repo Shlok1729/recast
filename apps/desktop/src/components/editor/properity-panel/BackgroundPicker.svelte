@@ -38,6 +38,11 @@
   import * as Tabs from "@recast/ui/tabs";
   import { cn } from "@recast/ui/utils";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import {
+    imagePreviewSrc,
+    isValidImageValue,
+    sampleStopColor,
+  } from "./background-picker.logic";
   import { Image } from "@unpic/svelte";
   import { SliderControl } from "@recast/ui/slider-control";
   import PanelSection from "./PanelSection.svelte";
@@ -131,41 +136,9 @@
     commitGradient({ ...gradientDraft, angle });
   }
 
-  // Sample the draft at a position (0..100) to seed a new stop's color —
-  // mirrors the renderer's sRGB lerp so the inserted stop is visually neutral.
-  function sampleDraftColor(pos: number): string {
-    const stops = [...gradientDraft.stops].sort((a, b) => a.pos - b.pos);
-    if (pos <= stops[0].pos) return stops[0].color;
-    const last = stops[stops.length - 1];
-    if (pos >= last.pos) return last.color;
-    for (let i = 0; i < stops.length - 1; i++) {
-      const a = stops[i];
-      const b = stops[i + 1];
-      if (pos >= a.pos && pos <= b.pos) {
-        const f = (pos - a.pos) / Math.max(b.pos - a.pos, 1e-6);
-        return lerpHex(a.color, b.color, f);
-      }
-    }
-    return last.color;
-  }
-
-  function lerpHex(c0: string, c1: string, f: number): string {
-    const p = (h: string) => {
-      const s = h.replace("#", "");
-      return [
-        parseInt(s.slice(0, 2), 16),
-        parseInt(s.slice(2, 4), 16),
-        parseInt(s.slice(4, 6), 16),
-      ];
-    };
-    const [r0, g0, b0] = p(c0);
-    const [r1, g1, b1] = p(c1);
-    const mix = (a: number, b: number) =>
-      Math.round(a + (b - a) * f)
-        .toString(16)
-        .padStart(2, "0");
-    return `#${mix(r0, r1)}${mix(g0, g1)}${mix(b0, b1)}`;
-  }
+  // Wrapper: samples the reactive draft's stops via the shared sRGB helper.
+  const sampleDraftColor = (pos: number): string =>
+    sampleStopColor(gradientDraft.stops, pos);
 
   function addStop() {
     if (gradientDraft.stops.length >= MAX_GRADIENT_STOPS) return;
@@ -258,33 +231,6 @@
     }
   }
 
-  function isValidImageValue(value: string) {
-    if (!value) return false;
-    // Explicitly reject non-image values that might linger in
-    // `backgroundValue` after switching tabs (gradient strings, colour
-    // hex, internal asset ids). Without this guard these slip through to
-    // the `<Image>` element below, which feeds them into convertFileSrc
-    // and triggers a Tauri asset-protocol "file does not exist" error.
-    if (
-      value.includes("gradient(") ||
-      value.startsWith("#") ||
-      value.startsWith("asset:")
-    ) {
-      return false;
-    }
-    return (
-      value.startsWith("data:") ||
-      value.startsWith("http://") ||
-      value.startsWith("https://") ||
-      value.startsWith("asset://") ||
-      value.startsWith("/wallpapers/") ||
-      value.endsWith(".png") ||
-      value.endsWith(".jpg") ||
-      value.endsWith(".jpeg") ||
-      value.endsWith(".webp")
-    );
-  }
-
   function getSelectionValue(type: BackgroundType) {
     return isValidValueForType(type, store.backgroundValue)
       ? store.backgroundValue
@@ -317,29 +263,9 @@
     store.setBackground({ type: "image", value: selected });
   }
 
-  function getImagePreviewSrc(value: string) {
-    if (!value) return "";
-    // Mirror isValidImageValue's rejections — feeding a gradient string or
-    // colour hex to convertFileSrc reaches Tauri's asset protocol and
-    // produces "File does not exist" log spam.
-    if (
-      value.includes("gradient(") ||
-      value.startsWith("#") ||
-      value.startsWith("asset:")
-    ) {
-      return "";
-    }
-    if (
-      value.startsWith("data:") ||
-      value.startsWith("http://") ||
-      value.startsWith("https://") ||
-      value.startsWith("asset://") ||
-      value.startsWith("/wallpapers/")
-    ) {
-      return value;
-    }
-    return convertFileSrc(value);
-  }
+  // Wrapper: injects Tauri's convertFileSrc into the shared resolver.
+  const getImagePreviewSrc = (value: string): string =>
+    imagePreviewSrc(value, convertFileSrc);
 
   $effect(() => {
     blurValue = store.backgroundBlur;
@@ -523,7 +449,7 @@
   >
     <PanelSection
       title="Background"
-      hint="What fills the canvas behind your recording. Previewed live."
+      hint="What fills the canvas behind your recording."
       flush
     >
       <Tabs.List

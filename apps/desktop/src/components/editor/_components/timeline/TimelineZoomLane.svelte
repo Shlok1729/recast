@@ -5,9 +5,8 @@
   import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import ZoomLayerCard from "./ZoomLayerCard.svelte";
 
-  // Lane that hosts zoom-region cards. The lane builds the snap target list
-  // (playhead + in/out + duration + neighbours) and renders a vertical
-  // guide whenever any card reports an active snap during drag/resize.
+  // Hosts zoom-region cards: builds the shared snap target list and paints
+  // the guide line when a card reports an active snap during drag/resize.
 
   interface Props {
     store: EditorStore;
@@ -29,8 +28,7 @@
     onDuplicate,
   }: Props = $props();
 
-  // Lifted from each card so the lane can paint a single guide line at the
-  // active target. Last writer wins — only one card drags at a time.
+  // Last writer wins — only one card drags at a time.
   let activeSnap = $state<SnapTarget | null>(null);
   // Snap targets are original times; place the guide on the output axis.
   const snapX = $derived(
@@ -81,10 +79,7 @@
   {/if}
 
   {#if activeSnap}
-    <!-- Snap guide. Anchored to the lane container, but drawn full-height
-         using a tall element with negative offsets so it visually crosses
-         the clip bar above too — the same affordance Premiere/Final Cut
-         use to confirm a snap. -->
+    <!-- Drawn tall with negative offsets so the guide crosses the clip bar above too. -->
     <div
       class="pointer-events-none absolute -top-14 z-40 h-42.5 w-px bg-primary/80"
       style="left: {snapX + 6}px;"

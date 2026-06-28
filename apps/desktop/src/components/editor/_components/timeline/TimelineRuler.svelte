@@ -1,10 +1,6 @@
 <script lang="ts">
   import { buildMinorTicks, buildTimeMarkers } from "./timeline-helpers";
 
-  // Pure render: top ruler with major labels and minor ticks. Recomputes
-  // markers from `duration` × `pixelsPerSecond` so the parent doesn't need
-  // to thread them through.
-
   interface Props {
     duration: number;
     pixelsPerSecond: number;

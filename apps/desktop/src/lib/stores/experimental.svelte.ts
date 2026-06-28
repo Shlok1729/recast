@@ -28,19 +28,19 @@ export const FLAG_META: FlagMeta[] = [
 		key: "silenceDetection",
 		label: "Silence detection & cuts",
 		description:
-			"Detect dead air (quiet audio + still cursor) and skip it during playback/export. Hidden when off.",
+			"Find quiet stretches with no cursor movement and skip them on playback and export.",
 	},
 	{
 		key: "webcodecsPreview",
 		label: "WebCodecs preview engine",
 		description:
-			"Decode the editor preview with WebCodecs and a custom playback clock instead of the HTML <video> element. Removes the freeze when playback crosses a cut/split. On unsupported hardware it falls back to the <video> path automatically. Toggle to compare smoothness against the classic engine.",
+			"Smoother editor playback across cuts and splits. Falls back to the standard player where it isn't supported.",
 	},
 	{
 		key: "selfHosting",
 		label: "Self-hosting server endpoint",
 		description:
-			"Point the app at your own Recast Cloud server. Recast Cloud isn't ready yet, so this is for early self-hosters only — leave off to use the default.",
+			"Point the app at your own Recast Cloud server. Cloud isn't ready yet, so this is for early self-hosters only.",
 	},
 ];
 

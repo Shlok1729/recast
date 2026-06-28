@@ -76,7 +76,7 @@ export const CURSOR_STYLES: CursorStyle[] = [
   {
     id: "dot",
     label: "Soft dot",
-    description: "Default — used for both preview and export.",
+    description: "Default cursor, used in preview and export.",
     // The actual `dot` cursor is drawn by the WebGL2 shader; this SVG is
     // only the picker swatch.
     svg: sprite("dot"),
@@ -88,7 +88,7 @@ export const CURSOR_STYLES: CursorStyle[] = [
     // sprite's tip/grab point. See ./sprites/CREDITS.md for attribution.
     id: "macos-system",
     label: "macOS System",
-    description: "System-accurate Apple set — arrow, link hand, grab, and right-click states.",
+    description: "Apple cursor set: arrow, link hand, grab, and right-click states.",
     svg: sprite("system-macos-arrow"),
     pressedSvg: sprite("system-macos-pointer"),
     rightPressedSvg: sprite("system-macos-context"),
@@ -104,7 +104,7 @@ export const CURSOR_STYLES: CursorStyle[] = [
     // move cursor. See ./sprites/CREDITS.md for attribution.
     id: "windows-system",
     label: "Windows System",
-    description: "System-accurate Windows set — arrow, link hand, and move (drag) states.",
+    description: "Windows cursor set: arrow, link hand, and move (drag) states.",
     svg: sprite("system-windows-arrow"),
     pressedSvg: sprite("system-windows-hand"),
     dragSvg: sprite("system-windows-move"),

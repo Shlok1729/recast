@@ -8,6 +8,7 @@
     GifQuality,
   } from "$lib/stores/editor-store.svelte";
   import { totalCutDuration } from "$lib/timeline/cuts";
+  import { clockCentis as formatTime } from "$lib/format/time";
   import {
     Check,
     Circle,
@@ -111,13 +112,6 @@
     store.exportFormat !== "gif" && fpsOptions.length > 1,
   );
 
-  function formatTime(seconds: number) {
-    if (!Number.isFinite(seconds) || seconds <= 0) return "0:00.00";
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    const cs = Math.floor((seconds % 1) * 100);
-    return `${mins}:${secs.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
-  }
 
   const clipEnd = $derived(
     store.trimEnd > 0 ? store.trimEnd : (store.metadata?.duration ?? 0),

@@ -1,26 +1,18 @@
 /**
  * Hybrid-raster export path for text annotations.
  *
- * The Rust export pipeline (cursor_export.rs / draw_annotation) does not know
- * how to render text — it has no font rasterizer. To keep the Rust side
- * simple, every text annotation is rendered to a transparent PNG by the
- * WebView (which already has full font support), then sent across IPC as a
- * data URL on a synthetic image-kind annotation.
- *
- * This module is invoked from the export trigger (handleExport) right before
- * the renderState payload reaches `invoke("export_video", ...)`. Non-text
- * annotations pass through untouched.
+ * Rust has no font rasterizer, so each text annotation is rendered to a
+ * transparent PNG by the WebView and sent across IPC as a data URL on a
+ * synthetic image-kind annotation. Invoked from handleExport before the
+ * renderState reaches `invoke("export_video", ...)`; non-text passes through.
  */
 import type { Annotation } from "$lib/stores/editor-store.svelte";
 
 /**
- * Walk the annotations and replace every text annotation with an image
- * annotation whose `path` is a `data:image/png;base64,…` URL containing a
- * pre-rendered transparent PNG of the text.
+ * Replace every text annotation with an image annotation whose `path` is a
+ * `data:image/png;base64,…` URL of the pre-rendered transparent PNG.
  *
- * @param annotations  Annotation list as it would appear in toRenderState.
  * @param canvasWidth  Pixel width of the export canvas (source.width + 2*padding).
- * @param canvasHeight Pixel height of the export canvas.
  */
 export async function expandTextAnnotations<
   T extends Pick<Annotation, "kind">,
@@ -35,8 +27,7 @@ export async function expandTextAnnotations<
     const k = a.kind;
     const dataUrl = await renderTextToDataUrl(k, canvasWidth, canvasHeight);
     if (!dataUrl) {
-      // Drop the annotation rather than fail the export; surface a console
-      // hint so debug builds notice.
+      // Drop the annotation rather than fail the whole export.
       console.warn(
         "rasterize-text: failed to render text annotation, skipping",
         k.content,

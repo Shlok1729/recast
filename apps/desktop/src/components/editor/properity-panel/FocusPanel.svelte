@@ -5,6 +5,12 @@
     type Easing,
   } from "$lib/easing/cubic-bezier";
   import { registry } from "$lib/registry";
+  import { clockCentis as fmtTime } from "$lib/format/time";
+  import {
+    regionMaxRamp,
+    scaleAt,
+    sparklinePath,
+  } from "./focus-panel.logic";
   import {
     DEFAULT_ZOOM_CENTER,
     DEFAULT_ZOOM_MOTION_BLUR,
@@ -120,70 +126,6 @@
       centerY: DEFAULT_ZOOM_CENTER,
       motionBlur: DEFAULT_ZOOM_MOTION_BLUR,
     });
-  }
-
-  function fmtTime(sec: number): string {
-    const total = Math.max(0, sec);
-    const s = Math.floor(total);
-    const ms = Math.round((total - s) * 1000);
-    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}.${ms
-      .toString()
-      .padStart(3, "0")
-      .slice(0, 2)}`;
-  }
-
-  function regionMaxRamp(r: ZoomRegion): number {
-    return Math.max(0, (r.end - r.start) * 0.5);
-  }
-
-  // Precompute the sparkline path for one region card — encodes the
-  // rampIn → hold → rampOut shape as a normalised 1.0 → scale → 1.0 curve.
-  function sparklinePath(r: ZoomRegion, w: number, h: number): string {
-    const duration = Math.max(0.001, r.end - r.start);
-    const maxScale = Math.max(r.scale, 1.0);
-    const normScale = (s: number) =>
-      maxScale === 1 ? 1 : (s - 1) / (maxScale - 1);
-    const samples: Array<[number, number]> = [];
-    const N = 40;
-    for (let i = 0; i <= N; i++) {
-      const t = (i / N) * duration;
-      const absT = r.start + t;
-      const s = scaleAt(r, absT);
-      const x = (t / duration) * w;
-      const y = h - normScale(s) * h * 0.9 - 1;
-      samples.push([x, y]);
-    }
-    return samples
-      .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`)
-      .join(" ");
-  }
-
-  function scaleAt(r: ZoomRegion, t: number): number {
-    if (t <= r.start || t >= r.end) return 1;
-    const duration = Math.max(0, r.end - r.start);
-    const half = duration * 0.5;
-    const rampIn = Math.min(Math.max(0, r.rampIn), half);
-    const rampOut = Math.min(Math.max(0, r.rampOut), half);
-    const holdStart = r.start + rampIn;
-    const holdEnd = r.end - rampOut;
-    let phase: number, curve: Easing;
-    if (t < holdStart) {
-      phase = rampIn > 0 ? (t - r.start) / rampIn : 1;
-      curve = r.easeIn;
-    } else if (t > holdEnd) {
-      phase = rampOut > 0 ? (r.end - t) / rampOut : 1;
-      curve = r.easeOut;
-    } else {
-      return r.scale;
-    }
-    phase = Math.max(0, Math.min(1, phase));
-    // Low-budget x→y approximation (polynomial-in-t with t ≈ x). Indistinguishable
-    // at sparkline resolution; avoids pulling in the full Newton-Raphson solver.
-    const a = 1 - 3 * curve.y2 + 3 * curve.y1;
-    const b = 3 * curve.y2 - 6 * curve.y1;
-    const c = 3 * curve.y1;
-    const s = ((a * phase + b) * phase + c) * phase;
-    return 1 + (r.scale - 1) * s;
   }
 
   function applyPresetToBoth(preset: Easing) {

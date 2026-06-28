@@ -250,7 +250,7 @@
 
     <PanelSection
       title="Mirror"
-      hint="On (default): the bubble matches what you see in a webcam preview. Off: the bubble shows you as others see you — text behind you reads correctly."
+      hint="On: the bubble matches a webcam preview. Off: it shows you as others see you, so text behind you reads correctly."
       flush
     >
       {#snippet action()}

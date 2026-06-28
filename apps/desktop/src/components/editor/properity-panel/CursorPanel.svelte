@@ -98,7 +98,7 @@
     <!-- Style + size = "the cursor itself" -->
     <PanelSection
       title="Style"
-      hint="Pick a cursor sprite and set its size. The default soft dot ships through both preview and export; other styles show in the editor preview today, while export still uses the soft dot until the cursor sprite raster lands in the export overlay."
+      hint="Pick a cursor style and size. The soft dot works in preview and export; other styles preview in the editor but export as the soft dot for now."
       flush
     >
       {#snippet action()}

@@ -25,8 +25,7 @@
 
   interface Props {
     store: EditorStore;
-    /** Path to camera.mp4 in this project, or null when no camera was
-     *  recorded. Forwarded to CameraPanel for its empty state. */
+    /** Path to camera.mp4, or null when no camera was recorded. */
     cameraPath?: string | null;
   }
   type TabType = {
@@ -84,7 +83,6 @@
     }}
     class="flex min-h-0 flex-1 flex-col"
   >
-    <!-- Header: segmented icon rail + active label -->
     <div
       class="shrink-0 flex items-center justify-between gap-2 border-b border-border/60 px-2 py-1.5"
     >
