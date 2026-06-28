@@ -23,10 +23,8 @@
   } from "./_components/timeline/timeline-helpers";
   import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
 
-  // Orchestrator. Owns the scroll container, sizing, transport state
-  // (JKL/playback speed), keyboard routing, and the click-to-seek scrubber.
-  // Visual subviews (toolbar, ruler, clip bar, zoom lane, playhead) live
-  // under `_components/timeline/` and receive only the data they render.
+  // Orchestrator: owns the scroll container, sizing, transport (JKL/speed),
+  // keyboard routing, and the click-to-seek scrubber. Subviews live under `_components/timeline/`.
 
   interface Props {
     store: EditorStore;
@@ -42,16 +40,11 @@
   const SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0] as const;
   let playbackSpeed = $state(1.0);
 
-  // Time-display mode. Cycles smpte → seconds → frames; affects every
-  // user-visible label (toolbar chip, playhead pill, trim tooltips, card
-  // subtitles). Lives in the orchestrator so a single click flips the
-  // entire timeline at once.
+  // Lives in the orchestrator so one click flips every timeline label at once.
   let timeMode = $state<TimeMode>("smpte");
 
-  // JKL transport: cycles 1×→2×→4× on each consecutive press, like Avid /
-  // Premiere. K parks playback. We don't drive reverse playback through
-  // <video>'s playbackRate (browsers don't support negative rates reliably);
-  // J instead schedules a rAF loop that decrements currentTime.
+  // JKL transport (Avid/Premiere): consecutive L/J cycles 1×→2×→4×, K parks.
+  // J drives reverse via a rAF loop (browsers don't reliably support negative playbackRate).
   let shuttleDirection = $state<-1 | 0 | 1>(0);
   let shuttleSpeedIndex = $state(0);
   const SHUTTLE_SPEEDS = [1, 2, 4];
@@ -95,10 +88,8 @@
     }
   });
 
-  // Quantization: all trim and playhead writes round to the nearest frame
-  // boundary so preview and export agree on which exact frame is the
-  // first/last kept frame. Sub-frame trim values are the source of off-by-one
-  // mismatches between scrub preview and the rendered MP4.
+  // Trim/playhead writes round to the nearest frame so preview and export agree
+  // on the first/last kept frame; sub-frame values cause off-by-one mismatches.
   function effectiveFps(): number {
     return effFps(store.metadata?.fps);
   }
@@ -119,10 +110,7 @@
     );
   }
 
-  // Zoom so the entire clip fills the visible viewport, then scroll back
-  // to the head. timelineZoom=1 means "duration spans timelineWidth", so
-  // fit is just `1.0` modulo the rare case where the user has dragged the
-  // panel narrower than the rendered clip.
+  // timelineZoom=1 means "duration spans timelineWidth", so fit is just 1.0.
   function zoomToFit() {
     store.timelineZoom = 1;
     requestAnimationFrame(() => {
@@ -130,9 +118,7 @@
     });
   }
 
-  // Zoom so the selected region fills ~70% of the viewport and centers
-  // it horizontally. `0.7` leaves visual breathing room on both sides so
-  // neighbouring context isn't lost the moment the user clicks the icon.
+  // Selected region fills ~70% of the viewport (0.7 leaves context on both sides).
   function zoomToSelection() {
     if (!timelineEl || duration <= 0) return;
     const id = store.selectedZoomRegionId;
@@ -160,13 +146,11 @@
     const rect = timelineEl.getBoundingClientRect();
     const scrollLeft = timelineEl.scrollLeft;
     const x = clientX - rect.left + scrollLeft;
-    // x is in OUTPUT pixels → output seconds → back to original time (so the
-    // scrubber lands on kept content and skips over collapsed cuts).
+    // OUTPUT px → original time so the scrubber lands on kept content, skipping collapsed cuts.
     return Math.max(0, Math.min(duration, tOf(x)));
   }
 
-  // Shared trim-nudge for the global Alt+[ / Alt+] shortcuts. The trim
-  // handles use their own ArrowLeft/Right inside TimelineClipBar.
+  // For the global Alt+[ / Alt+] shortcuts (trim handles have their own arrows in TimelineClipBar).
   function nudgeTrim(which: "in" | "out", direction: 1 | -1, second = false) {
     if (duration <= 0) return;
     store.pushUndoStateCoalesced(`trim-${which}`, 500);
@@ -189,15 +173,9 @@
   }
 
   const duration = $derived(store.metadata?.duration ?? 0);
-  // Cuts collapse the timeline: the horizontal axis is OUTPUT (post-cut) time,
-  // not original-recording time. `originalToOutput` maps an original time onto
-  // the gapless output line (a time inside a cut lands on the cut's start), so
-  // removed ranges occupy zero width and everything after them slides left —
-  // exactly like a real NLE. With no cuts the mapping is the identity, so this
-  // is byte-for-byte the old original-time layout. Trim is preserved (it's not
-  // a cut), so the head/tail still show with their handles.
+  // The axis is OUTPUT (post-cut) time: `originalToOutput` collapses cuts to zero
+  // width so later content slides left (NLE ripple). Trim isn't a cut, so head/tail handles remain.
   const cuts = $derived(store.effectiveCuts);
-  // Output length of the whole recording = original duration minus all cuts.
   const outputDuration = $derived(originalToOutput(cuts, duration));
   const pixelsPerSecond = $derived(
     outputDuration > 0 ? (timelineWidth * store.timelineZoom) / outputDuration : 100,
@@ -205,8 +183,7 @@
   const totalWidth = $derived(
     Math.max(outputDuration * pixelsPerSecond, timelineWidth),
   );
-  // Canonical axis transforms. Every lane positions content with `xOf` and
-  // resolves a pointer back with `tOf`; keep them as the single source of truth.
+  // Canonical axis transforms — every lane positions with `xOf` and resolves pointers with `tOf`.
   const xOf = (t: number) => originalToOutput(cuts, t) * pixelsPerSecond;
   const tOf = (x: number) => outputToOriginal(cuts, x / pixelsPerSecond);
   const clipLeft = $derived(xOf(store.inPoint));
@@ -239,10 +216,7 @@
     const rect = timelineEl.getBoundingClientRect();
     const scrollLeft = timelineEl.scrollLeft;
     const x = clientX - rect.left + scrollLeft;
-    // x is in OUTPUT pixels — map back through the cut model to original time,
-    // exactly like `clientXToTime`. (Using the raw `x / pps` here treated an
-    // output position as original time, so the playhead trailed the cursor more
-    // and more past each cut.)
+    // OUTPUT px → original time via the cut model (raw `x / pps` would make the playhead trail past each cut).
     const time = Math.max(0, Math.min(duration, tOf(x)));
     store.currentTime = time;
     if (videoEl) videoEl.currentTime = time;
@@ -268,9 +242,7 @@
 
     const mod = event.ctrlKey || event.metaKey;
 
-    // Cmd/Ctrl + V pastes a previously-copied region at the playhead — the
-    // only modifier-combo this scope owns. Cards own copy/duplicate (those
-    // need a focused card), but paste works anywhere in the timeline.
+    // Paste works anywhere in the timeline (cards own copy/duplicate — they need focus).
     if (mod && (event.key === "v" || event.key === "V")) {
       if (zoomClipboard) {
         event.preventDefault();
@@ -279,10 +251,7 @@
       return;
     }
 
-    // Every remaining timeline shortcut is a plain (optionally Shift/Alt) key.
-    // Bail when Ctrl/Cmd is held so a global combo (⌘K command palette, ⌘J
-    // timeline toggle, ⌘S save, …) doesn't ALSO fire the matching
-    // single-letter transport (J/K/L) or marker (I/O/Home/End) action here.
+    // Bail on Ctrl/Cmd so a global combo (⌘K/⌘J/⌘S) doesn't also fire a single-letter transport here.
     if (mod) return;
 
     const step = event.shiftKey ? 1 : frameStep();
@@ -323,10 +292,8 @@
       }
     }
 
-    // Alt+[ trims the IN point one frame later (shrinks from the head);
-    // Alt+] trims the OUT point one frame earlier (shrinks from the tail).
-    // Shift+Alt switches the unit from one frame to one second. We match
-    // `event.code` because shifted brackets become "{"/"}" on some layouts.
+    // Alt+[ shrinks from head, Alt+] from tail (Shift = 1s). Match `event.code` —
+    // shifted brackets become "{"/"}" on some layouts.
     if (event.altKey && event.code === "BracketLeft") {
       event.preventDefault();
       nudgeTrim("in", 1, event.shiftKey);
@@ -356,9 +323,7 @@
       store.splitAt(store.currentTime);
     }
 
-    // Ripple-delete the selected clip (or the one under the playhead) and
-    // close the gap. The store returns the original-time join to land on a
-    // kept frame.
+    // Ripple-delete the selected clip (or the one under the playhead); store returns the join to land on a kept frame.
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       const target = store.selectedClipStart ?? store.currentTime;
@@ -369,10 +334,7 @@
       }
     }
 
-    // J/K/L transport. K parks playback. L plays forward; consecutive Ls
-    // step the playback rate up through SHUTTLE_SPEEDS. J does the same in
-    // reverse via a rAF-driven loop (browsers don't reliably support
-    // negative <video> playbackRate).
+    // J/K/L transport (see shuttle state above).
     if (event.key === "k" || event.key === "K") {
       event.preventDefault();
       shuttleDirection = 0;
@@ -426,8 +388,7 @@
       event.preventDefault();
       const rect = timelineEl.getBoundingClientRect();
       const anchorX = event.clientX - rect.left;
-      // Anchor in OUTPUT seconds (output px / output pps) so the point under the
-      // cursor stays put across the zoom — restored with the output pps below.
+      // Anchor in OUTPUT seconds so the point under the cursor stays put across the zoom.
       const anchorOut =
         duration > 0 ? (timelineEl.scrollLeft + anchorX) / pixelsPerSecond : 0;
       const delta = event.deltaY < 0 ? 0.2 : -0.2;
@@ -487,9 +448,7 @@
     syncVideoTime();
   }
 
-  // Internal clipboard for zoom regions. Plain object holding the editable
-  // fields of a region — id and source are regenerated on paste so a paste
-  // never collides with an existing region's identity.
+  // Editable fields only — id/source are regenerated on paste so it never collides with an existing region.
   type ZoomClipboard = Omit<ZoomRegion, "id" | "source">;
   let zoomClipboard = $state<ZoomClipboard | null>(null);
 
@@ -512,17 +471,13 @@
     zoomClipboard = snapshotForClipboard(r);
   }
 
-  // Place a region anchored at the supplied start time, copying everything
-  // else from `template`. Caller is responsible for clamping start so the
-  // span fits inside [0, duration].
+  // Place a region at `startAt`, copying the rest from `template`.
   function placeRegion(template: ZoomClipboard, startAt: number) {
     if (duration <= 0) return;
     const span = template.end - template.start;
     const start = Math.max(0, Math.min(duration - span, startAt));
     const end = start + span;
-    // store.addZoomRegion only seeds the geometry/scale; layer the rest of
-    // the template on with a single follow-up update so the new region
-    // is identical to the source modulo position.
+    // addZoomRegion only seeds geometry/scale; layer the rest on so the copy matches the source.
     const id = store.addZoomRegion(start, end, template.scale, {
       x: template.centerX,
       y: template.centerY,
@@ -538,15 +493,12 @@
 
   function duplicateRegion(r: ZoomRegion) {
     const span = r.end - r.start;
-    // Offset by 0.25s or one full span — whichever is smaller — so the new
-    // card sits visibly to the right without overshooting the timeline.
+    // Offset by min(0.25s, span) so the copy sits visibly right without overshooting.
     const offset = Math.min(0.25, span);
     placeRegion(snapshotForClipboard(r), r.start + offset);
   }
 
-  // Duplicate an annotation along with a +0.25s time offset so the copy
-  // sits visibly to the right of the source on the timeline. The store
-  // already nudges the geometry diagonally; we layer the time shift on top.
+  // Store nudges the geometry diagonally; we add a +0.25s time shift on top.
   function duplicateAnnotation(
     annotation: import("$lib/stores/editor-store.svelte").Annotation,
   ) {
@@ -583,7 +535,7 @@
   });
 </script>
 
-<!-- Track-header chip for the fixed left rail. Hue per lane, shape shared. -->
+<!-- Track-header chip for the fixed left rail. -->
 {#snippet railLabel(Icon: typeof Film, label: string, chipClass: string)}
   <span
     class="inline-flex items-center gap-1 rounded-sm px-1.5 py-px font-mono text-[8px] font-bold uppercase tracking-wider {chipClass}"
@@ -634,12 +586,8 @@
     onZoomToSelection={zoomToSelection}
   />
 
-  <!-- Track-header rail (fixed) + scrolling tracks. The rail lives OUTSIDE the
-       horizontal scroller so lane names never overlap a card sitting at t≈0
-       (the NLE convention). Row heights mirror the track side exactly —
-       h-7 ruler spacer, h-12 clip, mt-1.5 + min-h-9 per lane — so labels line
-       up with their lanes. The scroller's internal coordinate system is
-       unchanged, so playhead / snap / card math is untouched. -->
+  <!-- Rail lives OUTSIDE the scroller so lane names never overlap a card at t≈0.
+       Row heights mirror the track side (h-7 ruler, h-12 clip, mt-1.5+min-h-9 lanes) so labels align. -->
   <div
     class="relative flex overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-(--shadow-craft-inset)"
   >

@@ -1,17 +1,10 @@
 /**
  * Native OS share-sheet helpers, backed by `tauri-plugin-sharekit`.
  *
- * Replaces the earlier `navigator.share` path — Web Share Level 2 in
- * WebView2 rejects `video/*` file payloads via `canShare`, so sharing
- * a recording from Recast was effectively unsupported. Sharekit bridges
- * to the real native share sheets (Windows DataTransferManager, macOS
- * NSSharingServicePicker, mobile share panes), which accept any file.
- *
- * Public API is unchanged: callers still see `shareFile`, `shareLink`,
- * `shareRecording`, `isShareSupported`, and a `ShareResult` discriminated
- * union. Errors never throw — they come back through `ShareResult` so
- * callers can branch on `cancelled` vs. `unsupported` vs. `error` without
- * try/catch boilerplate.
+ * Replaces `navigator.share`: Web Share Level 2 in WebView2 rejects `video/*`
+ * file payloads via `canShare`. Sharekit bridges to the real native share sheets,
+ * which accept any file. Errors never throw — they return via `ShareResult` so
+ * callers can branch on cancelled/unsupported/error without try/catch.
  */
 
 import {
@@ -66,9 +59,7 @@ function deriveMimeType(fileName: string): string {
   }
 }
 
-// Sharekit's `shareFile` example uses the `file://` URI form. Windows
-// absolute paths (`C:\…`) need to be normalized to `file:///C:/…`;
-// POSIX absolute paths get a `file://` prefix.
+// Sharekit needs `file://` URIs: Windows `C:\…` → `file:///C:/…`, POSIX → `file://…`.
 function toFileUri(path: string): string {
   if (/^file:\/\//i.test(path)) return path;
   const normalized = path.replace(/\\/g, "/");
@@ -81,9 +72,7 @@ function toFileUri(path: string): string {
   return normalized;
 }
 
-// Sharekit's commands reject with a string when the platform/runtime
-// can't service the request. Detect cancellation vs. real-unsupported
-// vs. opaque failure so the UI can give a useful toast.
+// Distinguish cancellation vs. real-unsupported vs. opaque failure for the toast.
 function classify(e: unknown): ShareResult {
   const message = e instanceof Error ? e.message : String(e ?? "");
   const lower = message.toLowerCase();
@@ -100,9 +89,7 @@ function classify(e: unknown): ShareResult {
   return { ok: false, reason: "error", message };
 }
 
-// With the plugin wired up on every desktop + mobile platform we ship,
-// support is effectively static — keep the function so call sites that
-// gate their UI on it don't have to change.
+// Static true — kept so UI-gating call sites don't change.
 export function isShareSupported(): boolean {
   return true;
 }
@@ -112,8 +99,7 @@ export function isFileShareSupported(): boolean {
 }
 
 export async function shareLink(payload: ShareTextPayload): Promise<ShareResult> {
-  // `shareText` takes a single string — compose title/text/url into one
-  // payload so the OS share sheet has something meaningful to show.
+  // `shareText` takes a single string — compose title/text/url into one.
   const parts = [payload.title, payload.text, payload.url].filter(
     (s): s is string => typeof s === "string" && s.length > 0,
   );
@@ -151,10 +137,8 @@ export async function shareFile(payload: ShareFilePayload): Promise<ShareResult>
 }
 
 /**
- * Share a recording with a sensible fallback chain: try the file first,
- * then a link (e.g. a Drive webViewLink) if the runtime can't share files.
- * Used by both list pages and the export-complete dialog so they get the
- * same behavior.
+ * Share a recording: try the file first, then fall back to a link (e.g. a Drive
+ * webViewLink) if the runtime can't share files.
  */
 export async function shareRecording(opts: {
   path: string;

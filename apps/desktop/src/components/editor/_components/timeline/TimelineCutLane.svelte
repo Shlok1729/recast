@@ -7,10 +7,7 @@
   } from "$lib/timeline/cuts";
   import { X } from "@lucide/svelte";
 
-  // Lane that hosts cut bands — the ranges removed from the timeline.
-  // Drag empty lane space to carve a new cut; drag a band's edges to
-  // fine-tune it, or its body to slide it. Mirrors the zoom/annotation
-  // lanes structurally so the timeline reads consistently.
+  // Hosts cut bands. Drag empty lane space to carve a cut; drag a band's edges or body to adjust it.
 
   interface Props {
     store: EditorStore;
@@ -20,16 +17,13 @@
 
   let { store, pixelsPerSecond, duration }: Props = $props();
 
-  // Cuts shorter than this are dropped — a sub-100ms removal reads as a
-  // glitch, not an edit.
+  // Cuts shorter than this are dropped — a sub-100ms removal reads as a glitch.
   const MIN_CUT = 0.1;
 
   let laneEl = $state<HTMLDivElement | null>(null);
 
-  // Output (post-cut) axis, shared with every other lane. An APPLIED cut
-  // collapses to zero width here (its start and end map to the same output x),
-  // so we render it as a seam; an unapplied cut (flag/lane off → not in
-  // effectiveCuts, identity mapping) keeps its width and stays an editable band.
+  // Output (post-cut) axis. An applied cut collapses to zero width (rendered as a
+  // seam); an unapplied cut (lane off → not in effectiveCuts) keeps its width as an editable band.
   const cuts = $derived(store.effectiveCuts);
   const xOf = (t: number) => originalToOutput(cuts, t) * pixelsPerSecond;
   const axisWidth = $derived(xOf(duration));
@@ -147,10 +141,8 @@
     store.removeCut(id);
   }
 
-  // Filled peak envelope, drawn behind the cut bands so the user can see the
-  // audio they're cutting against. Built in PIXEL space on the output axis: each
-  // bucket sits at `xOf(bucketTime)`, so buckets inside an applied cut collapse
-  // onto the seam and the envelope closes up exactly like the clips above it.
+  // Peak envelope behind the bands. Built in output-pixel space (each bucket at
+  // `xOf(bucketTime)`) so buckets inside an applied cut collapse onto the seam.
   const waveformPath = $derived.by(() => {
     const w = store.waveform;
     const n = w.length;
@@ -201,10 +193,8 @@
     {@const cutLeft = xOf(cut.start)}
     {@const cutW = xOf(cut.end) - cutLeft}
     {#if cutW < 2}
-      <!-- APPLIED cut: the section is collapsed out of the timeline, so it shows
-           as a seam. Hover to see the removed length; click to restore. (Move /
-           resize need width to grab, so they only apply to the unapplied band
-           below — restore, then re-cut, to adjust an applied section.) -->
+      <!-- Applied cut collapsed to a seam (click to restore). Move/resize need
+           width, so they only work on the unapplied band below. -->
       <button
         type="button"
         onpointerdown={(e) => e.stopPropagation()}

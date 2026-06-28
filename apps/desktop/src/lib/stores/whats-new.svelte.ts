@@ -4,9 +4,7 @@ import { LATEST_RELEASE } from "$constants/changelog";
 
 const STORAGE_KEY = "recast-last-seen-version";
 
-// Stored as a raw version string (not JSON) — `safeStorage` infers the
-// string serializer from the "" fallback, preserving the existing on-disk
-// format and returning "" (never equal to a real version) when unset.
+// Raw version string (not JSON); the "" fallback also doubles as "unset".
 function readSeen(): string {
 	return safeStorage.get<string>(STORAGE_KEY, "");
 }
@@ -16,10 +14,9 @@ function writeSeen(v: string) {
 }
 
 function createWhatsNewStore() {
-	// The full-screen center dialog. Now only used by manual entry points
-	// (sidebar, settings, command palette) — no longer auto-opened on boot.
+	// Full-screen dialog, manual entry points only (no longer auto-opened on boot).
 	let open = $state(false);
-	// The non-blocking bottom-right corner card shown after a version bump.
+	// Non-blocking corner card shown after a version bump.
 	let cardVisible = $state(false);
 
 	return {
@@ -34,30 +31,25 @@ function createWhatsNewStore() {
 			return cardVisible;
 		},
 
-		// Called once on app boot. When the running build is newer than the
-		// last version the user acknowledged, surface the corner card instead
-		// of interrupting them with a centered modal.
+		// On boot: surface the corner card (not a modal) when the build is newer
+		// than the last acknowledged version.
 		evaluateOnBoot(): void {
 			const seen = readSeen();
 			if (seen === config.appVersion) return;
 			cardVisible = true;
 		},
 
-		// Open the full dialog on demand without touching the seen marker, so
-		// revisiting from the sidebar/command palette doesn't reset state.
+		// Open on demand without touching the seen marker.
 		show() {
 			open = true;
 		},
 
-		// Close the dialog (and card) and mark this version as seen.
 		dismiss() {
 			open = false;
 			cardVisible = false;
 			writeSeen(config.appVersion);
 		},
 
-		// Dismiss just the corner card — e.g. the user clicked through to the
-		// changelog page, or hit its close button.
 		dismissCard() {
 			cardVisible = false;
 			writeSeen(config.appVersion);

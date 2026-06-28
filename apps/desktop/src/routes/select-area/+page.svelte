@@ -5,9 +5,8 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
 
-  // The overlay window is created at virtual desktop origin, sized to span all
-  // monitors. Pointer coords from the window therefore equal virtual-desktop
-  // pixel coords, which is what the Rust resolver expects.
+  // Overlay spans all monitors from the virtual-desktop origin, so pointer
+  // coords are virtual-desktop pixels — what the Rust resolver expects.
   let originX = $state(0);
   let originY = $state(0);
 
@@ -23,7 +22,7 @@
   );
 
   onMount(() => {
-    // Read window position so we can convert local pointer to global coords.
+    // Window position, to convert local pointer coords to global.
     const win = getCurrentWindow();
     win
       .outerPosition()
@@ -132,7 +131,6 @@
 
 <svelte:window onkeydown={onKey} />
 
-<!-- Fullscreen transparent overlay; pointer events drive the selection. -->
 <div
   role="presentation"
   class="absolute inset-0 cursor-crosshair select-none"
@@ -142,9 +140,8 @@
   onpointerup={onPointerUp}
 >
   {#if liveRect && liveRect.w > 0 && liveRect.h > 0}
-    <!-- Cut-out via box-shadow trick: rect itself is transparent, the dim
-         layer is painted by an outer box-shadow on this element.
-         pointer-events: none so clicks inside the rect don't restart a drag. -->
+    <!-- Cut-out via box-shadow: rect is transparent, the dim layer is the outer
+         box-shadow. pointer-events: none so clicks inside don't restart a drag. -->
     <div
       class="pointer-events-none absolute border border-primary/90 ring-1 ring-primary/40"
       style="left: {liveRect.x}px; top: {liveRect.y}px; width: {liveRect.w}px; height: {liveRect.h}px; background: transparent; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);"
@@ -174,9 +171,8 @@
   {/if}
 
   {#if rect && !dragging}
-    <!-- Confirm toolbar — stop pointer events on the wrapper itself so clicks
-         on its padding don't bubble to the overlay (which would clear the
-         rect mid-click). Position is clamped into the viewport. -->
+    <!-- Stop pointer events so clicks on the toolbar's padding don't bubble to
+         the overlay and clear the rect. -->
     <div
       role="toolbar"
       aria-label="Confirm selected area"

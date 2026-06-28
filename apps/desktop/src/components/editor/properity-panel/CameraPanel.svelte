@@ -26,9 +26,8 @@
 
   const hasCamera = $derived(!!cameraPath);
 
-  // Active preset chip — derives from the placement on every change so a
-  // drag in the preview that lands exactly on a corner re-highlights the
-  // matching chip without the user re-clicking it.
+  // Derived from the placement so a preview drag onto a corner re-highlights
+  // the matching chip without a re-click.
   const activePreset = $derived(
     cameraPresetFromPlacement(store.cameraOverlay.defaultPlacement),
   );
@@ -44,10 +43,8 @@
   }
 
   function setSize(size: number) {
-    // Resize anchored on the current preset corner so the bubble doesn't
-    // visually drift when scaling. Falls back to keeping x/y as-is for
-    // custom placements (pure scale-from-top-left, which is fine because
-    // the user just dragged to that exact spot).
+    // Anchor the resize on the current preset corner so the bubble doesn't
+    // drift; custom placements just scale from their top-left.
     const current = store.cameraOverlay.defaultPlacement;
     if (activePreset === "custom") {
       store.updateCameraOverlay({
@@ -92,10 +89,8 @@
     return xPart + yPart + transform;
   }
 
-  // Preset chip rows — laid out on a 3×3 grid that mirrors the spatial
-  // position the chip represents (top-left chip is in the top-left grid
-  // cell, etc.) so users can pick by spatial intuition rather than reading
-  // each label.
+  // 3×3 grid mirroring the spatial position each chip represents, so users
+  // pick by location rather than reading labels.
   const presetGrid: Array<CameraPositionPreset | null> = [
     "top-left", "top-center", "top-right",
     "left-center", null, "right-center",
@@ -111,7 +106,6 @@
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
   {#if hasCamera}
-    <!-- Visibility toggle bar (no section title — panel name is in header) -->
     <div class="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-card/40 px-2.5 py-1.5">
       <span class="text-[11px] text-muted-foreground">
         Composite the camera track onto the screen video.
@@ -131,9 +125,8 @@
   {/if}
 
   {#if !hasCamera}
-    <!-- Empty state — panel still appears in the tab strip so the layout is
-         predictable across recordings, but the controls collapse to a hint
-         the user can act on next time they record. -->
+    <!-- Empty state — the panel stays in the tab strip for a predictable
+         layout, collapsed to an actionable hint. -->
     <div
       class="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3"
     >
@@ -152,7 +145,6 @@
       </p>
     </div>
   {:else if store.cameraOverlay.enabled}
-    <!-- Position presets: 3×3 grid mirroring spatial position. -->
     <PanelSection
       title="Position"
       hint="Pick a corner or edge anchor. Drag the bubble in the preview for a custom position."
@@ -168,9 +160,7 @@
       >
         {#each presetGrid as cell, i (i)}
           {#if cell === null}
-            <!-- Centre cell of the 3×3 — left empty so the corner/edge
-                 chips visually map to where the bubble will sit on the
-                 frame. The grid IS the legend. -->
+            <!-- Centre cell left empty so the chips map to bubble position. -->
             <div aria-hidden="true" class="aspect-square"></div>
           {:else}
             {@const isActive = activePreset === cell}
@@ -188,7 +178,6 @@
                   : "border-transparent bg-background/40 text-foreground/80 hover:border-border hover:bg-background/80",
               )}
             >
-              <!-- Tiny dot inside the chip showing where the bubble lands. -->
               <span
                 aria-hidden="true"
                 class={cn(
@@ -250,7 +239,7 @@
 
     <PanelSection
       title="Mirror"
-      hint="On (default): the bubble matches what you see in a webcam preview. Off: the bubble shows you as others see you — text behind you reads correctly."
+      hint="On: the bubble matches a webcam preview. Off: it shows you as others see you, so text behind you reads correctly."
       flush
     >
       {#snippet action()}

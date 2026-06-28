@@ -17,11 +17,8 @@
   let listRef = $state<HTMLDivElement | null>(null);
   let contentHeight = $state(0);
 
-  // Global registration. Safe to call on every mount because
-  // `registerMany` deduplicates by id. The Mod+K open shortcut itself lives in
-  // the central shortcut registry (`general.palette`), dispatched once from the
-  // root layout — so there is no per-component `window` listener here to leak
-  // under HMR (the "bare Ctrl toggles the palette" ghost is gone for good).
+  // Safe on every mount: registerMany dedupes by id. The Mod+K open shortcut
+  // lives in the central registry (general.palette), not a window listener here.
   onMount(() => {
     commandPalette.registerMany(buildGlobalCommands());
   });
@@ -167,7 +164,6 @@
       role="document"
       transition:scale={{ duration: 220, start: 0.96, easing: cubicOut }}
     >
-      <!-- Header -->
       <div class="flex items-center gap-2 border-b border-border/60 px-3">
         <Search class="size-4 shrink-0 text-muted-foreground/70" />
         <input
@@ -180,7 +176,6 @@
         <Kbd class="hidden sm:inline-flex">Esc</Kbd>
       </div>
 
-      <!-- Animated content area -->
       <div
         class="overflow-hidden transition-[height] duration-300 ease-out"
         style="height: {contentHeight}px"
@@ -268,7 +263,6 @@
         </div>
       </div>
 
-      <!-- Footer -->
       <div
         class="flex items-center justify-between gap-3 border-t border-border/60 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground"
       >

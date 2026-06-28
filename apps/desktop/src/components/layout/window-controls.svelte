@@ -10,10 +10,8 @@
   import { cn } from "@recast/ui/utils";
   import { onMount } from "svelte";
 
-  // `mac` → faux macOS traffic lights (rendered top-left, in the sidebar).
-  // `win` → minimize / maximize / close stack (rendered top-right, in the
-  // content header). The OS decision is made by the caller via `platform()`
-  // so this component just draws + wires the chosen variant.
+  // `mac` → faux traffic lights (top-left); `win` → min/max/close (top-right).
+  // Caller picks the variant via platform(); this just draws and wires it.
   let { kind, class: className }: { kind: "mac" | "win"; class?: string } =
     $props();
 
@@ -59,13 +57,8 @@
 
 {#if isTauri}
   {#if kind === "mac"}
-    <!--
-      Faux macOS traffic lights. Real system buttons would need the native
-      title bar (a Rust window-config change we deliberately skipped), so these
-      mirror the system look: standard close/minimise/zoom colours with glyphs
-      that fade in on hover of the cluster. Window-chrome mimicry is the one
-      place we use literal OS colours instead of theme tokens — by design.
-    -->
+    <!-- Faux traffic lights (no native titlebar). Literal OS colours instead
+         of theme tokens here are by design — window-chrome mimicry. -->
     <div
       class={cn("group/lights flex items-center gap-2", className)}
       onmousedown={(e) => e.stopPropagation()}

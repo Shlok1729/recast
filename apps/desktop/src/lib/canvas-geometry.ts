@@ -1,21 +1,15 @@
-// Canvas geometry helper shared by the editor preview and (mirrored in)
-// the Rust export pipeline. Both must agree on canvas dimensions and the
-// position of the source-plus-padding inside that canvas, otherwise
-// preview and exported MP4 disagree on framing.
+// Canvas geometry shared with (mirrored in) the Rust export pipeline. Both MUST
+// agree on canvas dims and comp position or preview and exported MP4 disagree on
+// framing.
 //
-// The model:
-//   1. compW × compH = source video dims plus uniform `padding` on every
-//      side (the v1 "comp" rectangle).
-//   2. If outputAspect is `source`, the final canvas equals comp.
-//   3. Otherwise we extend whichever axis is too short to satisfy the
-//      target aspect ratio. The comp stays centred; the new bars on
-//      either side (horizontal or vertical, never both) get filled by
-//      the chosen background.
+// Model:
+//   1. comp = source dims + uniform `padding` on every side (the v1 rectangle).
+//   2. outputAspect `source` → canvas equals comp.
+//   3. Otherwise extend whichever axis is too short for the target aspect; the
+//      comp stays centred, new bars (one axis only) filled by the background.
 //
-// We never CROP the comp — only extend the canvas around it. That keeps
-// every annotation, cursor, focus region, and shadow in their original
-// source-pixel coordinates, so re-targeting between aspect ratios doesn't
-// invalidate any per-source data.
+// We never CROP the comp — only extend around it — so every annotation, cursor,
+// and focus region keeps its source-pixel coordinates across aspect changes.
 
 import { aspectRatio, type OutputAspect } from "$lib/stores/editor-store.svelte";
 
@@ -51,11 +45,8 @@ export function paddingPxFromPercent(
 }
 
 /**
- * Compute the canvas geometry for a given source size, padding %, and
- * aspect target. Pure — same inputs always produce the same output.
- *
- * Source pixels are integer-aligned because downstream encoders (FFmpeg,
- * the WebGL render buffer) are happier with even integer dims.
+ * Compute canvas geometry for a source size, padding %, and aspect target. Pure.
+ * Dims are even-integer-aligned because downstream encoders require it.
  */
 export function computeCanvasGeometry(
 	srcW: number,
@@ -83,10 +74,8 @@ export function computeCanvasGeometry(
 		}
 	}
 
-	// Even-dim alignment. Some H.264 profiles refuse odd dims, and the
-	// FFmpeg pad filter is happier when the offset is integer. The +1/&~1
-	// rounding lifts to the next even pixel without ever shrinking below
-	// the comp.
+	// Round up to the next even pixel (H.264 refuses odd dims) without ever
+	// shrinking below the comp.
 	canvasW = (canvasW + 1) & ~1;
 	canvasH = (canvasH + 1) & ~1;
 

@@ -1,10 +1,7 @@
 /**
- * Reactive recording-profiles store, shared across the profiles page,
- * settings page, and the recording panel.
- *
- * Pure logic (types, migration, capability signatures, device resolution)
- * lives in `$lib/profiles`. This module wraps that logic in $state so that
- * mutations in one route propagate to others without an event bus.
+ * Reactive recording-profiles store, shared across the profiles/settings pages
+ * and the recording panel. Pure logic lives in `$lib/profiles`; this wraps it
+ * in $state so mutations in one route propagate to others without an event bus.
  */
 
 import {
@@ -49,14 +46,10 @@ function createProfilesStore() {
 		persistProfiles(profiles);
 		hydrated = true;
 
-		// Cross-window sync. Tauri v2 webviews share a localStorage origin, so a
-		// save from a sibling window (e.g. editing a profile's countdown/devices
-		// on the Profiles page) fires a `storage` event here. Without this, the
-		// long-lived recording panel kept its first-hydrate snapshot and ignored
-		// edits made elsewhere — per-profile countdowns and device swaps silently
-		// didn't apply. Mirrors how `recordingCountdown` (PersistedState) already
-		// stays in sync. Same-window writes don't fire `storage`, so this never
-		// double-loads our own `persist()`.
+		// Cross-window sync: Tauri webviews share a localStorage origin, so a save
+		// from a sibling window fires `storage` here. Without this the long-lived
+		// recording panel ignored edits made elsewhere. Same-window writes don't
+		// fire `storage`, so this never double-loads our own `persist()`.
 		if (typeof window !== "undefined") {
 			window.addEventListener("storage", (e) => {
 				if (e.key === null || e.key === PROFILES_STORAGE_KEY) {

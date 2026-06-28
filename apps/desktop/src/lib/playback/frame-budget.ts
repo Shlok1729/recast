@@ -3,26 +3,18 @@
  *
  * Each decoded `VideoFrame` checks out one of the hardware decoder's limited
  * output surfaces; holding too many starves the pool and the decoder stalls
- * (accepts input, emits nothing → ~8fps). A fixed frame count is therefore
- * wrong across resolutions: 7 frames is fine at 1080p but the same 7 frames at
- * 4K/5K (macOS records full native Retina, no downscale) holds 4–7× the surface
- * memory and re-triggers the stall — made worse now that the scout decoder holds
- * additional pre-warmed frames at the same time.
- *
- * So we scale ALL three holders down together with pixel count, against a fixed
- * surface-memory budget:
- *   - `cacheMax`    — the primary decoded-frame cache (display + lookahead)
- *   - `holdoutMax`  — the protected scout (cross-cut prefetch) holdout
- *   - `decodeAhead` — how far the worker decodes past the playhead
- *
- * At ≤1440p this returns the historical 7 / 4 / 6 (unchanged, known-good); at
- * 4K/5K it tightens to keep the TOTAL held surfaces bounded. Pure + unit-tested.
+ * (accepts input, emits nothing → ~8fps). A fixed count is wrong across
+ * resolutions: 7 frames is fine at 1080p but holds 4–7× the surface memory at
+ * 4K/5K (macOS records full native Retina), re-triggering the stall. So we scale
+ * all three holders (`cacheMax`, `holdoutMax`, `decodeAhead`) down together with
+ * pixel count against a fixed surface-memory budget. At ≤1440p this returns the
+ * historical, known-good 7 / 4 / 6; at 4K/5K it tightens.
  */
 
 /**
- * Bytes assumed per decoded frame per pixel. Raw yuv420p is 1.5 B/px, but
- * hardware decode surfaces are padded/tiled and often NV12/RGBA-backed, so we
- * budget a conservative 4 B/px to stay safely under the real output pool.
+ * Bytes assumed per decoded frame per pixel. Raw yuv420p is 1.5 B/px, but HW
+ * decode surfaces are padded/tiled and often NV12/RGBA-backed, so budget a
+ * conservative 4 to stay under the real output pool.
  */
 const BYTES_PER_PX = 4;
 
@@ -50,7 +42,6 @@ export function frameBudget(width: number, height: number): FrameBudget {
 	const pixels = width > 0 && height > 0 ? width * height : 0;
 	const perFrame = pixels > 0 ? pixels * BYTES_PER_PX : 0;
 
-	// Total surfaces we'll hold across the cache + holdout, bounded.
 	const total =
 		perFrame > 0
 			? Math.min(

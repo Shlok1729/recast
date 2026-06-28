@@ -79,25 +79,18 @@
   const store = createEditorStore();
 
   let videoEl: HTMLVideoElement | null = $state(null);
-  // True while the WebCodecs preview engine drives the picture (its output-time
-  // clock owns `store.currentTime`). When set, `handleTimeUpdate` must NOT echo
-  // `videoEl.currentTime` back into the store: the `<video>` element free-runs
-  // through the raw (un-cut) recording, so feeding its time to the store fights
-  // the clock and snaps playback back across a cut. Bound from VideoPreview.
+  // True while the WebCodecs engine drives the picture (its clock owns
+  // `store.currentTime`). When set, handleTimeUpdate must NOT echo
+  // `videoEl.currentTime` — the element free-runs through the un-cut recording,
+  // so feeding its time to the store snaps playback back across a cut.
   let webcodecsActive = $state(false);
-  // VideoPreview binds its `captureFrame` to this slot so VideoPlayerControls
-  // can trigger a WYSIWYG screenshot (composite, not raw video frame).
+  // WYSIWYG screenshot (composite, not raw frame); bound from VideoPreview.
   let captureFrame = $state<(() => Promise<Blob | null>) | undefined>(undefined);
-  // Loop-within-trim toggle. Lives here (not inside VideoPlayerControls)
-  // because both the `ended` and `timeupdate` paths to "we hit the end"
-  // need to be handled in this file — `handleVideoEnded` already coordinates
-  // audio elements, and we want one source of truth for "what happens at
-  // the end of the clip" (pause vs. loop).
+  // Loop-within-trim. Lives here because both `ended` and `timeupdate` end-of-clip
+  // paths need handling here, with one source of truth for pause-vs-loop.
   let loopEnabled = $state(false);
 
-  // Editor layout — VS Code/Cursor-style toggles for the right properties
-  // panel and the bottom timeline. Persisted so the choice survives reloads;
-  // a missing or malformed key falls back to "everything visible".
+  // Persisted sidebar/timeline visibility; missing or malformed falls back to all visible.
   const LAYOUT_KEY = "recast-editor-layout";
   function loadLayout(): { sidebar: boolean; timeline: boolean } {
     const fallback = { sidebar: true, timeline: true };
@@ -139,10 +132,8 @@
   let videoSrc = $state("");
   let systemAudioSrc = $state("");
   let micAudioSrc = $state("");
-  // Web Audio timeline engine: sample-accurate, cut-aware audio for the
-  // WebCodecs preview (no seeking → no drift/dropout). Falls back to the
-  // <audio> elements if it can't init/decode. `$state` so creation/failure
-  // re-runs the play effect to switch paths.
+  // Sample-accurate cut-aware audio for the WebCodecs preview (no seeking → no
+  // drift). Falls back to the <audio> elements if it can't init/decode.
   let audioEngine: AudioTimelineEngine | null = $state(null);
   let audioEngineTried = false;
   let audioEngineFailed = $state(false);
@@ -188,12 +179,8 @@
     }
   });
 
-  /** Seek the video (+ audio tracks) back to `trimStart` and resume playback.
-   *  Used by both loop paths — `timeupdate` (catches trimEnd < duration)
-   *  and `ended` (catches the natural end where timeupdate may have
-   *  missed its ~40 ms window thanks to Chromium's ~250 ms timeupdate
-   *  cadence). Returns true if it actually wrapped, so the timeupdate
-   *  handler can short-circuit further work on the same tick. */
+  // Seek video + audio back to trimStart and resume. Used by both loop paths
+  // (timeupdate and ended); returns true so the timeupdate handler can bail.
   function loopBackToStart(): boolean {
     if (!videoEl) return false;
     const start = store.trimStart || 0;
@@ -201,9 +188,7 @@
     for (const el of [systemAudioEl, micAudioEl]) {
       if (el) el.currentTime = start;
     }
-    // play() can reject if the browser thinks user-gesture is required —
-    // unlikely here since we're chaining off an existing play, but log
-    // it instead of silently stalling.
+    // play() can reject (user-gesture) — log instead of stalling silently.
     void videoEl.play().catch((err) => {
       console.warn("loop replay failed:", err);
     });
@@ -214,19 +199,12 @@
   function handleTimeUpdate() {
     if (!videoEl) return;
     if (store.isPlaying) {
-      // In the WebCodecs path the picture clock is the master and owns
-      // `store.currentTime`, and audio is slaved to it by `syncAudioToClock`
-      // (rAF) — NOT to this `<video>` element. The element free-runs through the
-      // raw recording (it doesn't skip cuts), so echoing its time into the store,
-      // running the trim-loop off it, or snapping audio to it all fight the clock
-      // and yank playback/audio back across a cut. Everything below is therefore
-      // legacy-`<video>`-path only; the clock path handles time, end/loop, and
-      // audio elsewhere.
+      // Legacy <video> path only: in the WebCodecs path the clock owns time and
+      // audio, so echoing this element's time would fight it across cuts.
       if (webcodecsActive) return;
       store.currentTime = videoEl.currentTime;
-      // Loop within trim region. Only relevant when trimEnd is set BELOW
-      // the natural duration — at the natural end we rely on the `ended`
-      // event below, which is more precise than timeupdate's ~250 ms tick.
+      // Loop only matters when trimEnd is below the natural duration; the
+      // natural end uses the `ended` event (more precise than the ~250ms tick).
       if (loopEnabled && store.metadata) {
         const trimEnd = store.trimEnd > 0 ? store.trimEnd : store.metadata.duration;
         if (trimEnd > 0 && trimEnd < store.metadata.duration - 0.05) {
@@ -247,12 +225,8 @@
   }
 
   function handleVideoEnded() {
-    // Loop wins over the default "stop at end" — restart from trimStart
-    // and keep audio tracks rolling. Without this short-circuit the
-    // pause + audio.pause() calls below would race with loopBackToStart
-    // and the audio $effect (watching `isPlaying`) might batch the
-    // false→true transition out of existence, leaving audio paused
-    // while video plays.
+    // Loop wins over stop-at-end. The short-circuit avoids the pause calls below
+    // racing loopBackToStart and the audio effect batching out the false→true flip.
     if (loopEnabled && videoEl) {
       loopBackToStart();
       return;
@@ -262,23 +236,13 @@
     micAudioEl?.pause();
   }
 
-  // Slave the audio tracks to the picture clock (WebCodecs path). The audio WAVs
-  // are the FULL recording, so to play the edited timeline they must skip the
-  // same cuts the picture does: `store.currentTime` is the cut-aware playhead the
-  // draw loop publishes, so we snap each element onto it whenever it drifts past
-  // a threshold. Normal playback runs both at 1× so they stay locked with no
-  // correction; the only correction is one snap at each cut boundary (where
-  // `store.currentTime` jumps the cut's length) and on a seek — exactly the
-  // events the old `<video>`-slaving handled late/twice, which is what made audio
-  // lag and repeat. Tighter than the visual threshold since audio desync is more
-  // audible, but not so tight that per-frame jitter causes constant re-seeks.
-  // Steady-state drift past this hard-seeks audio back onto the playhead. Loose
-  // enough that the ~25Hz publish quantum doesn't cause constant re-seeks.
+  // Slave the audio (full-recording WAVs) to the cut-aware picture clock so they
+  // skip the same cuts. Normal playback stays locked at 1×; the only corrections
+  // are one snap per cut boundary and per seek. Steady-state drift past this
+  // threshold hard-seeks audio back; loose enough the ~25Hz publish doesn't thrash.
   const AUDIO_SYNC_THRESHOLD = 0.12;
-  // A cut crossing or a scrub makes the cut-aware playhead jump by far more than
-  // one publish quantum of realtime playback. We detect that and snap audio
-  // EXACTLY on it — which is what keeps audio aligned across cuts of ANY length,
-  // including short ones the drift threshold alone would let slip and accumulate.
+  // A cut crossing or scrub jumps the playhead far past one publish quantum;
+  // detecting it snaps audio exactly on cuts of any length, including short ones.
   const AUDIO_JUMP = 0.12;
   let audioSyncRaf: number | null = null;
   let lastAudioTarget = -1;
@@ -315,17 +279,16 @@
   onDestroy(stopAudioClockSync);
   onDestroy(() => audioEngine?.dispose());
 
-  // Kept original-time audio regions (trim minus cuts) and the current OUTPUT
-  // time — what the Web Audio engine schedules against.
+  // Kept audio regions (trim minus cuts) and current OUTPUT time — what the
+  // Web Audio engine schedules against.
   function audioRegions() {
     return keptRegions(store.inPoint, store.outPoint, store.effectiveCuts);
   }
   function outputNow() {
     return originalToOutput(store.effectiveCuts, store.currentTime);
   }
-  // Lazily build the Web Audio engine on first WebCodecs playback. Tried once;
-  // on failure (no Web Audio / nothing decodes) we mark it failed and the
-  // <audio> elements take over.
+  // Lazily build the engine on first WebCodecs playback. Tried once; on failure
+  // it's marked failed and the <audio> elements take over.
   async function ensureAudioEngine() {
     if (audioEngine || audioEngineTried) return;
     audioEngineTried = true;
@@ -347,11 +310,8 @@
     }
   }
 
-  // Play/pause audio in lockstep with the store's `isPlaying`. On the WebCodecs
-  // path we drive the sample-accurate Web Audio engine (which schedules around
-  // cuts — no seeking); the <audio> elements are the fallback / legacy-<video>
-  // path. Reads `audioEngine`/`audioEngineFailed` reactively so creation/failure
-  // re-runs this and switches paths.
+  // Play/pause audio in lockstep with `isPlaying`. WebCodecs path drives the
+  // Web Audio engine; the <audio> elements are the fallback / legacy path.
   $effect(() => {
     const playing = store.isPlaying;
     const wc = webcodecsActive;
@@ -397,10 +357,8 @@
     else stopAudioClockSync();
   });
 
-  // Keep the engine locked to the playhead on a SEEK or a cut EDIT while
-  // playing. Cuts don't move OUTPUT time (it's gapless), so normal playback —
-  // including crossing a cut — never reschedules; only a real scrub/loop (output
-  // jump) or a change to the kept regions does. Runs at the publish rate; cheap.
+  // Reschedule the engine only on a seek/loop (output jump) or a kept-regions
+  // edit. Crossing a cut doesn't move gapless OUTPUT time, so it doesn't trigger.
   const ENGINE_RESEEK_JUMP = 0.15;
   let engineSyncOut = -1;
   let lastRegionsKey = "";
@@ -437,12 +395,8 @@
     audioEngine?.setVolume(settings.volume, settings.muted);
   });
 
-  // Snap audio to the video's time whenever the user scrubs. WebCodecs path:
-  // audio follows the clock (`syncAudioToClock`), and the `<video>` element gets
-  // seeked by its own transport-correction (to a cut-aware time, but mid-stream),
-  // so snapping audio to those events would fight the clock and reintroduce the
-  // lag/repeat. Skip it there — paused-scrub audio realigns on the next play via
-  // the play/pause effect.
+  // Snap audio to the video time on scrub. Skipped on the WebCodecs path, where
+  // audio follows the clock and snapping to seeks would fight it.
   function handleVideoSeeked() {
     if (!videoEl || webcodecsActive) return;
     const t = videoEl.currentTime;
@@ -451,9 +405,8 @@
     }
   }
 
-  // Frame-step on the OUTPUT (post-cut) axis so stepping across a cut boundary
-  // lands on the next kept frame, never inside a removed range. Mirrors the
-  // player controls' stepFrame; `store.currentTime` stays original time.
+  // Frame-step on the OUTPUT axis so stepping across a cut lands on the next
+  // kept frame, never inside a removed range. `store.currentTime` stays original.
   function frameStepSeek(direction: 1 | -1) {
     if (!store.metadata) return;
     const cuts = store.effectiveCuts;
@@ -483,9 +436,8 @@
   }
 
   async function loadThumbnailStrip(path: string) {
-    // Skip when we don't have a usable duration yet — bumping the token
-    // would cancel any genuinely in-flight strip, and generateThumbnails
-    // against a 0-duration source just yields black frames.
+    // Skip without a usable duration: bumping the token would cancel an in-flight
+    // strip, and a 0-duration source just yields black frames.
     const duration = store.metadata?.duration ?? 0;
     if (duration <= 0) return;
 
@@ -504,12 +456,9 @@
     }
   }
 
-  // Decode the audio peak envelope for the timeline waveform. Best-effort
-  // and fully async — the editor is usable before it resolves.
+  // Decode the audio peak envelope for the timeline waveform. Best-effort async.
   async function loadWaveform() {
-    // Sub-5s clips don't benefit from a waveform strip — the timeline is
-    // too narrow to show anything readable, and the FFmpeg pass to decode
-    // peaks costs more than the result is worth at that scale.
+    // Skip sub-5s clips: too narrow to read, and the FFmpeg pass isn't worth it.
     const duration = store.metadata?.duration ?? 0;
     if (duration > 0 && duration < 5) {
       store.waveform = [];
@@ -561,8 +510,7 @@
     videoEl?.pause();
     systemAudioEl?.pause();
     micAudioEl?.pause();
-    // Tear down the Web Audio engine for the previous file; it rebuilds for the
-    // new one on first play.
+    // Tear down the previous file's engine; it rebuilds on first play.
     audioEngine?.dispose();
     audioEngine = null;
     audioEngineTried = false;
@@ -594,9 +542,8 @@
       store.audioPath = document.audioPath ?? null;
       store.microphonePath = document.microphonePath ?? null;
       store.waveform = [];
-      // Waveform decode is only consumed by the cut lane (experimental).
-      // Skip the ffmpeg roundtrip when the feature is off; the $effect below
-      // back-fills it if the user flips the flag on later.
+      // Only the experimental cut lane uses the waveform; skip the ffmpeg pass
+      // when off (the $effect below back-fills if the flag flips on).
       if (experimentalStore.silenceDetection) void loadWaveform();
       systemAudioSrc = document.audioPath
         ? convertFileSrc(document.audioPath)
@@ -606,8 +553,8 @@
         : "";
       cameraPath = document.cameraPath ?? null;
       cameraSrc = cameraPath ? convertFileSrc(cameraPath) : "";
-      // Mount the editor body so the <video> element exists before we call load().
-      // The video element lives inside VideoPreview, which only renders when !isLoading.
+      // Mount the editor body (VideoPreview renders only when !isLoading) so the
+      // <video> exists before load().
       isLoading = false;
       await tick();
       videoEl?.load();
@@ -622,24 +569,20 @@
     }
   }
 
-  // Smart Auto-Zoom: on the first load of a recording, place a focus region
-  // at every detected click + settle-after-motion. Persisted via the
-  // `autoZoomApplied` flag on the project document so subsequent reopens
-  // don't repopulate (the user may have intentionally cleared regions).
+  // On first load, place a focus region at each detected click + settle. The
+  // `autoZoomApplied` document flag stops reopens from repopulating cleared regions.
   let autoZoomRunning = false;
 
   async function maybeRunAutoZoom() {
     if (autoZoomRunning) return;
     if (!store.autoZoomEnabled || store.autoZoomApplied) return;
     if (!cursorPath) {
-      // Screen-only recording with no cursor track to analyse — latch the
-      // flag so we don't retry every reopen.
+      // No cursor track to analyse — latch the flag so we don't retry on reopen.
       store.autoZoomApplied = true;
       return;
     }
     if (store.zoomRegions.length > 0) {
-      // Project already has regions (autosave restored them, or the user
-      // added some manually before the auto-apply ran). Skip silently.
+      // Regions already exist (autosave-restored or manual) — skip silently.
       store.autoZoomApplied = true;
       return;
     }
@@ -651,8 +594,7 @@
     if (!cursorPath) return;
     autoZoomRunning = true;
     try {
-      // generateAutoZoom latches store.autoZoomApplied itself (it's persisted
-      // document state) on all non-error paths, before its own autosave.
+      // generateAutoZoom latches store.autoZoomApplied itself on non-error paths.
       const outcome = await generateAutoZoom(store, cursorPath, {
         documentPath,
       });
@@ -681,9 +623,8 @@
     }
   }
 
-  // Re-run is exposed to FocusPanel via a typed CustomEvent on `window` so
-  // the deeply-nested panel doesn't need to thread a prop through every
-  // intermediate component.
+  // Re-run is exposed to FocusPanel via a window CustomEvent so the nested panel
+  // doesn't thread a prop through every component.
   $effect(() => {
     function onRerun() {
       store.clearAutoZooms();
@@ -694,8 +635,8 @@
     return () => window.removeEventListener("recast:rerun-auto-zoom", onRerun);
   });
 
-  // Export lifecycle UI state — lives in the route, not the store, because the
-  // overlay handles success/cancel/error reveals that don't belong in global state.
+  // Export lifecycle UI state — in the route, not the store, since the overlay
+  // owns success/cancel/error reveals that don't belong in global state.
   let exportStartedAt = $state<number>(0);
   let exportNow = $state<number>(Date.now());
   let exportCancelling = $state(false);
@@ -704,8 +645,7 @@
   let activeExportId = $state<string | null>(null);
 
 
-  // Rotating, encode-themed status messages shown below the progress ring —
-  // gives the wait some personality (à la an AI assistant's "thinking" line).
+  // Rotating status messages shown below the progress ring during encode.
   const ENCODE_MESSAGES = [
     "Crunching frames",
     "Encoding pixels",
@@ -716,8 +656,7 @@
   ];
   let encodeMessageIndex = $state(0);
 
-  // Preparing-stage substages — surfaced in the dialog so users see the
-  // hybrid-raster work happening rather than a generic spinner.
+  // Preparing-stage substages, surfaced in the dialog instead of a generic spinner.
   let prepText = $state<"pending" | "running" | "done">("pending");
   let prepCursor = $state<"pending" | "running" | "done">("pending");
   let prepSending = $state<"pending" | "running" | "done">("pending");
@@ -727,10 +666,8 @@
     prepSending = "pending";
   }
 
-  // Eased display percentage. Raw FFmpeg progress is jumpy (5–10% jumps,
-  // sticky around 99%), so we lerp the rendered ring toward it with a
-  // cubic-bezier-like response. Rerun on every animation tick while
-  // exporting so the ring never sits stale.
+  // Eased display percentage: raw FFmpeg progress is jumpy, so lerp the ring
+  // toward it each animation tick while exporting.
   let displayPct = $state(0);
   let easeRafHandle: number | null = null;
   $effect(() => {
@@ -749,14 +686,11 @@
         : Math.min(99.5, Math.max(0, store.exportProgress ?? 0));
       const dt = lastTs === null ? 16 : Math.max(1, Math.min(64, now - lastTs));
       lastTs = now;
-      // Critically-damped follower with a ~250 ms time constant. The
-      // exponential form is shape-equivalent to a cubic-bezier-ease-out
-      // toward `target` and avoids overshoot at the high end.
+      // Critically-damped follower (~250ms tau): ease-out toward target, no overshoot.
       const tau = 250;
       const k = 1 - Math.exp(-dt / tau);
       const next = displayPct + (target - displayPct) * k;
-      // Don't animate backwards on micro-jitter; the underlying export is
-      // monotonic so the ring should feel monotonic too.
+      // Never animate backwards; the export is monotonic so the ring should be too.
       displayPct = Math.max(displayPct, next);
       easeRafHandle = requestAnimationFrame(tick);
     }
@@ -773,8 +707,7 @@
     return store.annotations.some((a) => a.kind.kind === "text");
   }
 
-  // ETA — only meaningful once we have ≥10% real progress. Computed from
-  // wall-clock-elapsed × (1 − pct) / pct, smoothed by the same ring follower.
+  // ETA from elapsed × (1 − pct) / pct; only meaningful past ≥10% progress.
   function exportEtaMs(): number | null {
     if (!exportHasProgress || exportFinalizing) return null;
     const pct = store.exportProgress ?? 0;
@@ -813,10 +746,8 @@
 
     if (next.kind === "success") {
       toast.success("Export complete");
-      // Refresh the tray's Recent Exports submenu so this export is
-      // selectable from there immediately. Pass `isRecording: null` to
-      // signal "list changed, don't touch the recording flag" — the
-      // panel window is the authoritative source for that.
+      // Refresh the tray's Recent Exports. `null` = "list changed, leave the
+      // recording flag alone" (the panel window owns that).
       void refreshTray(null).catch(() => {});
     } else if (next.kind === "cancelled") {
       toast.info("Export cancelled");
@@ -833,22 +764,14 @@
         const next = Math.min(Math.max(event.progress, 0), 100);
         const current = store.exportProgress ?? 0;
 
-        // FFmpeg progress gets noisy near the end on some Windows builds.
-        // Keep the UI monotonic and ignore sub-tenth-percent jitter so the
-        // progress bar does not flicker around 99%.
+        // FFmpeg progress is noisy near the end on some Windows builds; keep the
+        // bar monotonic and ignore sub-0.1% jitter so it doesn't flicker at 99%.
         if (!exportHasProgress || next >= 100 || next > current + 0.1) {
           store.exportProgress = Math.max(current, next);
         }
         exportHasProgress = true;
-        // Previously this block speculatively flipped the UI to "finalizing"
-        // at ≥99.5% raw progress, on the assumption that stderr pipe batching
-        // was hiding the real `progress=end`. With `-progress pipe:2
-        // -stats_period 0.1` the Rust side now emits a real `finalizing`
-        // event within ~100ms of ffmpeg's actual finish, so the speculative
-        // flip was just mislabelling the last second of active encoding as
-        // "Writing video file…". Only a very-near-end safety net remains
-        // below as a last-resort for the rare case where the `finalizing`
-        // event is dropped entirely.
+        // Safety net only: Rust emits a real `finalizing` event now, so this just
+        // catches the rare case where that event is dropped.
         if (!exportFinalizing && next >= 99.95) {
           exportFinalizing = true;
         }
@@ -884,9 +807,8 @@
     resetPrep();
 
     try {
-      // Build the exact payload Rust renders: hybrid-raster passes (text →
-      // PNG, cursor → sprite sheet) plus per-lane enable toggles. The prep
-      // sub-stages drive the "Preparing…" UI via these hooks.
+      // Build the payload Rust renders (text→PNG, cursor→sprite sheet); the
+      // hooks drive the "Preparing…" sub-stages.
       const { renderState: finalRenderState, metadata: meta } =
         await buildExportRenderState(store, {
           hooks: {
@@ -896,8 +818,7 @@
           },
         });
 
-      // Capture the exact settings this export ran with — the single most
-      // useful line when a user reports "my export looked wrong".
+      // The settings this export ran with — key when a user reports a bad export.
       log.info("export", "export_started", {
         exportId,
         format: store.exportFormat,
@@ -919,13 +840,11 @@
         gifSettings:
           store.exportFormat === "gif" ? store.gifSettings : undefined,
         speed: store.exportSpeed,
-        // GIF carries its own fps in gifSettings; MP4/WebM use the picker
-        // (null = keep source rate).
+        // GIF carries fps in gifSettings; MP4/WebM use the picker (null = source).
         fps: store.exportFormat === "gif" ? undefined : store.exportFps,
         onState: handleExportState,
       });
-      // Safety net: if the export-state success event was missed, fall back to
-      // the Promise result. Don't overwrite if the listener already set it.
+      // Fall back to the Promise result if the success event was missed.
       if (!exportResult) {
         setExportResult({ kind: "success", path });
       }
@@ -977,10 +896,8 @@
     exportResult = null;
   }
 
-  // Options phase is purely UI — true while the user is in the format/quality
-  // picker, before they hit Export. Progress/result phases are derived from
-  // the export pipeline state above, so the flow dialog stays a single
-  // controlled surface that morphs as the pipeline advances.
+  // Options phase is UI-only (the picker before Export); progress/result phases
+  // derive from the pipeline state, so the dialog is one surface that morphs.
   let exportOptionsOpen = $state(false);
   const exportPhase: ExportFlowPhase | null = $derived(
     store.isExporting
@@ -997,10 +914,8 @@
   );
   const isExportFlowOpen = $derived(exportPhase !== null);
 
-  // Silence-detection cuts only. Manual ripple deletes (`source: "manual"`) are
-  // a shipped feature — always honoured in preview and export regardless of the
-  // experimental flag — so they must NOT trip the "enable Silence detection"
-  // banner. Only auto-detected silence cuts depend on that flag's lane/UI.
+  // Silence cuts only. Manual ripple deletes are always honoured, so they must
+  // not trip the "enable Silence detection" banner — only auto cuts depend on it.
   const silenceCutCount = $derived(
     store.cuts.filter((c) => c.source === "silence").length,
   );
@@ -1019,9 +934,8 @@
     void handleExport();
   }
 
-  // Esc routes per phase: cancel a running export, dismiss a finished one,
-  // close the options picker. Backdrop click follows the same logic except
-  // it never cancels a running export (too easy to misclick mid-encode).
+  // Esc per phase: cancel a running export, dismiss a finished one, close the
+  // picker. Backdrop click is the same but never cancels a running export.
   function handleExportEscape() {
     if (store.isExporting) {
       void handleCancelExport();
@@ -1054,11 +968,8 @@
     }
   }
 
-  /**
-   * Push the most recent export to Google Drive. If Drive isn't connected
-   * yet we send the user to Settings instead — connecting opens a browser
-   * tab and can't sensibly happen from this modal-style success card.
-   */
+  // Push the latest export to Drive, or route to Settings to connect first
+  // (connecting opens a browser tab, which can't happen from this card).
   async function uploadExportToDrive() {
     if (exportResult?.kind !== "success") return;
     await gdrive.init();
@@ -1069,20 +980,15 @@
     }
     try {
       await gdrive.upload(exportResult.path);
-      // Progress + completion surface inline via successUpload (below) AND
-      // through the corner-notifications store, so the user can still track
-      // the upload if they dismiss the success card.
+      // Progress surfaces inline via successUpload and the corner-notifications
+      // store, so the upload stays trackable after dismissing the card.
     } catch (e) {
       toast.error(`Drive upload failed: ${e}`);
     }
   }
 
-  /**
-   * Share the just-exported file to Recast Cloud and copy the public link.
-   * Progress surfaces through the corner-notifications stack (the cloud
-   * upload is phase-based, not byte-based, so it isn't mirrored inline like
-   * the Drive card). Routes to Settings if not signed in.
-   */
+  // Share the export to Recast Cloud and copy the link; routes to Settings if
+  // not signed in. Progress surfaces through corner-notifications (phase-based).
   async function shareCurrentExportToCloud() {
     if (exportResult?.kind !== "success") return;
     await cloudShare.init();
@@ -1106,14 +1012,13 @@
     }
   }
 
-  // Mirror the export-success card's path so the upload state below can key
-  // off it reactively. Null whenever the dialog isn't in the success state.
+  // The success card's path, so the upload state can key off it. Null unless the
+  // dialog is in the success state.
   const successPath = $derived(
     exportResult?.kind === "success" ? exportResult.path : null,
   );
-  // Most-recent upload (any status) targeting the freshly-exported file —
-  // drives the inline progress/result rendering inside the success card.
-  // Survives status transitions so we can show the completed state too.
+  // Most-recent upload for the exported file; drives the inline progress in the
+  // success card and survives status transitions.
   const successUpload = $derived.by(() => {
     if (!successPath) return undefined;
     const list = gdrive.activeUploads.filter(
@@ -1142,8 +1047,8 @@
     }
   }
 
-  // `navigator.share` exposure is static — sample once at module load so the
-  // Share button can be conditionally rendered without a reactive read.
+  // `navigator.share` exposure is static; sample once so the button renders
+  // without a reactive read.
   const shareSupported = isShareSupported();
 
   async function shareExportedFile() {
@@ -1229,10 +1134,8 @@
     }
   }
 
-  // Wire the editor's mod-combo shortcuts to the central registry. They stay
-  // bound for exactly as long as this route is mounted, and are inert on every
-  // other route (no handler registered there). Each bails while the export flow
-  // dialog owns the screen.
+  // Bind the editor's mod-combo shortcuts to the central registry for the life
+  // of this route. Each bails while the export flow dialog owns the screen.
   onMount(() =>
     registerShortcutHandlers({
       "editor.undo": () => {
@@ -1254,17 +1157,13 @@
   );
 
   function handleKeydown(e: KeyboardEvent) {
-    // `repeat` fires this on auto-repeat while a key is held — a held
-    // Ctrl+B would otherwise flip the panel on every tick. Bail so each
-    // physical press counts once.
+    // Bail on auto-repeat so a held key counts once.
     if (e.defaultPrevented || e.repeat) return;
 
-    // The flow dialog now owns Esc routing per phase; just bail if it's
-    // active so the global shortcuts below don't fire under it.
+    // The flow dialog owns Esc routing; bail so global shortcuts don't fire under it.
     if (isExportFlowOpen) return;
 
-    // Never hijack typing. Inputs, textareas, and contenteditable surfaces
-    // (text annotations) all own their own keystrokes.
+    // Never hijack typing in inputs / textareas / contenteditable.
     const target = e.target;
     if (
       target instanceof HTMLInputElement ||
@@ -1274,14 +1173,11 @@
       return;
     }
 
-    // Mod-combo editor shortcuts (undo/redo/save, toggle panels, presets) are
-    // owned by the central shortcut registry — see `registerShortcutHandlers`
-    // below and `$lib/shortcuts`. Dispatched once from the root layout, so they
-    // can't double-fire. Bail here on any held Ctrl/⌘ so a modifier combo never
-    // trips a plain-key action below.
+    // Mod-combo shortcuts are owned by the central registry; bail on Ctrl/⌘ so a
+    // combo never trips a plain-key action below.
     if (e.ctrlKey || e.metaKey) return;
 
-    // Plain keys (no Ctrl/⌘): play/pause, frame step, fullscreen.
+    // Plain keys: play/pause, frame step, fullscreen.
     switch (e.key) {
       case " ":
         e.preventDefault();
@@ -1323,9 +1219,7 @@
     videoEl.muted = true;
   });
 
-  // Back-fill the waveform if the experimental flag flips on after the
-  // document loaded with it off. The decode is one-shot per recording, so
-  // only fire when we actually have audio paths and no peaks yet.
+  // Back-fill the waveform if the experimental flag flips on after load.
   $effect(() => {
     if (!experimentalStore.silenceDetection) return;
     if (store.waveform.length > 0) return;
@@ -1336,10 +1230,7 @@
   $effect(() => {
     if (!store.isExporting) return;
     exportNow = Date.now();
-    // Elapsed-time timer for the export status strip. The Rust side is now
-    // the source of truth for when the UI flips to "finalizing" — it emits
-    // an explicit event on ffmpeg's `progress=end`, typically within ~100ms.
-    // No more client-side speculative flips on progress stalls.
+    // Elapsed-time timer for the status strip.
     const timer = setInterval(() => {
       exportNow = Date.now();
     }, 500);
@@ -1396,7 +1287,6 @@
 <div
   class="fixed inset-0 flex min-h-screen w-full flex-col overflow-hidden bg-background text-foreground"
 >
-  <!-- Dense custom titlebar that embeds the whole editor toolbar in a single row -->
   <CustomTitlebar wrapperClass="h-9">
     <EditorToolbar
       {store}
@@ -1411,10 +1301,8 @@
     />
   </CustomTitlebar>
 
-  <!-- Cuts-detected banner: project has accepted silence/manual cuts but the
-       experimental flag is off, so the cut lane is hidden and the cuts will
-       be silently ignored on export. Surface that loudly with an inline
-       opt-in so users sharing projects across machines don't lose work. -->
+  <!-- Project has silence cuts but the flag is off, so they're hidden and
+       skipped on export — surface an inline opt-in so work isn't lost. -->
   {#if !isLoading && !error && silenceCutCount > 0 && !experimentalStore.silenceDetection}
     <div
       class="flex items-center gap-2.5 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] text-warning"
@@ -1466,7 +1354,7 @@
     </div>
   {:else}
     <div class="flex min-h-0 flex-1 overflow-hidden">
-      <!-- Left column: preview + playback + timeline -->
+      <!-- Preview + playback + timeline -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
           bind:this={previewContainerEl}
@@ -1500,9 +1388,8 @@
           />
         </div>
 
-        <!-- Timeline collapses vertically. `slide` (axis:y) animates the
-             wrapper height to 0 while the inner keeps its natural height,
-             so the preview smoothly reclaims the space instead of snapping. -->
+        <!-- `slide` (axis:y) animates the wrapper height to 0 while the inner
+             keeps its height, so the preview reclaims space smoothly. -->
         {#if showTimeline}
           <div
             class="shrink-0 overflow-hidden"
@@ -1513,9 +1400,8 @@
         {/if}
       </div>
 
-      <!-- Right column: properties panel. Collapses horizontally — the inner
-           div holds the fixed width so `slide` (axis:x) clips it cleanly to
-           0 rather than reflowing the panel's container queries mid-animation. -->
+      <!-- Inner div holds the fixed width so `slide` (axis:x) clips cleanly
+           instead of reflowing the panel's container queries. -->
       {#if showSidebar}
         <aside
           class="min-h-0 shrink-0 overflow-hidden border-l border-border/60"
@@ -1529,9 +1415,8 @@
     </div>
   {/if}
 
-  <!-- Separate audio tracks — .recast projects store system audio and mic audio
-       as separate WAVs (the recording.mp4 video stream has no audio). These
-       elements are kept in lockstep with the video via $effects above. -->
+  <!-- .recast stores system + mic audio as separate WAVs (the mp4 has no audio);
+       kept in lockstep with the video via the $effects above. -->
   {#if systemAudioSrc}
     <!-- svelte-ignore a11y_media_has_caption -->
     <audio
@@ -1596,10 +1481,8 @@
     : store.exportFps
       ? `${store.exportFps} fps`
       : `${srcFps} fps`}
-  <!-- Spec recap — carries the committed export settings forward from the
-       options step so every later phase (encoding, done, cancelled, failed)
-       stays anchored to "what you're exporting". Mirrors the options stat
-       strip styling for visual continuity. -->
+  <!-- Carries the committed export settings forward so every later phase stays
+       anchored to "what you're exporting". -->
   <section
     class="flex items-stretch divide-x divide-border/40 border-b border-border/40 bg-muted/15 px-5 py-2.5"
   >
@@ -1654,9 +1537,6 @@
   {@const RING_R = 52}
 
   <div class="flex flex-col" style="width: 540px;">
-    <!-- Header: phase title + reassuring status line. The encode spec moves to
-         the shared spec strip below so it reads as a continuation of the
-         options step. -->
     <header
       class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
     >
@@ -1696,8 +1576,6 @@
 
     {@render exportSpecStrip()}
 
-    <!-- Circular progress ring + stages, centred so the wider spec strip and
-         footer frame it consistently with the other phases. -->
     <div
       class="mx-auto flex w-full max-w-xs flex-col items-center gap-3 px-5 pt-5 pb-3"
     >
@@ -1716,10 +1594,8 @@
             class="fill-none text-muted"
           />
           {#if isPreparing}
-                  <!-- Indeterminate spinner: a 25-unit arc revolving on a
-                       100-unit path. `pathLength="100"` decouples the
-                       dash math from `2πr` so floating-point precision
-                       can't make the ring sit one pixel short of full. -->
+                  <!-- Indeterminate spinner. `pathLength="100"` decouples the
+                       dash math from 2πr so precision can't leave it short of full. -->
                   <circle
                     cx="60"
                     cy="60"
@@ -1732,10 +1608,8 @@
                     style="stroke-dasharray: 25 100; animation-duration: 1.2s;"
                   />
                 {:else}
-                  <!-- Determinate progress with cubic-bezier-eased fill.
-                       Dash values live in inline style so they participate
-                       in the CSS transition; mixing attribute + style for
-                       the same property breaks animation in some engines. -->
+                  <!-- Dash values in inline style so they participate in the CSS
+                       transition; mixing attribute + style breaks it in some engines. -->
                   <circle
                     cx="60"
                     cy="60"
@@ -1758,8 +1632,7 @@
                   {/if}
                 {/if}
               </svg>
-              <!-- Centre readout: percentage during encoding, dashes
-                   while preparing or finalising. -->
+              <!-- Percentage during encode; dashes while preparing/finalising. -->
               <div
                 class="absolute inset-0 flex flex-col items-center justify-center"
               >
@@ -1801,9 +1674,7 @@
               </div>
             </div>
 
-            <!-- Rotating, encode-themed status line — shimmer sweep + fade
-                 between messages so the wait feels alive. Shown only while
-                 frames are actually encoding. -->
+            <!-- Rotating status line, shown only while frames are encoding. -->
             {#if !isPreparing && !exportFinalizing && !exportCancelling}
               <div class="relative h-4 self-stretch" aria-live="polite">
                 {#key encodeMessageIndex}
@@ -1818,9 +1689,7 @@
               </div>
             {/if}
 
-            <!-- Stage list — checkmarks for completed substages, a dot
-                 with a subtle pulse for the running one. Collapses to a
-                 single "Encoding…" line once Rust takes over. -->
+            <!-- Substage list; collapses to a single "Encoding…" line once Rust takes over. -->
             <ul class="flex flex-col gap-1 self-stretch text-[11px]">
               {#each stages as s}
                 {#if !s.skip}
@@ -1832,8 +1701,8 @@
                         >{s.label}</span
                       >
                     {:else if s.state === "running" && s.key === "ship"}
-                      <!-- Beam animation: dots travel through a pipe to suggest
-                           the render state being piped to the encoder. -->
+                      <!-- Dots travel through a pipe, suggesting the render state
+                           being piped to the encoder. -->
                       <span
                         class="ship-beam relative flex h-2.5 w-3.5 shrink-0 items-center overflow-hidden rounded-full bg-primary/15"
                       >
@@ -1865,7 +1734,6 @@
             </ul>
           </div>
 
-    <!-- Footer: Cancel with shortcut Kbd per DESIGN -->
     <footer
       class="flex items-center justify-end gap-2 border-t border-border/40 bg-muted/30 px-3 py-2.5"
     >
@@ -1885,9 +1753,6 @@
 
 {#snippet success()}
   <div class="flex flex-col" style="width: 540px;">
-    <!-- Header: success badge + title + file path as the secondary line. The
-         encode spec is recapped in the shared strip below; the path is the
-         thing the user actually needs here, so it stays in the subtitle. -->
     <header class="flex items-start gap-3 border-b border-border/40 px-5 py-4">
       <div
         class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-success/30 bg-success/10 text-success shadow-(--shadow-craft-inset)"
@@ -1915,11 +1780,8 @@
     {@render exportSpecStrip()}
 
     {#if successUpload}
-      <!-- Drive row: single horizontal row with leading status icon, label,
-           inline progress (when uploading), and trailing inline action
-           ("Copy link" when complete, "Cancel" when uploading, "Retry"
-           after error/cancel). Sits on a faintly tinted strip so it reads
-           as the export's outbound destination, not a generic status card. -->
+      <!-- Drive status row with inline progress and a trailing action that
+           tracks the upload state (cancel / copy-link / retry). -->
       <div
         class="flex items-center gap-3 border-t border-border/40 bg-muted/15 px-5 py-3"
         aria-live="polite"
@@ -1974,10 +1836,7 @@
           {/if}
         </div>
 
-        <!-- Inline trailing actions. The Drive row owns its whole
-             lifecycle: cancel while uploading, copy-link + open once
-             complete, retry on failure — so the footer never has to
-             carry a Drive-specific action. -->
+        <!-- The Drive row owns its lifecycle so the footer carries no Drive action. -->
         {#if successUpload.status === "uploading"}
           <Button
             variant="ghost"
@@ -2023,12 +1882,9 @@
       </div>
     {/if}
 
-    <!-- Destinations strip: the three "send it somewhere" actions, grouped
-         out of the footer into share-sheet tiles so they read as a single
-         choice ("where does this go?") rather than competing with the
-         dialog's Dismiss / Show-in-folder lifecycle actions. The Drive tile
-         drops out once an upload exists — the Drive row above owns it from
-         then on. Tiles use the list-row glass + hover-lift language. -->
+    <!-- Share/upload tiles, grouped out of the footer so they read as one
+         "where does this go?" choice. The Drive tile drops out once an upload
+         exists — the Drive row above owns it then. -->
     <div class="border-t border-border/40 bg-muted/15 px-5 py-3.5">
       <p
         class="mb-2.5 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
@@ -2088,8 +1944,6 @@
       </div>
     </div>
 
-    <!-- Footer: just the two lifecycle actions, per the dialog rhythm —
-         dismiss on the left, the primary "Show in folder" on the right. -->
     <footer
       class="flex items-center justify-between gap-2 border-t border-border/40 bg-muted/30 px-3 py-2.5"
     >
@@ -2187,8 +2041,8 @@
 
     {@render exportSpecStrip()}
 
-    <!-- Failure detail — the raw FFmpeg/pipeline message, scrollable so a long
-         stack never blows out the dialog height. -->
+    <!-- Raw FFmpeg/pipeline message, scrollable so a long stack doesn't blow out
+         the dialog height. -->
     <div
       class="max-h-40 overflow-y-auto border-b border-border/40 px-5 py-3"
     >
@@ -2222,9 +2076,7 @@
 {/snippet}
 
 <style>
-  /* Hand-off-to-encoder beam: three dots travel left → right with offset
-     so it reads as data being piped through. Wrapping container clips,
-     dots fade in/out at the track edges. */
+  /* Three dots travel left → right with offset, reading as data being piped. */
   .ship-beam {
     box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.3);
   }
@@ -2247,9 +2099,7 @@
   .ship-dot-3 {
     animation-delay: 0.72s;
   }
-  /* Rotating encode status line: a primary-tinted highlight sweeps across
-     muted text for a subtle shimmer. The text itself crossfades via Svelte
-     transitions when the message changes. */
+  /* Primary-tinted highlight sweeps across muted text for a subtle shimmer. */
   .export-shimmer {
     background: linear-gradient(
       100deg,

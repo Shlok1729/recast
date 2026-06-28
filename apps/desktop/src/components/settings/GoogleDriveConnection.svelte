@@ -22,8 +22,7 @@
   async function handleConnect() {
     try {
       await gdrive.connect();
-      // Success path emits via the gdrive:connected listener — no toast
-      // here. We only toast on failure.
+      // Success surfaces via the gdrive:connected listener; only toast failures.
     } catch (e) {
       toast.error(`Couldn't connect Google Drive: ${e}`);
     }

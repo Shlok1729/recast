@@ -13,10 +13,8 @@
     type TimeMode,
   } from "./timeline-helpers";
 
-  // Clip bar with thumbnails and the in/out trim handles. Owns its own
-  // drag state — the parent only supplies `clientXToTime` so the
-  // pointermove/up handlers can resolve absolute pointer X (already
-  // including timeline scroll offset) into a clip time.
+  // Clip bar with thumbnails and in/out trim handles. Owns its drag state;
+  // the parent only supplies `clientXToTime` (handles scroll offset) to resolve pointer X.
 
   interface Props {
     store: EditorStore;
@@ -44,17 +42,11 @@
     clientXToTime,
   }: Props = $props();
 
-  // The clip lane renders one block per kept segment (split by the user or
-  // carved out by cuts), so a split visibly produces two adjacent clips. The
-  // horizontal axis is OUTPUT (post-cut) time: a cut occupies zero width and
-  // the clips after it slide left to close the gap, exactly like a real NLE.
-  // `xOf` maps an original time onto that gapless axis. With no cuts it's the
-  // identity, so this is the old layout untouched.
+  // One block per kept segment on the OUTPUT (post-cut) axis: a cut occupies zero
+  // width and later clips slide left to close the gap. `xOf` maps original time onto that axis.
   const pps = $derived(pixelsPerSecond);
   const xOf = (t: number) => originalToOutput(store.effectiveCuts, t) * pps;
-  // Original clip span at output px — the thumbnail strip is laid out across
-  // this (each kept block is internally cut-free, i.e. locally linear, so a
-  // block shows its slice via a plain margin offset, same as before).
+  // Thumbnail strip is laid across this; each block is internally cut-free, so it shows its slice via a margin offset.
   const clipDuration = $derived(Math.max(0.0001, store.outPoint - store.inPoint));
   const stripFullWidth = $derived(clipDuration * pps);
   const thumbW = $derived(
@@ -79,11 +71,8 @@
       .filter((p) => p > store.inPoint && p < store.outPoint)
       .map((p) => ({ time: p, x: xOf(p) })),
   );
-  // Seam markers: where a removed cut sits BETWEEN two kept segments, the gap
-  // is collapsed to a single seam. Hover to see how much was removed, click to
-  // restore it (the non-destructive replacement for the old in-place red band).
-  // Derivation is a pure, unit-tested helper (`deriveSeams`); here we only add
-  // the output-axis x position.
+  // Where a removed cut sits between two kept segments, collapsed to one seam.
+  // deriveSeams is the pure unit-tested helper; here we only add the output-axis x.
   const seamMarkers = $derived(
     deriveSeams(store.segments).map((s) => ({ ...s, x: xOf(s.gapStart) })),
   );
@@ -98,9 +87,7 @@
   const inHandleLeft = $derived(clipLeft);
   const outHandleLeft = $derived(clipLeft + clipWidth);
 
-  // Ripple-delete the clip block spanning [start, end]: its midpoint is always
-  // inside it, so `deleteSegmentAt` targets exactly this segment. Park the
-  // playhead on the join so the preview lands on a kept frame.
+  // Midpoint is always inside the block, so deleteSegmentAt targets exactly it; park playhead on the join.
   function deleteSegment(start: number, end: number) {
     const joinAt = store.deleteSegmentAt((start + end) / 2);
     if (joinAt === null) return;
@@ -110,9 +97,7 @@
 
   let activeTrimHandle = $state<"in" | "out" | null>(null);
 
-  // Live drag context for the in/out trim handles. `originalAt` is the value
-  // the handle had at pointer-down — used to display a delta in the tooltip
-  // so users see exactly how many frames they've shaved off.
+  // `originalAt` = the handle value at pointer-down, for the frames-delta tooltip.
   let trimDragContext = $state<{
     which: "in" | "out";
     originalAt: number;
@@ -122,8 +107,7 @@
     if (duration <= 0) return;
     event.preventDefault();
     event.stopPropagation();
-    // Single undo entry per drag, regardless of how many pointermove events
-    // fire while the user holds the handle.
+    // Single undo entry per drag.
     store.pushUndoState();
     activeTrimHandle = which;
     trimDragContext = {
@@ -165,8 +149,7 @@
     if (which === "in") {
       const next = Math.max(0, Math.min(t, store.outPoint - min));
       store.trimStart = next;
-      // Scrub-while-trim: park playback at the in point so the preview
-      // shows the first kept frame as the user drags.
+      // Park playback at the in point so the preview shows the first kept frame while dragging.
       if (scrub) {
         store.currentTime = next;
         if (videoEl) videoEl.currentTime = next;
@@ -175,8 +158,7 @@
       const next = Math.min(duration, Math.max(t, store.inPoint + min));
       store.trimEnd = next;
       if (scrub) {
-        // Show one frame before the cut (the last kept frame) — that's the
-        // frame the user is actually deciding to keep or discard.
+        // Show the last kept frame (one before the cut) — the frame being decided on.
         const previewAt = Math.max(store.inPoint, next - frameStep(fps));
         store.currentTime = previewAt;
         if (videoEl) videoEl.currentTime = previewAt;
@@ -214,9 +196,6 @@
 </script>
 
 <div class="relative h-12">
-  <!-- One block per kept segment. Splitting divides the clip into two adjacent
-       blocks; deleting a block ripple-closes the gap. Each block shows its own
-       slice of the shared thumbnail strip (shifted via stripOffset). -->
   {#each clipBlocks as block (block.key)}
     {@const selected =
       store.selectedClipStart !== null &&
@@ -255,8 +234,7 @@
         </div>
       {/if}
 
-      <!-- Per-clip ripple delete (only when there's more than one clip — the
-           trim handles, not this, remove the whole recording). -->
+      <!-- Per-clip ripple delete, only with >1 clip (trim handles remove the whole recording). -->
       {#if clipBlocks.length > 1}
         <!-- svelte-ignore a11y_consider_explicit_label -->
         <button
@@ -272,10 +250,7 @@
     </div>
   {/each}
 
-  <!-- Seam markers: a removed section collapses to a single seam between the two
-       kept clips. The content disappears and the timeline closes up (NLE ripple);
-       the seam stays as a restorable handle — hover shows how much was removed,
-       click restores it. -->
+  <!-- Removed section collapsed to a restorable seam (click to restore). -->
   {#each seamMarkers as seam (seam.gapStart)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <button

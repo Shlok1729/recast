@@ -215,7 +215,6 @@
       </div>
     {/if}
 
-    <!-- Frame-relative alignment -->
     <div class="flex flex-col gap-1">
       <span class="text-[10px] text-muted-foreground">Align to frame</span>
       <div class="flex items-center gap-1">

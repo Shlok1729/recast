@@ -1,20 +1,15 @@
 /**
- * Pure scheduling math for the Web Audio timeline engine — split out so it can
- * be unit-tested without an `AudioContext`.
+ * Pure scheduling math for the Web Audio timeline engine (no `AudioContext`).
  *
- * The recording's audio (system + mic WAVs) covers the FULL original timeline.
- * To play the EDITED timeline we don't seek a media element around the cuts
- * (fragile, drifts, stalls); instead we schedule each KEPT region as its own
- * `AudioBufferSourceNode` on the audio clock — the cuts become gaps in the
- * schedule, so they're sample-accurate and silent by construction.
- *
- * Two steps, both pure:
- *   1. `keptRegions` — the original-time intervals that survive (trim minus
- *      cuts), cut-bounded (NOT split by editor split points, which don't remove
- *      audio), so adjacent kept audio plays continuously.
+ * The recording's audio covers the FULL original timeline. To play the EDITED
+ * timeline we don't seek a media element around the cuts (fragile, drifts,
+ * stalls); instead we schedule each KEPT region as its own `AudioBufferSourceNode`
+ * on the audio clock, so the cuts become gaps in the schedule — sample-accurate
+ * and silent by construction. Two pure steps:
+ *   1. `keptRegions` — original-time intervals that survive (trim minus cuts),
+ *      cut-bounded (NOT split by editor split points, which don't remove audio).
  *   2. `planAudioSchedule` — given those regions and the current OUTPUT time,
- *      what to start when: each region maps to a `start(when, offset, duration)`
- *      on a source node.
+ *      map each to a `start(when, offset, duration)`.
  */
 
 const EPS = 1e-4;
@@ -28,10 +23,8 @@ export interface Region {
 }
 
 /**
- * Kept original-time audio regions = `[inPoint, outPoint]` minus `cuts`. Cuts
- * are clipped to the trim range, merged, and removed; the surviving gaps are the
- * regions. Self-contained (no dependency on the cut store) so it's trivially
- * testable.
+ * Kept original-time audio regions = `[inPoint, outPoint]` minus `cuts`. Cuts are
+ * clipped to the trim range, merged, and removed; the surviving gaps are the regions.
  */
 export function keptRegions(
 	inPoint: number,

@@ -1,7 +1,6 @@
-// Workspace-scoped LRU of colors recently picked from the annotation color
-// pickers. Bleeds across projects deliberately — the user's preferred palette
-// follows them, not the file. Synced to localStorage on every commit so
-// restarts preserve the list. Capped to 12 entries.
+// Workspace-scoped LRU (max 12) of recently picked annotation colors, synced to
+// localStorage. Bleeds across projects deliberately — the palette follows the
+// user, not the file.
 
 import { safeStorage } from "@recast/ui/persisted-state";
 
@@ -12,8 +11,6 @@ let cache: string[] | null = null;
 
 function read(): string[] {
 	if (cache) return cache;
-	// `safeStorage` handles missing key, no-window, malformed JSON, and the
-	// array-shape guard; we still string-filter + cap defensively.
 	const parsed = safeStorage.get<string[]>(STORAGE_KEY, []);
 	cache = parsed.filter((c) => typeof c === "string").slice(0, MAX);
 	return cache;

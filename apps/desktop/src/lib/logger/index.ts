@@ -1,28 +1,17 @@
 /**
- * Recast-scoped structured logger for the desktop editor.
+ * Recast-scoped structured logger for the desktop editor. Tags records with the
+ * open recast and fans out to the dev console (debug builds only) and the rotating
+ * log file via `@tauri-apps/plugin-log`, which interleaves with the Rust backend's
+ * logs in one support-bundle file.
  *
- * One place to trace what a user did to a recording — which recast is open,
- * what they selected, which property they changed, what export settings they
- * chose — so a bug report has context instead of "it broke". Records are
- * formatted consistently and tagged with the open recast, then fanned out to:
+ * Gating (see `./diagnostics.svelte`): debug builds log everything; release builds
+ * always persist `warn`/`error`, but `debug`/`info` only when the user enables
+ * Diagnostic logging in Settings.
  *
- *   1. the dev console (debug builds only), and
- *   2. the rotating log file, via `@tauri-apps/plugin-log`, which interleaves
- *      these with the Rust backend's own logs in one file (the support bundle).
+ * High-frequency inputs (slider drags, scrubbing) must use `debounced` to coalesce
+ * into one counted line instead of flooding the file.
  *
- * Gating (see `./diagnostics.svelte`):
- *   - debug builds: everything logs.
- *   - release builds: `warn`/`error` always reach the file (they're not
- *     verbose); `debug`/`info` only when the user has turned on Diagnostic
- *     logging in Settings. So a shipped build is quiet until a user opts in to
- *     reproduce an issue.
- *
- * High-frequency inputs (slider drags, scrubbing) must go through `debounced`
- * so they coalesce into one line with a count instead of flooding the file.
- *
- * This logger is LOCAL only. Sending events to PostHog is handled separately
- * by `$lib/analytics` and is independently consent-gated; nothing here phones
- * home.
+ * LOCAL only — PostHog is handled separately by `$lib/analytics`.
  */
 
 import { diagnostics } from "./diagnostics.svelte";
@@ -47,7 +36,7 @@ function verboseEnabled(): boolean {
 	return IS_DEV || diagnostics.enabled;
 }
 
-// --- formatting -------------------------------------------------------------
+// formatting
 
 function basename(path: string): string {
 	const p = path.replace(/\\/g, "/");
@@ -81,7 +70,7 @@ function format(area: string, event: string, data?: Record<string, unknown>): st
 	return `${head} ${area} · ${event}${safeData(data)}`;
 }
 
-// --- sinks ------------------------------------------------------------------
+// sinks
 
 function toConsole(level: Level, msg: string): void {
 	if (!IS_DEV) return;
@@ -122,7 +111,7 @@ function emit(level: Level, area: string, event: string, data?: Record<string, u
 	void toFile(level, msg);
 }
 
-// --- debounced (high-frequency inputs) --------------------------------------
+// debounced (high-frequency inputs)
 
 interface PendingLog {
 	timer: ReturnType<typeof setTimeout>;
@@ -144,7 +133,7 @@ function flush(key: string): void {
 	emit("debug", entry.area, entry.event, data);
 }
 
-// --- public API -------------------------------------------------------------
+// public API
 
 export const log = {
 	/**

@@ -1,10 +1,6 @@
-/**
- * Registry resolvers — turn a *stored* id/value into what a consumer needs,
- * with graceful fallback when an extension-contributed id is missing (pack
- * uninstalled). Resolvers NEVER throw: a missing `ext:` id degrades to a
- * built-in default and logs a warning, so export/preview can't crash on a
- * removed pack.
- */
+// Registry resolvers: stored id/value → what a consumer needs. Resolvers never
+// throw — a missing `ext:` id (pack uninstalled) degrades to a built-in default
+// and logs, so export/preview can't crash on a removed pack.
 
 import { log } from "$lib/logger";
 import { registry } from "./registry.svelte";
@@ -21,10 +17,9 @@ import {
 const FALLBACK_BACKGROUND = "#111111";
 
 /**
- * Resolve a stored `backgroundValue` to the string the render pipeline
- * consumes. Built-in values (hex, gradient, `asset:<id>`) pass through
- * unchanged — identity. Only `ext:<extId>:<localId>` references hit the
- * registry, mapping to the pack's hydrated absolute file path.
+ * Resolve a stored `backgroundValue` to the string the render pipeline consumes.
+ * Built-in values (hex, gradient, `asset:<id>`) pass through unchanged; only
+ * `ext:` references hit the registry for the pack's hydrated absolute path.
  */
 export function resolveBackgroundWireValue(value: string): string {
 	if (!isExtId(value)) return value;
@@ -35,9 +30,8 @@ export function resolveBackgroundWireValue(value: string): string {
 }
 
 /**
- * Resolve a stored cursor style id to its sprite payload (svg + hotspots).
- * Returns `null` when the id can't be resolved — callers treat that as "fall
- * back to the soft-dot cursor" rather than failing the export.
+ * Resolve a stored cursor style id to its sprite payload (svg + hotspots), or
+ * null when unresolvable (callers fall back to the soft-dot cursor).
  */
 export function resolveCursorSprite(id: string): CursorValue | null {
 	const entry = registry.get("cursor", id);
@@ -77,14 +71,13 @@ export function cursorSpriteHotspot(v: CursorValue, state: CursorState): Hotspot
 	}
 }
 
-/** Cached `data:image/svg+xml,…` URLs (one per id+state) so the preview
- *  overlay `<img>` doesn't re-encode the SVG every frame. */
+/** SVG data URLs cached per id+state so the preview overlay doesn't re-encode
+ *  every frame. */
 const cursorDataUrlCache = new Map<string, string>();
 
 /**
- * Resolve a stored cursor id + state to a preview-ready SVG data URL, for
- * both built-ins and `ext:` packs. Returns null when unresolvable (caller
- * hides the overlay rather than rendering a broken image).
+ * Resolve a stored cursor id + state to a preview-ready SVG data URL, or null
+ * when unresolvable (caller hides the overlay).
  */
 export function resolveCursorDataUrl(
 	id: string,

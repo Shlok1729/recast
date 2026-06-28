@@ -1,16 +1,11 @@
 /**
  * Timeline segment model — the basis for split + ripple-delete editing.
  *
- * The clip's kept content is `[trimStart, trimEnd]` minus the union of `cuts`
- * (removed ranges). `splitPoints` are user-placed division markers, in
- * original-recording seconds, that subdivide that kept content into
- * individually addressable **segments** WITHOUT removing anything. A split is
- * purely an editor convenience — it has no effect on playback or export until
- * one of the resulting segments is deleted (which becomes a `manual` cut).
- *
- * All functions here are pure so they can be unit-tested in isolation; the
- * store and timeline UI are thin wrappers over them. See ./cuts.ts for the
- * time-remapping arithmetic that closes the gaps left by deletes.
+ * Kept content = `[trimStart, trimEnd]` minus the union of `cuts`. `splitPoints`
+ * (original-recording seconds) subdivide that kept content into addressable
+ * **segments** without removing anything — a split only matters once one of the
+ * segments is deleted (which becomes a `manual` cut). All functions are pure.
+ * See ./cuts.ts for the time-remapping that closes gaps left by deletes.
  */
 
 import { normalizeCuts, type TimelineCut } from "./cuts";
@@ -95,10 +90,9 @@ export interface Seam {
 }
 
 /**
- * Derive the seams between adjacent kept segments — i.e. every place a cut was
- * ripple-removed, collapsing two segments together. A pure boundary between
- * segments that merely *touch* (a split, no removed time) yields no seam. Pure
- * so the timeline's seam markers are unit-tested independently of the DOM.
+ * Derive the seams between adjacent kept segments — every place a cut was
+ * ripple-removed, collapsing two segments together. Segments that merely *touch*
+ * (a split, no removed time) yield no seam.
  */
 export function deriveSeams(segments: Segment[]): Seam[] {
 	const seams: Seam[] = [];

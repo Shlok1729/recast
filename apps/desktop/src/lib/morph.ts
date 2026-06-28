@@ -7,16 +7,12 @@ interface MorphParams {
 }
 
 /**
- * FLIP-with-scale layout animation.
+ * FLIP-with-scale layout animation. Unlike Svelte's built-in `flip` (translate
+ * only) this also tweens scale, so a keyed element changing position *and* size
+ * morphs between shapes (cf. Framer Motion's `layout`).
  *
- * Svelte's built-in `flip` only translates; this also tweens scale, so a
- * keyed element whose position *and* size change between renders (e.g. a
- * card moving from a grid cell to a list row) visibly morphs between the
- * two shapes — the same effect as Framer Motion's `layout` animation.
- *
- * Apply with `animate:morph` on the top-level element of a keyed `{#each}`.
- * The each block must re-run for the animation to fire (toggle a layout
- * flag the iterated value depends on).
+ * Apply with `animate:morph` on a keyed `{#each}` element; the each block must
+ * re-run for the animation to fire.
  */
 export function morph(
   _node: Element,

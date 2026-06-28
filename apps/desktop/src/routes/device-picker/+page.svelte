@@ -25,7 +25,6 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
 
-  // Determine device type from URL query: ?type=mic or ?type=camera
   const params = new URLSearchParams(window.location.search);
   const deviceType = params.get("type") === "camera" ? "camera" : "mic";
   const selectedId = params.get("selected") ?? null;
@@ -33,9 +32,8 @@
   let devices = $state<(AudioDeviceInfo | CameraDeviceInfo)[]>([]);
   let currentSelectedId = $state<string | null>(selectedId);
   let isLoading = $state(true);
-  // Set only when camera access is a *blocker* (no MediaDevices API, or
-  // capture refused) — distinct from an empty list, which just means no
-  // camera is plugged in. Drives a dedicated, actionable empty state.
+  // Set only when camera access is a blocker (no API / refused), distinct from
+  // an empty list (no camera plugged in); drives an actionable empty state.
   let accessError = $state<{ reason: CameraAccessReason; message: string } | null>(
     null,
   );
@@ -54,10 +52,8 @@
       if (isMic) {
         devices = await getAudioDevices();
       } else {
-        // Source cameras from the WebView's MediaDevices so the deviceId we
-        // pass downstream is one getUserMedia({deviceId:{exact}}) will accept.
-        // Sorted with non-virtual hardware first; the chosen "default" below
-        // therefore prefers a real webcam over Phone Link / OBS Virtual / etc.
+        // From the WebView's MediaDevices so the deviceId is one getUserMedia
+        // accepts. Non-virtual first, so the default below prefers a real webcam.
         const cams = await enumerateCameras();
         devices = cams.map<CameraDeviceInfo>((c) => ({
           id: c.deviceId,
@@ -74,8 +70,7 @@
       }
     } catch (e) {
       if (e instanceof CameraAccessError) {
-        // Hardware-blocked / API-missing — show the actionable card, not the
-        // generic "no cameras found" (which implies nothing is plugged in).
+        // Show the actionable card, not the generic "no cameras found".
         accessError = { reason: e.reason, message: e.message };
         devices = [];
       } else {

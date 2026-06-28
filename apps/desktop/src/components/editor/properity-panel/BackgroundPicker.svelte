@@ -2,17 +2,12 @@
   import LazyExternalImage from "$components/common/LazyExternalImage.svelte";
   import {
     COLOR_PRESETS,
-    DEFAULT_GRADIENT,
     GRADIENT_PRESETS,
     MAX_FRAME_PADDING_PERCENT,
-    MAX_GRADIENT_STOPS,
-    parseGradient,
-    serializeGradient,
     WALLPAPERS,
     wallpaperBackgroundValue,
     type BackgroundType,
     type EditorStore,
-    type GradientSpec,
   } from "$lib/stores/editor-store.svelte";
   import {
     Blend,
@@ -21,11 +16,8 @@
     LayoutTemplate,
     Move,
     Palette,
-    Plus,
-    RotateCw,
     Sparkles,
     SquareRoundCorner,
-    Trash2,
   } from "@lucide/svelte";
   import {
     getRecentColors,
@@ -38,8 +30,13 @@
   import * as Tabs from "@recast/ui/tabs";
   import { cn } from "@recast/ui/utils";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import {
+    imagePreviewSrc,
+    isValidImageValue,
+  } from "./background-picker.logic";
   import { Image } from "@unpic/svelte";
   import { SliderControl } from "@recast/ui/slider-control";
+  import GradientBuilder from "./GradientBuilder.svelte";
   import PanelSection from "./PanelSection.svelte";
 
   interface Props {
@@ -75,164 +72,9 @@
     recents = pushRecentColor(color);
   }
 
-  // ── Custom gradient builder ────────────────────────────────────────────
-  // The draft is the editing source of truth; it serialises to the same CSS
-  // string the store holds and both renderers (WebGL preview + Rust export)
-  // parse. We keep a local draft so dragging a stop doesn't round-trip
-  // through the store on every pointer-move, then stream it back via
-  // `setBackgroundLive` (coalesced undo) for a live preview.
-  let gradientDraft = $state<GradientSpec>(
-    parseGradient(
-      store.backgroundType === "gradient" ? store.backgroundValue : DEFAULT_GRADIENT,
-    ),
-  );
-  let selectedStop = $state(0);
-  let gradientBarEl = $state<HTMLDivElement | null>(null);
-
-  // Reconcile the draft when the store's gradient changes from the outside
-  // (undo/redo, a preset click). Guard with a serialise-compare so our own
-  // live edits don't bounce back and fight the drag.
-  $effect(() => {
-    if (store.backgroundType !== "gradient") return;
-    const current = store.backgroundValue;
-    if (current !== serializeGradient(gradientDraft)) {
-      gradientDraft = parseGradient(current);
-      if (selectedStop >= gradientDraft.stops.length) selectedStop = 0;
-    }
-  });
-
-  const gradientCss = $derived(serializeGradient(gradientDraft));
-
-  // Live commit (drag gestures) → single coalesced undo entry. Discrete edits
-  // (add/remove stop) pass `live=false` for a clean, individually-undoable step.
-  function commitGradient(next: GradientSpec, live = true) {
-    gradientDraft = next;
-    const value = serializeGradient(next);
-    if (live) store.setBackgroundLive("gradient", value);
-    else store.setBackground({ type: "gradient", value });
-  }
-
-  function setStopColor(i: number, color: string) {
-    commitGradient({
-      ...gradientDraft,
-      stops: gradientDraft.stops.map((s, j) => (j === i ? { ...s, color } : s)),
-    });
-  }
-
-  function setStopPos(i: number, pos: number) {
-    const clamped = Math.round(Math.min(100, Math.max(0, pos)));
-    commitGradient({
-      ...gradientDraft,
-      stops: gradientDraft.stops.map((s, j) => (j === i ? { ...s, pos: clamped } : s)),
-    });
-  }
-
-  function setAngle(angle: number) {
-    commitGradient({ ...gradientDraft, angle });
-  }
-
-  // Sample the draft at a position (0..100) to seed a new stop's color —
-  // mirrors the renderer's sRGB lerp so the inserted stop is visually neutral.
-  function sampleDraftColor(pos: number): string {
-    const stops = [...gradientDraft.stops].sort((a, b) => a.pos - b.pos);
-    if (pos <= stops[0].pos) return stops[0].color;
-    const last = stops[stops.length - 1];
-    if (pos >= last.pos) return last.color;
-    for (let i = 0; i < stops.length - 1; i++) {
-      const a = stops[i];
-      const b = stops[i + 1];
-      if (pos >= a.pos && pos <= b.pos) {
-        const f = (pos - a.pos) / Math.max(b.pos - a.pos, 1e-6);
-        return lerpHex(a.color, b.color, f);
-      }
-    }
-    return last.color;
-  }
-
-  function lerpHex(c0: string, c1: string, f: number): string {
-    const p = (h: string) => {
-      const s = h.replace("#", "");
-      return [
-        parseInt(s.slice(0, 2), 16),
-        parseInt(s.slice(2, 4), 16),
-        parseInt(s.slice(4, 6), 16),
-      ];
-    };
-    const [r0, g0, b0] = p(c0);
-    const [r1, g1, b1] = p(c1);
-    const mix = (a: number, b: number) =>
-      Math.round(a + (b - a) * f)
-        .toString(16)
-        .padStart(2, "0");
-    return `#${mix(r0, r1)}${mix(g0, g1)}${mix(b0, b1)}`;
-  }
-
-  function addStop() {
-    if (gradientDraft.stops.length >= MAX_GRADIENT_STOPS) return;
-    // Insert in the widest gap so the new handle lands somewhere useful.
-    const sorted = [...gradientDraft.stops].sort((a, b) => a.pos - b.pos);
-    let gapPos = 50;
-    let widest = -1;
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const gap = sorted[i + 1].pos - sorted[i].pos;
-      if (gap > widest) {
-        widest = gap;
-        gapPos = Math.round((sorted[i].pos + sorted[i + 1].pos) / 2);
-      }
-    }
-    const stops = [
-      ...gradientDraft.stops,
-      { color: sampleDraftColor(gapPos), pos: gapPos },
-    ];
-    commitGradient({ ...gradientDraft, stops }, false);
-    selectedStop = stops.length - 1;
-  }
-
-  function removeStop(i: number) {
-    if (gradientDraft.stops.length <= 2) return;
-    const stops = gradientDraft.stops.filter((_, j) => j !== i);
-    commitGradient({ ...gradientDraft, stops }, false);
-    selectedStop = Math.min(selectedStop, stops.length - 1);
-  }
-
-  // Drag a stop handle along the bar. Streams position live; the whole drag
-  // coalesces to one undo entry via `setBackgroundLive`.
-  function startStopDrag(e: PointerEvent, i: number) {
-    e.preventDefault();
-    selectedStop = i;
-    const bar = gradientBarEl;
-    if (!bar) return;
-    const rect = bar.getBoundingClientRect();
-    const move = (ev: PointerEvent) => {
-      setStopPos(i, ((ev.clientX - rect.left) / Math.max(rect.width, 1)) * 100);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
-  // Double-click an empty spot on the bar to drop a new stop there.
-  function addStopAtPointer(e: MouseEvent) {
-    if (gradientDraft.stops.length >= MAX_GRADIENT_STOPS) return;
-    const bar = gradientBarEl;
-    if (!bar) return;
-    const rect = bar.getBoundingClientRect();
-    const pos = Math.round(
-      Math.min(100, Math.max(0, ((e.clientX - rect.left) / Math.max(rect.width, 1)) * 100)),
-    );
-    const stops = [...gradientDraft.stops, { color: sampleDraftColor(pos), pos }];
-    commitGradient({ ...gradientDraft, stops }, false);
-    selectedStop = stops.length - 1;
-  }
-
-  // Mode tabs (Wallpaper/Color/Gradient/Image) drive which preset list is
-  // shown — they do NOT mutate the actual background. The store is only
-  // updated when the user explicitly picks a preset. This keeps a user's
-  // applied background intact while they browse other modes, and prevents
-  // a tab-switch from silently replacing it with the first preset.
+  // Mode tabs only choose which preset list is shown — they don't mutate the
+  // background (only an explicit preset pick does), so browsing other modes
+  // keeps the applied background intact.
   let displayedMode = $state<BackgroundType>(store.backgroundType);
   $effect(() => {
     displayedMode = store.backgroundType;
@@ -256,33 +98,6 @@
       default:
         return false;
     }
-  }
-
-  function isValidImageValue(value: string) {
-    if (!value) return false;
-    // Explicitly reject non-image values that might linger in
-    // `backgroundValue` after switching tabs (gradient strings, colour
-    // hex, internal asset ids). Without this guard these slip through to
-    // the `<Image>` element below, which feeds them into convertFileSrc
-    // and triggers a Tauri asset-protocol "file does not exist" error.
-    if (
-      value.includes("gradient(") ||
-      value.startsWith("#") ||
-      value.startsWith("asset:")
-    ) {
-      return false;
-    }
-    return (
-      value.startsWith("data:") ||
-      value.startsWith("http://") ||
-      value.startsWith("https://") ||
-      value.startsWith("asset://") ||
-      value.startsWith("/wallpapers/") ||
-      value.endsWith(".png") ||
-      value.endsWith(".jpg") ||
-      value.endsWith(".jpeg") ||
-      value.endsWith(".webp")
-    );
   }
 
   function getSelectionValue(type: BackgroundType) {
@@ -317,29 +132,9 @@
     store.setBackground({ type: "image", value: selected });
   }
 
-  function getImagePreviewSrc(value: string) {
-    if (!value) return "";
-    // Mirror isValidImageValue's rejections — feeding a gradient string or
-    // colour hex to convertFileSrc reaches Tauri's asset protocol and
-    // produces "File does not exist" log spam.
-    if (
-      value.includes("gradient(") ||
-      value.startsWith("#") ||
-      value.startsWith("asset:")
-    ) {
-      return "";
-    }
-    if (
-      value.startsWith("data:") ||
-      value.startsWith("http://") ||
-      value.startsWith("https://") ||
-      value.startsWith("asset://") ||
-      value.startsWith("/wallpapers/")
-    ) {
-      return value;
-    }
-    return convertFileSrc(value);
-  }
+  // Wrapper: injects Tauri's convertFileSrc into the shared resolver.
+  const getImagePreviewSrc = (value: string): string =>
+    imagePreviewSrc(value, convertFileSrc);
 
   $effect(() => {
     blurValue = store.backgroundBlur;
@@ -349,10 +144,8 @@
 </script>
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
-  <!-- Reusable blur control. Background blur only affects texture backgrounds
-       (image/wallpaper) — the shader leaves color/gradient fills sharp — so it
-       lives contextually inside those two modes instead of as a global knob
-       that does nothing two-thirds of the time. -->
+  <!-- Blur only affects texture backgrounds (image/wallpaper), so it lives
+       inside those modes rather than as a global knob. -->
   {#snippet blurControl()}
     <SliderControl
       label="Background blur"
@@ -372,11 +165,9 @@
     </SliderControl>
   {/snippet}
 
-  <!-- Frame + Drop shadow are pinned ABOVE the background browser. They shape
-       the video rect regardless of background type and are used often, so they
-       stay in a fixed, scroll-free position instead of being pushed down by the
-       variable-height background modes (a short Color grid vs. a tall Wallpaper
-       grid would otherwise make these controls jump around). -->
+  <!-- Frame + Drop shadow pinned above the background browser: they apply to
+       every background and are used often, so they keep a fixed position
+       instead of jumping with the variable-height background modes. -->
   <PanelSection
     title="Frame"
     hint="Padding adds space around the recording; corner radius rounds its edges. Both apply to every background."
@@ -416,8 +207,6 @@
     </SliderControl>
   </PanelSection>
 
-  <!-- Drop shadow — collapses to a single toggle row, so it stays compact at
-       the top even when off. -->
   <PanelSection
     title="Drop shadow"
     hint="Adds depth by casting a soft shadow under the recording onto the canvas background."
@@ -509,13 +298,9 @@
     {/if}
   </PanelSection>
 
-  <!-- Background mode switcher + per-mode preset lists, built on the shared
-       Tabs component (variant="soft") so it matches the outer properties-panel
-       tabs and gets the same sliding active-indicator plus content slide/fade.
-       Placed LAST: it's the tall, browse-heavy section, so scrolling is
-       reserved for it. The active tab is intentionally decoupled from the
-       store: switching tabs only changes which preset list is shown — the
-       background isn't mutated until a preset is clicked (see `displayedMode`). -->
+  <!-- Background mode switcher + per-mode preset lists. Placed last as the
+       tall, browse-heavy section. The active tab is decoupled from the store —
+       it only picks the preset list shown (see `displayedMode`). -->
   <Tabs.Root
     value={displayedMode}
     onValueChange={(v: string) => (displayedMode = v as BackgroundType)}
@@ -523,7 +308,7 @@
   >
     <PanelSection
       title="Background"
-      hint="What fills the canvas behind your recording. Previewed live."
+      hint="What fills the canvas behind your recording."
       flush
     >
       <Tabs.List
@@ -537,10 +322,8 @@
             title={mode.label}
             class="h-6 flex-1 gap-1 px-2 text-[11px] font-medium"
           >
-            <!-- Explicit `size-` class (not the `size` prop): Tabs.Trigger's
-                 base style forces unsized SVGs to size-4, so the class both
-                 sets the real 11px size (size-2.75) and opts out of that
-                 default. -->
+            <!-- `size-` class, not the `size` prop: Tabs.Trigger forces unsized
+                 SVGs to size-4, so the class both sets 11px and opts out. -->
             <Icon class="size-2.75" />
             <span class="hidden @[260px]/panel:inline">{mode.label}</span>
           </Tabs.Trigger>
@@ -682,115 +465,7 @@
       </div>
     </PanelSection>
 
-    <!-- Custom gradient builder. The bar is the source of truth: drag a stop
-         to move it, double-click empty space to add one, pick the selected
-         stop's color below, and set the angle. Edits stream live to the
-         preview and coalesce into a single undo step per gesture. -->
-    <PanelSection
-      title="Custom"
-      hint="Drag stops to reposition · double-click the bar to add a stop."
-      flush
-    >
-      {#snippet action()}
-        <Button
-          variant="ghost"
-          size="xs"
-          class="h-6 gap-1 px-1.5 text-[10.5px] text-muted-foreground"
-          onclick={addStop}
-          disabled={gradientDraft.stops.length >= MAX_GRADIENT_STOPS}
-        >
-          <Plus size={11} />
-          Add stop
-        </Button>
-      {/snippet}
-
-      <div class="flex flex-col gap-2.5">
-        <!-- Gradient track + draggable stop handles -->
-        <div
-          bind:this={gradientBarEl}
-          ondblclick={addStopAtPointer}
-          role="presentation"
-          class="relative h-9 w-full overflow-visible rounded-md border border-border/60 shadow-(--shadow-craft-inset)"
-          style="background: {gradientCss}"
-        >
-          {#each gradientDraft.stops as stop, i (i)}
-            <button
-              type="button"
-              onpointerdown={(e) => startStopDrag(e, i)}
-              onclick={() => (selectedStop = i)}
-              ondblclick={(e) => e.stopPropagation()}
-              class={cn(
-                "absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 shadow-md transition-transform active:cursor-grabbing",
-                i === selectedStop
-                  ? "scale-110 border-primary ring-2 ring-primary/40"
-                  : "border-white/90 hover:scale-105",
-              )}
-              style="left: {stop.pos}%; background-color: {stop.color}"
-              aria-label="Gradient stop {i + 1} at {Math.round(stop.pos)}%"
-              aria-pressed={i === selectedStop}
-            ></button>
-          {/each}
-        </div>
-
-        <!-- Selected stop: color + remove -->
-        <div class="flex items-center gap-1.5">
-          <div class="min-w-0 flex-1">
-            <ColorField
-              label="Stop {selectedStop + 1}"
-              value={gradientDraft.stops[selectedStop]?.color ?? "#000000"}
-              {recents}
-              allowAlpha={false}
-              oncommit={(c: string) => {
-                setStopColor(selectedStop, c);
-                rememberColor(c);
-              }}
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="shrink-0 text-muted-foreground hover:text-destructive"
-            onclick={() => removeStop(selectedStop)}
-            disabled={gradientDraft.stops.length <= 2}
-            aria-label="Remove selected stop"
-          >
-            <Trash2 size={13} />
-          </Button>
-        </div>
-
-        <!-- Selected stop position -->
-        <SliderControl
-          label="Position"
-          value={gradientDraft.stops[selectedStop]?.pos ?? 0}
-          min={0}
-          max={100}
-          step={1}
-          unit="%"
-          onstart={() => {}}
-          onchange={(v) => setStopPos(selectedStop, v)}
-        >
-          {#snippet icon()}
-            <Move size={11} />
-          {/snippet}
-        </SliderControl>
-
-        <!-- Gradient angle -->
-        <SliderControl
-          label="Angle"
-          value={gradientDraft.angle}
-          min={0}
-          max={360}
-          step={1}
-          unit="°"
-          onstart={() => {}}
-          onchange={(v) => setAngle(v)}
-        >
-          {#snippet icon()}
-            <RotateCw size={11} />
-          {/snippet}
-        </SliderControl>
-      </div>
-    </PanelSection>
+    <GradientBuilder {store} {recents} onRememberColor={rememberColor} />
   </Tabs.Content>
 
   <Tabs.Content value="image">

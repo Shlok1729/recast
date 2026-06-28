@@ -21,12 +21,9 @@ export const LAYOUT_MODES: {
 ];
 
 /**
- * App-shell chrome preference. Pure UI state (no Rust round-trip), exposed as a
- * single shared `PersistedState` so the Settings toggle and the `(app)` shell
- * read and react to the same reactive value within the window. Persists in
- * localStorage and broadcasts across windows that share the origin.
- *
- * Default `os-native` keeps the shipped chrome; `recast` is the opt-in classic.
+ * App-shell chrome preference. Pure UI state, shared via `PersistedState` so the
+ * Settings toggle and the `(app)` shell react to the same value; persists in
+ * localStorage and broadcasts across same-origin windows.
  */
 export const layoutMode = new PersistedState<LayoutMode>(
   "recast-layout-mode",

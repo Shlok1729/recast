@@ -12,15 +12,9 @@
   } from "./timeline-helpers";
   import { snapTime, type SnapResult, type SnapTarget } from "./timeline-snap";
 
-  // Single zoom-region card. Three drag modes share one pointer-handler
-  // because they all read the same pixels-per-second translation:
-  //   - body drag      → translate the whole region (start AND end shift)
-  //   - resize-start   → only `start` moves, `end` stays
-  //   - resize-end     → only `end` moves, `start` stays
-  //
-  // A drag captures `pushUndoState()` once at pointer-down so the entire
-  // gesture collapses to a single undo entry, then commits on every move.
-  // Snap targets come from the lane (playhead, in/out, neighbours).
+  // Three drag modes through one pointer-handler: move (shift both edges),
+  // resize-start (move `start`), resize-end (move `end`).
+  // pushUndoState() fires once at pointer-down so the whole gesture is one undo entry.
 
   interface Props {
     store: EditorStore;
@@ -50,9 +44,7 @@
     onDuplicate,
   }: Props = $props();
 
-  // Pick a frame from the clip-wide thumbnail strip closest to this region's
-  // start. Cheap visual identifier — the strip is already loaded for the
-  // clip bar, so this is a free reuse (no extra ffmpeg call).
+  // Reuse the clip bar's thumbnail strip (already loaded) for the frame nearest this region's start.
   const cardThumb = $derived.by(() => {
     const strip = store.thumbnailStrip;
     if (!strip.length || duration <= 0) return null;
@@ -63,12 +55,9 @@
     return strip[idx] ?? null;
   });
 
-  // Hard floor so a card can't be dragged into a degenerate zero-width state.
-  // 0.1s ≈ 6 frames at 60fps — still tight enough to be intentional.
+  // Floor so a card can't collapse to zero width (0.1s ≈ 6 frames at 60fps).
   const MIN_DURATION = 0.1;
 
-  // ~6 px in time-space. The lane re-renders the snap guide whenever the
-  // active target changes, so this also drives the user-visible feedback.
   const SNAP_TOLERANCE_PX = 6;
 
   type DragMode = "move" | "resize-start" | "resize-end";
@@ -84,16 +73,14 @@
   let drag = $state<DragContext | null>(null);
 
   const isSelected = $derived(region.id === store.selectedZoomRegionId);
-  // Output (post-cut) axis: position via originalToOutput so a region sits on
-  // the same gapless line as the clips. A region overlapping a cut renders
-  // narrower (the cut portion collapses) — correct NLE behaviour.
+  // Output (post-cut) axis so regions sit on the same gapless line as clips;
+  // a region overlapping a cut renders narrower (correct NLE behaviour).
   const xOf = (t: number) =>
     originalToOutput(store.effectiveCuts, t) * pixelsPerSecond;
   const tOf = (xPx: number) =>
     outputToOriginal(store.effectiveCuts, xPx / pixelsPerSecond);
   const left = $derived(xOf(region.start));
-  // Hard floor of 32px keeps even sub-frame regions clickable. Below 80px
-  // the card collapses to icon+label only; below 56px to icon only.
+  // 32px floor keeps even sub-frame regions clickable.
   const width = $derived(Math.max(xOf(region.end) - xOf(region.start), 32));
   const showThumb = $derived(width >= 110);
   const showSubtitle = $derived(width >= 130);
@@ -121,10 +108,8 @@
 
   function onPointerMove(event: PointerEvent) {
     if (!drag) return;
-    // The pointer moves in OUTPUT pixels; convert that to an output-time delta,
-    // then map an original anchor through output space and back so dragging
-    // tracks the cursor on the collapsed axis. With no cuts this reduces to the
-    // old `anchor + deltaPx/pps`.
+    // Pointer moves in OUTPUT pixels; map the original anchor through output space
+    // and back so dragging tracks the cursor on the collapsed axis.
     const outDelta = (event.clientX - drag.startClientX) / pixelsPerSecond;
     const movedFrom = (orig: number) => tOf(xOf(orig) + outDelta);
     const tolerance = SNAP_TOLERANCE_PX / pixelsPerSecond;
@@ -134,9 +119,7 @@
       const span = drag.originalEnd - drag.originalStart;
       const proposed = movedFrom(drag.originalStart);
 
-      // Snap whichever edge is closer to a target — this lets the user
-      // butt the card up against the playhead from either side without
-      // having to think about which edge is leading.
+      // Snap whichever edge is closer so the card butts against a target from either side.
       const startSnap = snapTime(proposed, snapTargets, tolerance, fps);
       const endSnap = snapTime(proposed + span, snapTargets, tolerance, fps);
       const startDist = startSnap.target
@@ -193,14 +176,10 @@
     onSnapChange(null);
   }
 
-  // Keyboard nudge / shortcut handler for the focused card. Coalesces
-  // sequential nudges into one undo entry so holding ArrowRight feels like
-  // one continuous edit rather than dozens of stack frames.
+  // Coalesces sequential nudges into one undo entry so a held arrow is one edit.
   function onCardKeydown(event: KeyboardEvent) {
     if (duration <= 0) return;
 
-    // Delete / Backspace removes. Plain key — no modifier required —
-    // because the card itself is focused, not a text input.
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       event.stopPropagation();
@@ -208,8 +187,7 @@
       return;
     }
 
-    // Cmd/Ctrl + D duplicates. Cmd/Ctrl + C copies. Paste happens at the
-    // timeline scope so users can land regions wherever the playhead is.
+    // Paste lives at timeline scope so regions land at the playhead, not here.
     const isMod = event.ctrlKey || event.metaKey;
     if (isMod && (event.key === "d" || event.key === "D")) {
       event.preventDefault();
@@ -229,15 +207,12 @@
     event.stopPropagation();
 
     const direction = event.key === "ArrowLeft" ? -1 : 1;
-    // Shift = 1 second nudges, plain = single frame. Mirrors the playhead
-    // arrow-step convention in Timeline.svelte.
+    // Shift = 1s, plain = one frame. Mirrors the playhead step in Timeline.svelte.
     const delta = direction * (event.shiftKey ? 1 : frameStep(fps));
 
     store.pushUndoStateCoalesced(`nudge-zoom-${region.id}`, 600);
 
-    // Alt = resize the trailing edge instead of translating the card. Lets
-    // users tighten/loosen a region from the keyboard without aiming at
-    // the edge handles.
+    // Alt = resize the trailing edge instead of translating the card.
     if (event.altKey) {
       const next = Math.min(
         duration,
@@ -257,9 +232,7 @@
   }
 
   function onCardClick(event: MouseEvent) {
-    // Click selects only when no drag occurred. Pointer handlers live on
-    // window so a real drag never fires this — but a static click without
-    // motion still reaches us via the body's `onclick`.
+    // A real drag never fires this (window-level pointer handlers); only a static click does.
     event.stopPropagation();
     store.selectedZoomRegionId = region.id;
   }
@@ -285,10 +258,8 @@
     height: 30px;
   "
 >
-  <!-- Card body. We split the visual rectangle from the move hit-target
-       so the resize edges can sit on top with their own cursor.
-       Selected state earns a 2-px left accent bar via box-shadow inset
-       so it reads as "this is the active layer" without jiggling layout. -->
+  <!-- Body split from the resize edges so each gets its own cursor; selected state
+       uses a box-shadow inset accent bar to avoid layout shift. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <button
     type="button"
@@ -296,8 +267,7 @@
     onclick={onCardClick}
     onkeydown={onCardKeydown}
     onpointerdown={(e) => {
-      // Resizing has priority — those handlers stop propagation, so any
-      // pointerdown that reaches here is intended as a body drag.
+      // Resize handlers stop propagation, so anything reaching here is a body drag.
       if (e.button !== 0) return;
       beginDrag("move", e);
     }}
@@ -360,8 +330,7 @@
     </div>
   </button>
 
-  <!-- Resize handles. 8px wide hit zone, 2px visible bar at the inner edge.
-       z-index above the body so pointer events land here first. -->
+  <!-- Resize handles: 8px hit zone above the body so pointer events land here first. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     role="slider"

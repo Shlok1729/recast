@@ -1,25 +1,18 @@
 /**
- * PlaybackClock — the master timeline clock for the editor preview.
+ * PlaybackClock — master timeline clock for the editor preview.
  *
- * Today the muted `<video>` element is the source of truth for "what time is
- * it": audio elements, the scrubber, loop, and frame-stepping all read
- * `videoEl.currentTime`. That couples the clock to the browser's video decoder,
- * whose seek latency is exactly what makes playback freeze at a cut boundary.
+ * A pure real-time integrator: while playing, `time` advances with wall-clock
+ * at `rate`; paused, it holds. Nothing decodes here — the render loop samples
+ * `time` and asks the video source for the matching frame; audio slaves to it.
+ * Decoupling from `videoEl.currentTime` is the point: the decoder's seek
+ * latency is what made playback freeze at cut boundaries.
  *
- * This clock decouples the two. It is a pure real-time *integrator*: when
- * playing, `time` advances with wall-clock at `rate`; when paused it holds.
- * Nothing decodes here — the render loop samples `time` each frame and asks the
- * video source for the matching frame, and the audio elements slave to it. The
- * clock has no knowledge of cuts or trims; it runs over a single monotonic,
- * gapless **output-time** domain `[0, duration]` (the recording with cuts
- * removed — see ./timeline/cuts.ts). The owner maps output→original time with
- * `outputToOriginal` for the one place that still needs original media time
- * (frame lookup, cursor/zoom eval, audio `currentTime`).
+ * Knows nothing of cuts/trims; runs over a single gapless **output-time**
+ * domain `[0, duration]` (recording with cuts removed — see timeline/cuts.ts).
+ * The owner maps output→original via `outputToOriginal` where original media
+ * time is still needed (frame lookup, cursor/zoom eval, audio `currentTime`).
  *
- * Because reading `time` is a function of `now()` rather than a ticked
- * counter, sampling it from a 120 Hz rAF loop is exact and cheap, and the clock
- * never drifts relative to wall-clock. `now` is injectable so the integrator
- * logic is unit-testable without real time.
+ * `now` is injectable so the integrator is unit-testable without real time.
  */
 
 /** Monotonic millisecond time source. Defaults to `performance.now`. */
@@ -92,15 +85,13 @@ export class PlaybackClock {
 
 	play(): void {
 		if (this.#playing) return;
-		// Starting from the end is a no-op rather than an instant stall.
 		this.#reanchor(this.time);
 		this.#playing = true;
 	}
 
 	pause(): void {
 		if (!this.#playing) return;
-		// Freeze at the current computed time.
-		this.#anchorTime = this.time;
+		this.#anchorTime = this.time; // freeze at the computed time
 		this.#playing = false;
 	}
 

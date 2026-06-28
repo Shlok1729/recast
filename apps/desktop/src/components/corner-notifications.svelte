@@ -63,9 +63,7 @@
     }
   }
 
-  // Phase → human label for the Recast Cloud share card. The upload runs
-  // export → upload → finalize → share; only the cloud-side phases surface
-  // here (the export phase has its own progress UI).
+  // Only the cloud-side phases surface here; export has its own progress UI.
   function cloudPhaseLabel(phase: string) {
     switch (phase) {
       case "preparing":
@@ -82,9 +80,7 @@
   }
 </script>
 
-<!-- Non-blocking notification stack pinned to the bottom-right corner. Hosts
-     the auto-updater card and the "what's new" card; both stay out of the way
-     and never trap focus or block the view. -->
+<!-- Non-blocking notification stack, bottom-right; never traps focus. -->
 <div
   class="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[320px] flex-col gap-2"
 >
@@ -192,9 +188,7 @@
     </div>
   {/if}
 
-  <!-- Google Drive upload stack — one card per in-flight or recently
-       completed upload. Dismiss removes the card; cancel signals the Rust
-       side to abort an upload still in flight. -->
+  <!-- Google Drive uploads — one card each; cancel aborts an in-flight upload. -->
   {#each gdrive.activeUploads as upload (upload.uploadId)}
     {@const up = upload}
     <div
@@ -287,9 +281,7 @@
     </div>
   {/each}
 
-  <!-- Recast Cloud share stack — one card per in-flight or completed share.
-       The upload PUT shows a determinate byte-% bar; the instantaneous phases
-       (preparing/finalizing/sharing) fall back to an indeterminate pulse. -->
+  <!-- Recast Cloud shares — one card each; PUT shows byte-%, other phases pulse. -->
   {#each cloudShare.activeUploads as up (up.sourcePath)}
     <div
       class="pointer-events-auto overflow-hidden rounded-xl border border-border bg-card shadow-lg ring-1 ring-black/5"
@@ -340,7 +332,6 @@
       {#if up.status === "uploading"}
         <div class="px-4 pb-3">
           {#if up.phase === "uploading" && up.totalBytes > 0}
-            <!-- Determinate bar while the file PUT streams (byte progress). -->
             <div class="h-1 overflow-hidden rounded-full bg-muted">
               <div
                 class="h-full rounded-full bg-primary transition-[width] duration-200"
@@ -353,8 +344,6 @@
               </span>
             </div>
           {:else}
-            <!-- Instantaneous phases (preparing/finalizing/sharing) have no byte
-                 count, so keep an indeterminate pulse. -->
             <div class="h-1 overflow-hidden rounded-full bg-muted">
               <div class="h-full w-1/3 animate-pulse rounded-full bg-primary"></div>
             </div>

@@ -2,18 +2,15 @@
  * Web Audio timeline engine — sample-accurate, cut-aware audio playback for the
  * WebCodecs editor preview.
  *
- * Instead of slaving an `<audio>` element to the playhead by seeking (which
- * drifts across cuts, stalls on cold starts, and can cut out), we decode the
- * recording's audio once into `AudioBuffer`s and schedule each KEPT region as
- * its own `AudioBufferSourceNode` on the audio hardware clock. The cuts are
- * simply the gaps between scheduled chunks, so they're silent and exact — no
- * seeking ever happens during playback.
+ * Instead of seeking an `<audio>` element to the playhead (drifts across cuts,
+ * stalls on cold starts, can cut out), we decode the audio once into
+ * `AudioBuffer`s and schedule each KEPT region as its own `AudioBufferSourceNode`
+ * on the audio hardware clock; the cuts are the gaps between chunks, silent and
+ * exact, with no seeking during playback.
  *
- * Lifecycle mirrors the picture clock: `play(regions, outputTime)` schedules
- * everything from the current output time; `pause()` stops it; `reschedule()`
- * re-plans on a seek or an edit-while-playing. Fully fallback-safe: `create`
- * throws if Web Audio is unavailable or nothing decodes, and the caller drops
- * back to the `<audio>`-element path, so the user is never left without audio.
+ * Lifecycle mirrors the picture clock: `play`/`pause`/`reschedule`. Fallback-safe:
+ * `create` throws if Web Audio is unavailable or nothing decodes, and the caller
+ * drops back to the `<audio>`-element path.
  */
 
 import { planAudioSchedule, type Region } from "./audio-schedule";
@@ -37,10 +34,9 @@ export class AudioTimelineEngine {
 	}
 
 	/**
-	 * Create the engine for the given audio source URLs (system + mic; nulls are
-	 * skipped). Fetches and decodes each into an `AudioBuffer`. Throws if Web
-	 * Audio is unavailable or nothing decodes — the caller should then fall back
-	 * to the `<audio>` elements.
+	 * Create the engine for the given audio source URLs (system + mic; nulls
+	 * skipped), decoding each into an `AudioBuffer`. Throws if Web Audio is
+	 * unavailable or nothing decodes — caller falls back to the `<audio>` elements.
 	 */
 	static async create(urls: ReadonlyArray<string | null | undefined>): Promise<AudioTimelineEngine> {
 		const Ctx: typeof AudioContext | undefined =

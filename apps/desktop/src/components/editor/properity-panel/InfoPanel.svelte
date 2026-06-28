@@ -5,6 +5,9 @@
     EditorStore,
     PanelTab,
   } from "$lib/stores/editor-store.svelte";
+  import { clock } from "$lib/format/time";
+  import { formatBytes as formatBytesBase } from "$lib/format/bytes";
+  import { basename, countByKind, formatRelative } from "./info-panel.logic";
   import {
     ArrowUpRight,
     ChevronRight,
@@ -41,8 +44,7 @@
 
   let { store }: Props = $props();
 
-  // Tick `now` every 30s so the relative-time labels ("Saved 2 min ago")
-  // stay fresh without paying for a per-frame redraw.
+  // Tick every 30s so relative-time labels stay fresh without a per-frame redraw.
   let now = $state(Date.now());
   let nowTimer: ReturnType<typeof setInterval> | null = null;
   onMount(() => {
@@ -56,12 +58,10 @@
     store.activePanel = tab;
   }
 
+  // Keeps the "--:--" placeholder; defers clock formatting to the shared helper.
   function formatDuration(seconds: number | undefined): string {
     if (!seconds || seconds <= 0) return "--:--";
-    const t = Math.max(0, seconds);
-    const m = Math.floor(t / 60);
-    const s = Math.floor(t % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
+    return clock(seconds);
   }
 
   function formatResolution(): string {
@@ -74,48 +74,11 @@
     return `${Math.round(store.metadata.fps)} fps`;
   }
 
-  /** Human-readable bytes: 1.4 GB, 932 MB, 84 KB. Defaults to "--" on 0/missing. */
-  function formatBytes(bytes: number | undefined): string {
-    if (!bytes || bytes <= 0) return "--";
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let i = 0;
-    let v = bytes;
-    while (v >= 1024 && i < units.length - 1) {
-      v /= 1024;
-      i++;
-    }
-    return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
-  }
+  // Wrapper: InfoPanel shows "--" for missing sizes (vs the shared default "0 B").
+  const formatBytes = (bytes: number | undefined): string =>
+    formatBytesBase(bytes, "--");
 
-  /** "in 2 min", "5 sec ago", "3 hr ago". Floors aggressively at the cutoffs
-   *  used in chat-style UIs so the readout doesn't bounce by 1 unit each tick. */
-  function formatRelative(ts: number | null, current: number): string {
-    if (!ts) return "Never";
-    const diffMs = current - ts;
-    const future = diffMs < 0;
-    const seconds = Math.floor(Math.abs(diffMs) / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    let label: string;
-    if (seconds < 5) label = "just now";
-    else if (seconds < 60) label = `${seconds}s`;
-    else if (minutes < 60) label = `${minutes} min`;
-    else if (hours < 24) label = `${hours} hr`;
-    else label = `${days} day${days === 1 ? "" : "s"}`;
-    if (label === "just now") return label;
-    return future ? `in ${label}` : `${label} ago`;
-  }
-
-  function basename(path: string): string {
-    if (!path) return "—";
-    const sep = path.includes("\\") ? "\\" : "/";
-    const last = path.split(sep).filter(Boolean).pop() ?? path;
-    return last;
-  }
-
-  // Annotation kind counts. Always render every kind (with 0) so the row
-  // doesn't shift around as the user adds/removes shapes.
+  // Every kind always rendered (with 0) so the row doesn't shift as shapes change.
   const KIND_META: Array<{
     id: AnnotationKindName;
     label: string;
@@ -127,18 +90,6 @@
     { id: "text", label: "Text", icon: TypeIcon },
     { id: "image", label: "Image", icon: ImageIcon },
   ];
-
-  function countByKind(annotations: Annotation[]): Record<string, number> {
-    const out: Record<string, number> = {
-      rect: 0,
-      ellipse: 0,
-      arrow: 0,
-      text: 0,
-      image: 0,
-    };
-    for (const a of annotations) out[a.kind.kind] = (out[a.kind.kind] ?? 0) + 1;
-    return out;
-  }
 
   const annotationCounts = $derived(countByKind(store.annotations));
   const totalAnnotations = $derived(store.annotations.length);

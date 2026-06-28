@@ -37,9 +37,8 @@
   let index = $state<RegistryIndexEntry[] | null>(null);
   let loadingIndex = $state(false);
 
-  // Details dialog: addressed by id so both the registry entry and the installed
-  // record resolve reactively (so the dialog reflects post-install/uninstall
-  // state without re-opening).
+  // Addressed by id so the dialog resolves entry + installed reactively (reflects
+  // install/uninstall without re-opening).
   let dialogOpen = $state(false);
   let selectedId = $state<string | null>(null);
 
@@ -145,7 +144,6 @@
     </span>
   </div>
 
-  <!-- Install from URL -->
   <PanelSection
     title="Install from URL"
     hint="Paste a pack manifest URL (https, or http://localhost for testing). Assets are SHA-256 verified before install."
@@ -183,7 +181,6 @@
     {/if}
   </PanelSection>
 
-  <!-- Installed -->
   <PanelSection title="Installed" flush>
     {#snippet action()}
       <span class="flex items-center gap-1.5">
@@ -265,7 +262,6 @@
     {/if}
   </PanelSection>
 
-  <!-- Browse curated registry -->
   <PanelSection title="Browse" flush>
     {#snippet action()}
       <button

@@ -1,7 +1,5 @@
-// Pure UV ↔ canvas geometry helpers shared between the 2D annotation overlay
-// and the HTML text-annotation layer. Both layers must agree on the same math
-// to avoid drift when zoom/padding change — that's the only correctness
-// invariant that matters here.
+// Pure UV ↔ canvas geometry shared by the 2D annotation overlay and the HTML
+// text layer. Both MUST use the same math or they drift when zoom/padding change.
 
 import { computeCanvasGeometry } from "$lib/canvas-geometry";
 import {
@@ -30,15 +28,10 @@ export function compositionWidth(
 }
 
 /**
- * Device-pixel rect of the actual video region inside a canvas/element of
- * dimensions `containerW × containerH`. The container's aspect tracks the
- * configured `outputAspect` (the editor preview keeps the canvas matched
- * to the canvas geometry), so this maps source-pixel offsets through
- * `containerW / canvasW` linearly.
- *
- * `outputAspect` is optional so existing callers that only know the v1
- * "source matches input" model keep working — they pass nothing and get
- * the old uniform-padding behaviour.
+ * Device-pixel rect of the video region inside a `containerW × containerH`
+ * element. The container's aspect tracks `outputAspect`, so source-pixel offsets
+ * map through `containerW / canvasW` linearly. `outputAspect` defaults to the v1
+ * "source matches input" model for callers that don't pass it.
  */
 export function videoRectPx(
 	containerW: number,

@@ -10,9 +10,7 @@
 
   let { store }: Props = $props();
 
-  // Auto-hide when there are zero annotations so non-annotation users never see
-  // the rail. Visible whenever any annotation exists, regardless of which tab
-  // the user is on — that's the whole point of a global status rail.
+  // Global rail: visible whenever any annotation exists, regardless of active tab.
   const visible = $derived(store.annotations.length > 0);
   const onAnnotationsTab = $derived(store.activePanel === "annotations");
   const hidden = $derived(store.annotationsGloballyHidden);

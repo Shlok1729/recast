@@ -47,9 +47,6 @@
     onToggleTimeline,
   }: Props = $props();
 
-  // Segmented panel-toggle button styling, mirroring the undo/redo group:
-  // an "on" toggle reads as a pressed key (raised card surface), "off" sits
-  // flush and muted. Kept as one helper so both toggles stay identical.
   const toggleClass = (active: boolean) =>
     cn(
       "cursor-pointer flex size-6 items-center justify-center rounded-md transition-colors duration-150",
@@ -60,8 +57,7 @@
   let showPresetsPicker = $state(false);
   let showRevertConfirm = $state(false);
 
-  // Mod+P (export presets) is dispatched by the central shortcut registry —
-  // no per-component `window` listener to leak under HMR.
+  // Mod+P via the central shortcut registry — avoids a per-component window listener leaking under HMR.
   onMount(() =>
     registerShortcutHandlers({
       "editor.presets": () => {
@@ -79,9 +75,7 @@
     store.padding = preset.padding;
     store.backgroundBlur = preset.blur;
     if (preset.layout) store.layoutMode = preset.layout;
-    // Map the preset's aspect string onto the store's OutputAspect. Anything
-    // we don't recognise (e.g. "Source") falls back to the source-matched
-    // canvas, the v1 default.
+    // Unrecognised aspects (e.g. "Source") fall back to the source-matched canvas.
     const aspectMap: Record<
       string,
       import("$lib/stores/editor-store.svelte").OutputAspect
@@ -92,16 +86,11 @@
       "1.91:1": "1.91:1",
     };
     store.outputAspect = aspectMap[preset.aspect] ?? "source";
-    // Remember which preset was applied so the toolbar can surface it as
-    // a chip — purely a UI affordance; the visual effects above are what
-    // actually drive the renderer.
+    // UI-only: lets the toolbar surface the applied preset as a chip.
     store.lastAppliedPresetId = preset.id;
   }
 
-  // Drop the active preset back to the source-matched canvas without
-  // touching background / padding / blur — leaves the user's tweaks alone
-  // but removes any letterbox bars. Visual mirror of `applyPreset` so undo
-  // collapses the whole gesture into a single stack entry.
+  // Reset to source aspect (removes letterbox bars) without touching background/padding/blur.
   function clearPreset() {
     if (
       store.outputAspect === "source" &&
@@ -114,9 +103,7 @@
     store.lastAppliedPresetId = null;
   }
 
-  // Resolve the chip label from the persisted preset id. If the id no
-  // longer exists in PRESETS (e.g. removed across versions) we fall back
-  // to the raw aspect string so users still see something useful.
+  // null if the persisted id no longer exists in PRESETS (removed across versions).
   const activePreset = $derived.by(() => {
     const id = store.lastAppliedPresetId;
     if (!id) return null;
@@ -133,7 +120,6 @@
   class="flex h-full w-full items-center gap-1.5 px-2 text-[11px]"
   data-tauri-drag-region
 >
-  <!-- Left: back + filename -->
   <div class="flex items-center gap-0.5">
     <Tooltip.Root>
       <Tooltip.Trigger>
@@ -162,7 +148,6 @@
     ></span>
   {/if}
 
-  <!-- Center: presets + undo/redo -->
   <div class="mx-auto flex items-center gap-1.5" data-tauri-drag-region>
     <Tooltip.Root>
       <Tooltip.Trigger>
@@ -180,9 +165,6 @@
       <Tooltip.Content>Browse social & studio presets</Tooltip.Content>
     </Tooltip.Root>
 
-    <!-- Active-preset chip. Only renders when a preset has been applied
-         (per-project state). Click the body to re-open the picker; click
-         the trailing × to drop back to source aspect. -->
     {#if activePreset || store.outputAspect !== "source"}
       <div
         class="flex h-6 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 pl-1.5 pr-0.5 text-[11px] font-semibold text-primary"
@@ -276,11 +258,7 @@
     </div>
   </div>
 
-  <!-- Right: layout toggles + revert + save + export -->
   <div class="ml-auto flex items-center gap-1">
-    <!-- Panel toggles (VS Code / Cursor style): show/hide the timeline and
-         the right properties panel. Grouped as a segmented control so they
-         read as a pair of view switches, distinct from the action buttons. -->
     <div
       class="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-inset ring-border/40"
     >

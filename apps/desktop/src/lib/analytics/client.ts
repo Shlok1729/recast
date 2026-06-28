@@ -1,14 +1,11 @@
 /**
- * The desktop app's analytics singleton.
+ * Desktop analytics singleton.
  *
- * Posture (the hard rule): product analytics are strictly opt-in (default OFF);
- * crash reporting is default opt-in (default ON). The provider is NOT stood up
- * at launch for an errors-only install — `eagerInit` is omitted, so PostHog
- * makes zero network calls until a real crash or an explicit opt-in. When
- * `PUBLIC_POSTHOG_KEY` is blank the whole client is a no-op.
- *
- * The anonymous `distinct_id` is the persistent install id, so a crash reported
- * before sign-in attributes to the same person as later identified events.
+ * Posture: product analytics opt-in (default OFF), crash reporting default ON.
+ * `eagerInit` is omitted, so PostHog makes zero network calls until a real crash
+ * or explicit opt-in. Blank `PUBLIC_POSTHOG_KEY` makes the whole client a no-op.
+ * The anonymous `distinct_id` is the persistent install id, so pre-sign-in crashes
+ * attribute to the same person as later identified events.
  */
 
 import { config } from "$constants/app";

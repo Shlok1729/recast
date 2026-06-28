@@ -1,13 +1,10 @@
 /**
- * Pure MP4 sample-table arithmetic for the WebCodecs source's PROGRESSIVE
- * (HTTP-range) ingestion path — split out so it can be unit-tested without a
- * real `VideoDecoder`, a real MP4, or mp4box's runtime.
+ * Pure MP4 sample-table arithmetic for the WebCodecs progressive (HTTP-range)
+ * path — split out so it's unit-testable without a real decoder/MP4/mp4box.
  *
- * In whole-file mode mp4box hands us every sample's bytes up front. In
- * progressive mode we only fetch the `moov` (the index) first, then fetch each
- * GOP's media bytes on demand. To do that we must reconstruct the full sample
- * map — presentation time, duration, sync flag, and crucially the BYTE
- * offset+size of every sample — from the ISO-BMFF sample tables in `stbl`:
+ * Progressive mode fetches only the `moov` index first, then each GOP's bytes on
+ * demand — which needs the full per-sample map (time, duration, sync flag, and
+ * the byte offset+size) reconstructed from the ISO-BMFF `stbl` tables:
  *
  *   - stsz  → sample sizes (or one constant size)
  *   - stsc  → sample-to-chunk runs (how many samples each chunk holds)
@@ -16,11 +13,7 @@
  *   - ctts  → composition-time offsets (B-frame reordering; run-length, signed)
  *   - stss  → which samples are sync samples (keyframes); absent ⇒ all are
  *
- * The arithmetic here is the same the demuxer does internally; we redo it from
- * the parsed box arrays (which mp4box exposes via the same box tree the worker
- * already reads for the codec description) so the byte map is available without
- * holding any media bytes. All output times are microseconds, samples are in
- * DECODE order (matching how they're fed to the decoder).
+ * Output times are microseconds; samples are in DECODE order.
  */
 
 /** The raw `stbl` arrays we read off the parsed mp4box boxes. */
@@ -195,11 +188,9 @@ export function gopByteRange(
 }
 
 /**
- * Default size threshold (bytes) above which the source switches from loading
- * the whole file into memory to progressive HTTP-range ingestion. Whole-file is
- * simpler and gives zero-network steady-state playback; progressive trades that
- * for a flat memory footprint on multi-GB 4K/5K recordings that would otherwise
- * blow the WebView's heap. ~500 MB by default; telemetry can tune it later.
+ * Size threshold (bytes) above which the source switches from whole-file load to
+ * progressive HTTP-range ingestion — progressive trades whole-file's simplicity
+ * for a flat memory footprint on multi-GB recordings that would blow the heap.
  */
 export const PROGRESSIVE_THRESHOLD_BYTES = 500 * 1024 * 1024;
 

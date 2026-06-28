@@ -1,18 +1,15 @@
 /**
  * External-asset download/cache helper.
  *
- * Flow on startup:
- *   1. `hydrateCachedAssets()` — synchronous (no network) read of the on-disk
- *      lock file. Populates the store with whatever is already cached so the
- *      UI upgrades past the CSS placeholder the moment it paints, even when
- *      the user is offline.
- *   2. `ensureAssetsInstalled(manifestUrl)` — network fetch of the manifest,
- *      then SHA-256-verified download of missing/mismatched assets. Thumbs
- *      download first (tiny) so the picker grid becomes usable fast.
- *   3. On `window.online` — retry any failed downloads automatically.
+ * Startup flow:
+ *   1. `hydrateCachedAssets()` — offline read of the on-disk lock file, so the
+ *      UI upgrades past the placeholder immediately.
+ *   2. `ensureAssetsInstalled(manifestUrl)` — fetch manifest, SHA-256-verified
+ *      download of missing/mismatched assets (thumbs first so the grid is usable).
+ *   3. On `window.online` — retry failed downloads.
  *
- * Manifest URL comes from `PUBLIC_ASSETS_MANIFEST_URL` (Vite env). Falls back
- * to the main `wallpapers-v1` release so dev builds work out of the box.
+ * Manifest URL from `PUBLIC_ASSETS_MANIFEST_URL`, falling back to the
+ * `wallpapers-v1` release so dev builds work out of the box.
  */
 
 import { isTauriApp } from "$lib/runtime/tauri";
@@ -81,11 +78,9 @@ async function runInstall(): Promise<void> {
 }
 
 /**
- * Decode every wallpaper thumbnail into the WebView image cache so the first
- * opening of the BackgroundPicker grid doesn't have to schedule 6+ decode
- * tasks at once. Runs at idle priority — never blocks a paint frame, never
- * touches the network (URLs point at `http://asset.localhost/...` paths
- * already cached on disk by `ensureAssetsInstalled`).
+ * Pre-decode wallpaper thumbnails into the WebView image cache so first opening
+ * of the BackgroundPicker grid isn't a burst of decodes. Idle priority; URLs are
+ * already-cached `asset.localhost` paths, so no network.
  */
 function warmThumbnailCache() {
 	if (typeof window === "undefined") return;

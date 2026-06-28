@@ -16,107 +16,29 @@
 	import * as DropdownMenu from "@recast/ui/dropdown-menu";
 	import { toast } from "@recast/ui/sonner";
 	import { cn } from "@recast/ui/utils";
-	import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 	import { openUrl } from "@tauri-apps/plugin-opener";
 	import { onDestroy, onMount } from "svelte";
 	import { cloudShare } from "$lib/stores/cloudShare.svelte";
+	import { formatBytes } from "$lib/format/bytes";
 	import {
-		authCancel,
-		authSignOut,
-		authStart,
-		authStatus,
-		type AuthPlan,
-		type AuthStatus,
-		type AuthUsage,
-	} from "$lib/ipc";
+		formatMemberSince,
+		formatUserCode,
+		initials,
+		planLabel,
+		roleLabel,
+	} from "./cloud-signin.logic";
+	import { CloudAuth } from "./cloud-signin.svelte";
 
-	/** Title-case a workspace role for the badge ("owner" → "Owner"). */
-	function roleLabel(role: string): string {
-		return role ? role[0]!.toUpperCase() + role.slice(1) : "Member";
-	}
-
-	function planLabel(plan: string): string {
-		if (plan === "pro") return "Pro";
-		if (plan === "enterprise") return "Enterprise";
-		return "Free";
-	}
-
-	/**
-	 * "Sign in to Recast Cloud" row. Recast Cloud is the Loom-style sharing
-	 * layer (instant share links, viewer analytics, password protection,
-	 * branding) on top of the free local app — the app itself never needs
-	 * an account. Drives the device-authorization flow via the Rust
-	 * `auth_*` commands. State machine:
-	 *
-	 *   loading    → initial auth_status check
-	 *   signed-out → button: "Sign in to Recast Cloud" (triggers auth_start)
-	 *   waiting    → browser open, code on screen, button: "Cancel"
-	 *   signed-in  → rich profile card (avatar, plan, usage, manage)
-	 *   denied     → error msg + retry button
-	 *   expired    → error msg + retry button
-	 */
-	type SignedInProfile = {
-		email: string | null;
-		name: string | null;
-		image: string | null;
-		memberSince: string | null;
-		plan: AuthPlan | null;
-		usage: AuthUsage | null;
-	};
-
-	type ViewState =
-		| { kind: "loading" }
-		| { kind: "signed-out" }
-		| {
-			kind: "waiting";
-			userCode: string;
-			verificationUri: string;
-			expiresAt: number;
-		}
-		| ({ kind: "signed-in" } & SignedInProfile)
-		| { kind: "denied" }
-		| { kind: "expired" };
-
-	function toProfile(s: AuthStatus): SignedInProfile {
-		return {
-			email: s.email ?? null,
-			name: s.name ?? null,
-			image: s.image ?? null,
-			memberSince: s.memberSince ?? null,
-			plan: s.plan ?? null,
-			usage: s.usage ?? null,
-		};
-	}
-
-	/** "K", "KK", "?" — feeds the avatar fallback. */
-	function initials(name: string | null, email: string | null): string {
-		const source = (name ?? email ?? "").trim();
-		if (!source) return "?";
-		const parts = source.split(/\s+/).filter(Boolean);
-		if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-		return source.slice(0, 2).toUpperCase();
-	}
-
-	/** "1.2 GB", "640 MB", "0 B". */
-	function formatBytes(bytes: number): string {
-		if (!bytes || bytes < 0) return "0 B";
-		const units = ["B", "KB", "MB", "GB", "TB"];
-		let i = 0;
-		let value = bytes;
-		while (value >= 1024 && i < units.length - 1) {
-			value /= 1024;
-			i++;
-		}
-		return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-	}
-
-	/** "May 2026". */
-	function formatMemberSince(iso: string | null): string | null {
-		if (!iso) return null;
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return null;
-		return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-	}
+	// Recast Cloud sign-in state machine (see cloud-signin.svelte.ts). `view` is
+	// read through a local $derived so discriminated-union narrowing on it keeps
+	// working in the markup below.
+	const auth = new CloudAuth();
+	const view = $derived(auth.view);
+	const busy = $derived(auth.busy);
+	const inFlight = $derived(auth.inFlight);
+	const startSignIn = () => auth.startSignIn();
+	const signOut = () => auth.signOut();
+	const cancelSignIn = () => auth.cancelSignIn();
 
 	const dashboardUrl = "https://recast.nexonauts.com/dashboard/settings/profile";
 
@@ -128,168 +50,8 @@
 		}
 	}
 
-	let view = $state<ViewState>({ kind: "loading" });
-	// Tracks which action is mid-flight so the right button can show its own
-	// spinner + active-verb label ("Signing in…", "Signing out…"). A plain
-	// boolean wouldn't tell us which of the two buttons triggered the
-	// disable. `null` = idle.
-	let inFlight = $state<null | "sign-in" | "sign-out">(null);
-	const busy = $derived(inFlight !== null);
-	let unlisteners: UnlistenFn[] = [];
-	let destroyed = false;
-
-	function formatUserCode(code: string): string {
-		const clean = code.replace(/-/g, "").toUpperCase();
-		if (clean.length <= 4) return clean;
-		const half = Math.floor(clean.length / 2);
-		return `${clean.slice(0, half)}-${clean.slice(half)}`;
-	}
-
-	async function loadStatus() {
-		try {
-			const status = await authStatus();
-			view = status.signedIn
-				? { kind: "signed-in", ...toProfile(status) }
-				: { kind: "signed-out" };
-			// Keep the shared store (which the share flow reads for workspace
-			// targeting) in sync with what we just fetched.
-			void cloudShare.refreshStatus();
-		} catch (e) {
-			toast.error(`Couldn't check sign-in state: ${e}`);
-			view = { kind: "signed-out" };
-		}
-	}
-
-	/** Refetch profile (plan/usage) without leaving the signed-in card. */
-	async function refreshProfile() {
-		try {
-			const status = await authStatus();
-			if (status.signedIn && view.kind === "signed-in") {
-				view = { kind: "signed-in", ...toProfile(status) };
-			}
-		} catch {
-			// Silent — keep stale data on a transient refresh failure.
-		}
-	}
-
-	async function startSignIn() {
-		if (busy) return;
-		inFlight = "sign-in";
-		try {
-			const result = await authStart();
-			view = {
-				kind: "waiting",
-				userCode: result.user_code,
-				verificationUri: result.verification_uri,
-				expiresAt: Date.now() + result.expires_in * 1000,
-			};
-		} catch (e) {
-			toast.error(`Couldn't start sign-in: ${e}`);
-		} finally {
-			inFlight = null;
-		}
-	}
-
-	async function signOut() {
-		if (busy) return;
-		inFlight = "sign-out";
-		try {
-			await authSignOut();
-			toast.success("Signed out of Recast Cloud.");
-			view = { kind: "signed-out" };
-			// Drops the cached workspace list + persisted selection.
-			void cloudShare.refreshStatus();
-		} catch (e) {
-			toast.error(`Couldn't sign out: ${e}`);
-		} finally {
-			inFlight = null;
-		}
-	}
-
-	/**
-	 * Cancel an in-flight sign-in. Two responsibilities:
-	 *
-	 *   1. Tell the Rust poller to stop (`auth_cancel`). Without this the
-	 *      background poller keeps hitting /device/token until the code
-	 *      expires — and if the user approves in the (now-abandoned)
-	 *      browser tab, the next poll would silently sign them in despite
-	 *      the UI showing "signed-out".
-	 *   2. Reset the local view immediately. Don't await `auth_cancel` for
-	 *      the UI transition — the abort is best-effort and instant on the
-	 *      Rust side anyway.
-	 */
-	async function cancelSignIn() {
-		view = { kind: "signed-out" };
-		try {
-			await authCancel();
-		} catch (e) {
-			// Cancel is idempotent on the Rust side; surfacing this would
-			// only confuse the user since the UI already reset.
-			console.warn("auth_cancel failed (non-fatal):", e);
-		}
-	}
-
-	onMount(() => {
-		loadStatus();
-
-		// Background-poller events from Rust. Each event handler ignores the
-		// firing if the view is no longer "waiting" — this is defense in
-		// depth on top of `auth_cancel`'s abort, in case a poll response
-		// landed BETWEEN the user clicking Cancel and the abort taking effect.
-		// Without this gate, a stale "signed-in" event could yank a
-		// signed-out UI into signed-in state without further user action.
-		(async () => {
-			const handles = await Promise.all([
-				listen<AuthStatus>("auth:signed-in", (event) => {
-					if (view.kind !== "waiting") return;
-					const s = event.payload;
-					// The Rust poller already fetched the full profile (it hits
-					// /api/desktop/profile after /device/token returns), so the
-					// payload carries plan + usage — no refetch needed here.
-					view = { kind: "signed-in", ...toProfile(s ?? ({} as AuthStatus)) };
-					// Hydrate the shared store so the workspace selector below and
-					// the share flow both see the freshly-signed-in workspaces.
-					void cloudShare.refreshStatus();
-					toast.success("Signed in to Recast Cloud.");
-				}),
-				listen("auth:denied", () => {
-					if (view.kind !== "waiting") return;
-					view = { kind: "denied" };
-				}),
-				listen("auth:expired", () => {
-					if (view.kind !== "waiting") return;
-					view = { kind: "expired" };
-				}),
-				listen<string>("auth:error", (event) => {
-					if (view.kind !== "waiting") return;
-					toast.error(`Sign-in error: ${event.payload}`);
-					view = { kind: "signed-out" };
-				}),
-				// Self-host endpoint changed (Settings → Cloud → Server endpoint).
-				// The Rust side dropped the old server's token, so re-check status
-				// against the new endpoint — this flips the card back to
-				// signed-out without a full reload.
-				listen("cloud:endpoint-changed", () => {
-					if (view.kind === "waiting") cancelSignIn();
-					view = { kind: "loading" };
-					loadStatus();
-				}),
-			]);
-			// If onDestroy fired while the listens were resolving, we'd leak
-			// these handles forever — call them immediately instead.
-			if (destroyed) {
-				for (const un of handles) un();
-				return;
-			}
-			unlisteners = handles;
-		})();
-	});
-
-	onDestroy(() => {
-		destroyed = true;
-		for (const un of unlisteners) un();
-		unlisteners = [];
-	});
+	onMount(() => auth.start());
+	onDestroy(() => auth.dispose());
 </script>
 
 <div class="px-4 py-3">

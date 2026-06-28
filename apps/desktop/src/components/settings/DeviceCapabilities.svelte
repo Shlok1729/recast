@@ -32,15 +32,13 @@
   import { cn } from "@recast/ui/utils";
   import { onMount } from "svelte";
 
-  // OS facts (best-effort — each os-plugin getter is wrapped so a blocked
-  // permission or non-Tauri preview degrades to "Unknown" instead of
-  // throwing the whole panel away).
+  // Best-effort: each os-plugin getter is wrapped so a blocked permission or
+  // non-Tauri preview degrades to "Unknown" rather than throwing the panel away.
   let osLabel = $state("Unknown");
   let osVersion = $state("");
   let osArch = $state("");
-  // Raw platform key ("windows" / "macos" / …) kept alongside the display
-  // label so the capture-support row can key off it without string-matching
-  // the localized label. Empty until loadOsInfo resolves.
+  // Raw key ("windows" / "macos" / …) so rows can branch on it without
+  // string-matching the localized label. Empty until loadOsInfo resolves.
   let platform = $state("");
 
   let diagnostics = $state<FfmpegDiagnostics | null>(null);
@@ -125,11 +123,8 @@
     void loadCapture();
   });
 
-  // `os.version()` returns the raw NT version on Windows — "10.0.26200" —
-  // because Windows 11 still reports kernel 10.0; only the build number
-  // (≥22000) distinguishes 11 from 10. Surface the marketing name + build
-  // instead of the bare NT string so the panel reads "Windows 11 (Build
-  // 26200)" rather than the confusing "10.0.26200".
+  // Windows 11 still reports NT kernel 10.0; only build ≥22000 distinguishes it
+  // from 10, so we surface the build instead of the bare "10.0.26200".
   function windowsBuild(v: string): number | null {
     const m = /^\d+\.\d+\.(\d+)/.exec(v);
     return m ? Number(m[1]) : null;
@@ -144,8 +139,7 @@
     return osLabel;
   });
 
-  // Second fact row: the build (Windows) or raw version (kernel/Darwin
-  // elsewhere). Labeled "Build" on Windows since that's the meaningful number.
+  // Build on Windows (the meaningful number), raw version elsewhere.
   const osDetail = $derived.by(() => {
     if (platform === "windows") {
       const build = windowsBuild(osVersion);
@@ -154,9 +148,7 @@
     return osVersion;
   });
 
-  // The "screen" row is the headline verdict — can this machine record its
-  // screen at all? The rest of the matrix (audio, camera, cursor) hangs off
-  // the collapsible list below.
+  // Screen is the headline verdict; audio/camera/cursor hang off the list below.
   const screenCap = $derived(
     captureCaps?.capabilities.find((c) => c.key === "screen") ?? null,
   );
@@ -169,8 +161,7 @@
   });
   let showCapture = $state(false);
 
-  // Per-capability Lucide icon, keyed by the Rust `key`. Falls back to the
-  // screen glyph for any future key the backend adds before the UI does.
+  // Keyed by the Rust `key`; falls back to the screen glyph for unknown keys.
   const CAP_ICON: Record<string, Component> = {
     screen: MonitorPlay,
     window: AppWindow,
@@ -194,9 +185,7 @@
     ].filter((f) => f.value),
   );
 
-  // Group the probed encoders by codec family ("H.264" / "HEVC") so the
-  // matrix renders a labeled section per codec instead of one flat list.
-  // Order follows first-appearance in the probe result (H.264 then HEVC).
+  // Group encoders by codec family for the matrix; order follows first-appearance.
   const encoderGroups = $derived.by(() => {
     const groups: { family: string; items: EncoderAvailability[] }[] = [];
     for (const enc of encoders) {
@@ -210,16 +199,13 @@
     return groups;
   });
 
-  // The plain-language verdict: which encoder the recorder actually picked, and
-  // whether it's a GPU (hardware) path. This is the one thing a non-technical
-  // user needs — the per-codec matrix below is collapsed power-user detail.
+  // Which encoder the recorder actually picked, and whether it's a GPU path.
   const activeEncoder = $derived(encoders.find((e) => e.active) ?? null);
   const isAccelerated = $derived(activeEncoder?.hardware ?? false);
   let showDetails = $state(false);
 </script>
 
 <div class="flex flex-col gap-3">
-  <!-- Platform / engine facts -->
   <div
     class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
   >
@@ -242,9 +228,7 @@
     </dl>
   </div>
 
-  <!-- Capture support — what this device's native APIs can actually record,
-       probed at runtime (DXGI / AVFoundation / PipeWire / X11) rather than
-       hardcoded per platform. -->
+  <!-- Probed at runtime (DXGI / AVFoundation / PipeWire / X11), not hardcoded. -->
   <div
     class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
   >
@@ -268,8 +252,6 @@
         Couldn't check capture support: {captureError}
       </div>
     {:else if captureCaps}
-      <!-- Plain-language verdict: can this machine actually record its screen,
-           and which native API does it use? -->
       <div class="flex items-start gap-3 px-4 py-3.5">
         <div
           class={cn(
@@ -309,9 +291,7 @@
         </div>
       </div>
 
-      <!-- Per-feature support matrix, collapsed by default — each row is the
-           native API behind that capture input on this device. Collapsible
-           gives it a smooth native `slide` (real height) transition. -->
+      <!-- Per-feature matrix, collapsed by default; one row per capture input. -->
       <Collapsible.Root bind:open={showCapture}>
         <Collapsible.Trigger
           class="flex w-full items-center justify-between gap-2 border-t border-border/30 px-4 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
@@ -373,7 +353,6 @@
     {/if}
   </div>
 
-  <!-- Hardware acceleration / encoder matrix -->
   <div
     class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
   >
@@ -411,8 +390,6 @@
         </div>
       </div>
     {:else}
-      <!-- Plain-language verdict — the one thing a non-technical user needs:
-           is recording using the graphics card (GPU) or the processor (CPU)? -->
       <div class="flex items-start gap-3 px-4 py-3.5">
         <div
           class={cn(
@@ -458,9 +435,7 @@
         </div>
       </div>
 
-      <!-- Per-codec matrix, collapsed by default — kept for power users and bug
-           reports without making jargon the headline. Collapsible gives it a
-           smooth native `slide` (real height) transition. -->
+      <!-- Per-codec matrix, collapsed by default; power-user / bug-report detail. -->
       <Collapsible.Root bind:open={showDetails}>
         <Collapsible.Trigger
           class="flex w-full items-center justify-between gap-2 border-t border-border/30 px-4 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"

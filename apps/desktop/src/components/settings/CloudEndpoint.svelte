@@ -8,17 +8,11 @@
 	import { getCloudApiConfig, setCloudApiUrl, type CloudApiConfig } from "$lib/ipc";
 
 	/**
-	 * Self-hosting server endpoint. Most users never touch this — Recast Cloud
-	 * points at the bundled default. Self-hosters run their own SvelteKit
-	 * server and need the desktop to target it; this is the only place to set
-	 * that without recompiling.
-	 *
-	 * The Rust resolver (`auth::cloud_api_url`) validates the saved value and
-	 * falls back to the default if it's empty or malformed, so a bad value can
-	 * never brick cloud sign-in. We validate on save too (via `set_cloud_api_url`)
-	 * to give an explicit error instead of a silent revert. Changing the
-	 * endpoint clears the local session token server-side, so we emit
-	 * `cloud:endpoint-changed` to nudge the sign-in card back to signed-out.
+	 * Self-hosting server endpoint override. The Rust resolver
+	 * (`auth::cloud_api_url`) falls back to the default on an empty/malformed
+	 * value, so a bad entry can't brick sign-in; we validate on save too for an
+	 * explicit error. Changing the endpoint invalidates the session, so we emit
+	 * `cloud:endpoint-changed` to reset the sign-in card to signed-out.
 	 */
 	let config = $state<CloudApiConfig | null>(null);
 	let input = $state("");
@@ -87,8 +81,8 @@
 				Server endpoint
 			</span>
 			<span class="text-[11px] text-muted-foreground">
-				Self-hosting Recast Cloud? Point the app at your server. Leave blank
-				to use the default. Changing this signs you out of the current server.
+				Self-hosting Recast Cloud? Point the app at your server. Changing
+				this signs you out of the current server.
 			</span>
 		</div>
 

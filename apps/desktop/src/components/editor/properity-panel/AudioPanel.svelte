@@ -1,5 +1,12 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
+  import { clock } from "$lib/format/time";
+  import {
+    dbForVolume,
+    envelopePath as envelopePathBase,
+    FADE_PRESETS,
+    type FadePreset,
+  } from "./audio-panel.logic";
   import {
     AudioLines,
     AudioWaveform,
@@ -38,8 +45,7 @@
     updateAudioSettings({ volume: 100 }, true);
   }
 
-  // M keyboard shortcut. Suppressed inside text inputs and contenteditable
-  // (e.g. text annotations) so it doesn't fire while the user is typing.
+  // Suppress the M shortcut while typing in an input/contenteditable.
   function isEditableTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     if (target.isContentEditable) return true;
@@ -55,8 +61,8 @@
     }
   }
 
-  // Volume zones for the slider readout. Above 100% the export pipeline
-  // applies straight gain, which can clip — surface that as a warning.
+  // Volume zones for the readout. Above 100% the export applies straight gain,
+  // which can clip — surfaced as a warning.
   type Zone = "muted" | "low" | "nominal" | "boost" | "hot";
   const volumeZone = $derived.by<Zone>(() => {
     if (store.audioSettings.muted) return "muted";
@@ -68,28 +74,11 @@
     return "hot";
   });
 
-  // dB-ish display ("0 dB" at 100%, calibrated as 20·log10(volume/100)). Not
-  // strictly the same as the Rust ffmpeg `volume=` filter (which is a
-  // multiplier on the linear sample value) but matches user intuition.
-  function dbForVolume(v: number): string {
-    if (v <= 0) return "−∞ dB";
-    const db = 20 * Math.log10(v / 100);
-    if (Math.abs(db) < 0.05) return "0.0 dB";
-    return `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
-  }
-
-  const FADE_PRESETS: Array<{ label: string; in: number; out: number }> = [
-    { label: "None", in: 0, out: 0 },
-    { label: "Subtle", in: 0.25, out: 0.25 },
-    { label: "Smooth", in: 0.5, out: 1.0 },
-    { label: "Cinematic", in: 1.0, out: 2.0 },
-  ];
-
-  function applyPreset(preset: (typeof FADE_PRESETS)[number]) {
+  function applyPreset(preset: FadePreset) {
     store.pushUndoState();
     store.updateAudioSettings({ fadeIn: preset.in, fadeOut: preset.out });
   }
-  function isPresetActive(preset: (typeof FADE_PRESETS)[number]): boolean {
+  function isPresetActive(preset: FadePreset): boolean {
     const a = store.audioSettings;
     return (
       Math.abs(a.fadeIn - preset.in) < 0.01 &&
@@ -97,8 +86,8 @@
     );
   }
 
-  // The currently matching preset (if any) drives the Segmented selection;
-  // dragging the sliders to a custom value leaves nothing selected.
+  // Matching preset drives the Segmented selection; a custom slider value
+  // leaves nothing selected.
   const activePreset = $derived(
     FADE_PRESETS.find((p) => isPresetActive(p))?.label ?? "",
   );
@@ -106,39 +95,19 @@
     FADE_PRESETS.map((p) => ({ value: p.label, label: p.label })),
   );
 
-  // SVG path for a tiny gain envelope visualization. Mirrors the FFmpeg
-  // afade behaviour: linear ramp 0→1 over fadeIn at the head, hold at 1,
-  // then linear ramp 1→0 over fadeOut at the tail.
-  function envelopePath(fadeIn: number, fadeOut: number): string {
-    const W = 100;
-    const H = 24;
-    const totalSecs = Math.max(0.01, store.clipDuration || 1);
-    const fi = Math.max(0, Math.min(fadeIn, totalSecs * 0.5));
-    const fo = Math.max(0, Math.min(fadeOut, totalSecs * 0.5));
-    const xIn = (fi / totalSecs) * W;
-    const xOut = W - (fo / totalSecs) * W;
-    const yTop = 2;
-    const yBottom = H - 2;
-    return `M 0 ${yBottom} L ${xIn.toFixed(2)} ${yTop} L ${xOut.toFixed(2)} ${yTop} L ${W} ${yBottom}`;
-  }
-
-  function formatClipDuration(): string {
-    const t = Math.max(0, store.clipDuration || 0);
-    const m = Math.floor(t / 60);
-    const s = Math.floor(t % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  }
+  // Wrappers: read the reactive store, defer maths to the shared helpers.
+  const envelopePath = (fadeIn: number, fadeOut: number): string =>
+    envelopePathBase(fadeIn, fadeOut, store.clipDuration || 1);
+  const formatClipDuration = (): string => clock(store.clipDuration || 0);
 </script>
 
-<!-- Local, focus-aware: `M` toggles mute (documented in the central shortcut
-     registry). `<svelte:window>` so Svelte rebinds it on every HMR patch. -->
+<!-- `M` toggles mute. `<svelte:window>` so Svelte rebinds it on each HMR patch. -->
 <svelte:window onkeydown={handleKey} />
 
 <div
   class="flex flex-col gap-4"
   in:fly={{ y: 8, duration: 260, delay: 40, easing: cubicOut }}
 >
-  <!-- Output: master gain readout sits directly above the slider that drives it -->
   <PanelSection
     title="Output"
     hint="Volume affects editor playback and export. Press M to toggle mute."
@@ -171,7 +140,6 @@
     {/snippet}
 
     <div class="flex flex-col gap-2.5">
-      <!-- Hero meter: gain % + dB + clipping warning + linear gain bar -->
       <div
         class="rounded-md border border-border bg-card/60 px-3 py-2.5"
         class:opacity-50={store.audioSettings.muted}
@@ -217,7 +185,6 @@
           {/if}
         </div>
 
-        <!-- Linear gain bar with 100% reference mark -->
         <div class="relative mt-2 h-1.5 overflow-hidden rounded-full bg-background">
           <div
             class="absolute inset-y-0 left-0 transition-all duration-300 {volumeZone ===
@@ -239,7 +206,6 @@
         </div>
       </div>
 
-      <!-- The control for the readout above -->
       <SliderControl
         label="Output volume"
         value={store.audioSettings.volume}
@@ -261,7 +227,7 @@
 
   <PanelSection
     title="Fades"
-    hint="Fades are export-side only — playback stays responsive while you edit."
+    hint="Fades apply to the exported file, not to editor playback."
     flush
     collapsible
   >
@@ -274,7 +240,6 @@
       </span>
     {/snippet}
 
-    <!-- Envelope visualization -->
     <div class="rounded-md border border-border bg-background/60 p-2">
       <svg
         viewBox="0 0 100 24"
@@ -311,7 +276,6 @@
       </div>
     </div>
 
-    <!-- Presets -->
     <div class="mt-2">
       <Segmented
         size="xs"

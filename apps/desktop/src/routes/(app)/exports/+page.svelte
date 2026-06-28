@@ -11,6 +11,11 @@
     renameFile,
     type RecordingEntry,
   } from "$lib/ipc";
+  import {
+    formatSize,
+    getExtension,
+    relativeDate as relativeDateBase,
+  } from "$lib/format/files";
   import { morph } from "$lib/morph";
   import { isShareSupported, shareRecording } from "$lib/share";
   import { cloudShare } from "$lib/stores/cloudShare.svelte";
@@ -78,13 +83,9 @@
 
   onMount(() => {
     fetchExports();
-    // Hydrate Drive upload history so each row's dropdown can pick the
-    // right action ("Upload to Drive" vs. "Copy link / Open / Forget")
-    // without a per-row roundtrip. The store caches across mounts so
-    // subsequent visits are instant.
+    // Hydrate upload history so each row's dropdown picks the right action
+    // (upload vs. copy-link/manage) without a per-row roundtrip.
     void gdrive.init();
-    // Same for Recast Cloud — hydrates sign-in state + the share manifest so
-    // each row shows "Share to Cloud" vs. "Copy link / Manage".
     void cloudShare.init();
     view = safeStorage.get<"grid" | "list">("exports-view", view);
   });
@@ -121,34 +122,9 @@
     thumbnails = next;
   }
 
-  function formatSize(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
-  }
-
-  function formatDate(unix: number) {
-    return new Date(unix * 1000).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function relativeDate(unix: number) {
-    const diff = Date.now() / 1000 - unix;
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
-    return formatDate(unix);
-  }
-
-  function getExtension(filename: string) {
-    const dot = filename.lastIndexOf(".");
-    return dot >= 0 ? filename.slice(dot + 1).toUpperCase() : "FILE";
-  }
+  // >1-week fallback keeps the time (date + time), matching this list's history.
+  const relativeDate = (unix: number) =>
+    relativeDateBase(unix, { withTime: true });
 
   async function copyPath(entry: RecordingEntry) {
     try {
@@ -185,26 +161,21 @@
       const { [entry.path]: _, ...rest } = thumbnails;
       thumbnails = rest;
     }
-    // The file is gone — drop its Drive-upload record so the row doesn't
-    // come back next session claiming it was uploaded. The Drive file
-    // itself is left alone; users can still find it in their Drive.
+    // Local file is gone — drop its upload records so the row doesn't return
+    // next session claiming a copy. The remote objects are left untouched.
     void gdrive.forgetUpload(entry.path);
-    // Same for the Recast Cloud manifest — the local file is gone, so the row
-    // shouldn't keep claiming a cloud copy. The cloud object is left alone.
     void cloudShare.forget(entry.path);
     toast.success(`Moved "${entry.filename}" to trash`);
   }
 
   /**
-   * Share an export to Recast Cloud: uploads the MP4 and creates a public
-   * link, then copies it. Routes to Settings if not signed in — the device
-   * sign-in opens a browser tab and shouldn't happen inline from a menu.
-   * Progress is surfaced via the corner-notification stack.
+   * Share an export to Recast Cloud: upload, create a public link, copy it.
+   * Routes to Settings when signed out — device sign-in opens a browser tab
+   * and shouldn't happen inline from a menu.
    */
   async function shareToCloud(entry: RecordingEntry) {
-    // Only block on the network the very first time (before the store has
-    // hydrated). Afterwards the cached workspace list opens the picker
-    // instantly — no frozen screen. A loading toast covers that first wait.
+    // Only block on the network before the store has hydrated; a loading toast
+    // covers that first wait. Afterwards the cached workspace list is instant.
     if (!cloudShare.initialized) {
       const tid = toast.loading("Connecting to Recast Cloud…");
       await cloudShare.init();
@@ -216,8 +187,7 @@
       return;
     }
     const title = entry.filename.replace(/\.[^.]+$/, "");
-    // Belongs to more than one workspace → let them confirm the target before
-    // the upload commits. A single workspace (or none) needs no prompt.
+    // Multiple workspaces → confirm the target before the upload commits.
     if (cloudShare.workspaces.length > 1) {
       workspacePick = { path: entry.path, title, fileName: entry.filename };
       // Freshen plan/recast counts in the background while they choose.
@@ -270,9 +240,8 @@
   }
 
   /**
-   * Drive upload from the exports list. Routes to Settings if Drive isn't
-   * connected yet — the consent flow opens a browser tab and shouldn't
-   * happen inline from a dropdown menu.
+   * Drive upload from the exports list. Routes to Settings when Drive isn't
+   * connected — the consent flow opens a browser tab, not inline.
    */
   async function uploadToDrive(entry: RecordingEntry) {
     await gdrive.init();
@@ -283,7 +252,6 @@
     }
     try {
       await gdrive.upload(entry.path);
-      // Progress is surfaced via the corner-notification stack.
     } catch (e) {
       toast.error(`Drive upload failed: ${e}`);
     }
@@ -294,9 +262,8 @@
   const shareSupported = isShareSupported();
 
   /**
-   * Open the OS share sheet for an export. Tries the file payload first
-   * (Web Share Level 2) and falls back to sharing the recorded Drive link
-   * if the runtime can't share files.
+   * Open the OS share sheet for an export. Tries the file payload (Web Share
+   * Level 2), falling back to the recorded Drive link if files can't be shared.
    */
   async function shareEntry(entry: RecordingEntry) {
     const fallbackLink = gdrive.getRecordForPath(entry.path)?.webViewLink;
@@ -319,11 +286,7 @@
     }
   }
 
-  /**
-   * Copy the previously-recorded Drive link for this export to the
-   * clipboard. The history map is hydrated from a local JSON manifest on
-   * disk — no network roundtrip.
-   */
+  /** Copy the recorded Drive link from the local manifest — no network. */
   async function copyDriveLink(entry: RecordingEntry) {
     const record = gdrive.getRecordForPath(entry.path);
     if (!record?.webViewLink) {
@@ -338,8 +301,7 @@
     }
   }
 
-  // Open the stored Drive link in the user's default browser. Falls back
-  // to a plain window.open if the opener plugin isn't reachable (web build).
+  // openUrl via the opener plugin; window.open fallback for the web build.
   async function openDriveLink(entry: RecordingEntry) {
     const record = gdrive.getRecordForPath(entry.path);
     if (!record?.webViewLink) {
@@ -354,11 +316,9 @@
     }
   }
 
-  // Forget the Drive-link association for a local file. Used as the
-  // recovery path when the Drive file was deleted in Drive's UI or the
-  // local file no longer matches the uploaded copy — after forgetting,
-  // the dropdown flips back to "Upload to Drive". The Drive object itself
-  // is left untouched: anyone with the previous shared link can still see it.
+  // Recovery path when the Drive file was deleted or no longer matches: drops
+  // the local association so the dropdown flips back to "Upload to Drive". The
+  // Drive object is left untouched.
   async function forgetDriveLink(entry: RecordingEntry) {
     await gdrive.forgetUpload(entry.path);
     toast.success(`Forgot Drive link for "${entry.filename}"`);
@@ -454,7 +414,7 @@
 
 <div class="h-full overflow-y-auto scrollbar-transparent no-scrollbar">
   <div class="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
-    <!-- Hero (mirrors home + recasts rhythm) -->
+    <!-- Hero -->
     <header
       in:fly={{ y: 12, duration: 320, easing: cubicOut }}
       class="flex flex-col gap-3"
@@ -484,7 +444,7 @@
       </p>
     </header>
 
-    <!-- Hero search bar (matches home page) -->
+    <!-- Search bar -->
     <label
       in:fly={{ y: 12, duration: 320, delay: 60, easing: cubicOut }}
       class="group/search flex h-12 items-center gap-3 rounded-xl border border-border/60 bg-card/70 px-4 shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:border-border hover:bg-card hover:shadow-craft-sm focus-within:border-border focus-within:bg-card focus-within:shadow-craft-sm"
@@ -512,7 +472,7 @@
       {/if}
     </label>
 
-    <!-- Section header + content -->
+    <!-- Section header -->
     <div
       in:fly={{ y: 12, duration: 320, delay: 120, easing: cubicOut }}
       class="flex flex-col gap-3"
@@ -742,10 +702,7 @@
                   {getExtension(entry.filename)}
                 </Badge>
 
-                <!-- Drive upload progress chip. Sits on the thumbnail so
-                     the user can see at a glance which row is currently
-                     uploading — paired with the bottom progress bar
-                     below to make the state unambiguous. -->
+                <!-- Drive upload progress chip on the thumbnail (paired with the bottom bar). -->
                 {#if activeUpload}
                   <span
                     class="absolute left-1.5 top-1.5 flex h-4 items-center gap-1 rounded-md bg-background/85 px-1.5 text-[9px] font-semibold tracking-wide text-foreground shadow-craft-sm backdrop-blur"
@@ -828,14 +785,9 @@
                       {/if}
                       <DropdownMenu.Separator />
                       {#if gdrive.uploadHistory[entry.path]}
-                        <!-- Already uploaded — the saved webViewLink is the
-                             shareable artifact. We deliberately don't expose
-                             a "re-upload" action: it would create a NEW Drive
-                             file (different fileId) and silently abandon the
-                             URL the user already shared with others. If the
-                             Drive file was deleted in Drive's UI or the local
-                             file no longer matches the upload, "Forget Drive
-                             link" flips the row back to "Upload to Drive". -->
+                        <!-- No "re-upload" action by design: it would mint a new
+                             Drive file (new fileId) and abandon the URL the user
+                             already shared. "Forget" is the way back to upload. -->
                         <DropdownMenu.Item
                           onSelect={() => copyDriveLink(entry)}
                         >
@@ -862,10 +814,8 @@
                       {/if}
                       <DropdownMenu.Separator />
                       {#if cloudShare.uploadHistory[entry.path]}
-                        <!-- Already shared to Recast Cloud — the share link is
-                             the artifact. "Manage" opens scope / password /
-                             expiry / delete; "Forget" just drops the local
-                             association (the cloud copy is left untouched). -->
+                        <!-- "Manage" opens scope/password/expiry/delete; "Forget"
+                             drops only the local association. -->
                         <DropdownMenu.Item onSelect={() => copyCloudLink(entry)}>
                           <Link2 /> Copy share link
                         </DropdownMenu.Item>
@@ -899,9 +849,7 @@
                 </div>
               {/if}
 
-              <!-- Drive upload progress strip. Pinned to the card's bottom
-                   edge; the card has overflow-hidden so this respects the
-                   rounded corners. Width animates with the bytes-sent ratio
+              <!-- Drive upload progress strip; width tracks the bytes-sent ratio
                    the Rust side emits between resumable-upload chunks. -->
               {#if activeUpload}
                 <div
@@ -915,8 +863,7 @@
                 </div>
               {/if}
 
-              <!-- Recast Cloud share-in-flight strip. Phase-based (no byte %),
-                   so it's an indeterminate pulse rather than a fill. -->
+              <!-- Cloud share strip: phase-based (no byte %), so an indeterminate pulse. -->
               {#if cloudActive}
                 <div
                   class="pointer-events-none absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-muted/30"

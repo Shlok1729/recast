@@ -1,18 +1,12 @@
 /**
- * Asset registry — shared types.
+ * Asset registry shared types — Tier 0 of the extensions architecture: one
+ * addressable catalog for the editor's visual assets (cursors, backgrounds,
+ * gradients, colours, easing, smoothing presets).
  *
- * Tier 0 of the extensions architecture: a single addressable catalog for the
- * editor's visual assets (cursors, backgrounds, gradients, colours, easing and
- * cursor-smoothing presets). Built-in catalogs register their entries here at
- * load; installed extension packs (Tier 1) register theirs after hydration.
- *
- * Storage ids:
- *  - Built-ins keep their *exact legacy* storage form (a bare local id like
- *    `macos`, or a literal value such as a hex/gradient string for kinds that
- *    were historically stored inline). This guarantees old project files keep
- *    resolving with no migration.
- *  - Extension entries are addressed as `ext:<extId>:<localId>` so they never
- *    collide with built-ins and degrade gracefully when the pack is removed.
+ * Storage ids: built-ins keep their exact legacy form (bare local id, or a
+ * literal hex/gradient for inline-stored kinds) so old project files resolve
+ * with no migration. Extension entries are `ext:<extId>:<localId>` so they
+ * never collide with built-ins and degrade gracefully when the pack is removed.
  */
 
 import type { Easing } from "$lib/easing/cubic-bezier";

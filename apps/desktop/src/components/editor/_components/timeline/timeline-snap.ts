@@ -1,8 +1,7 @@
 import { quantizeToFrame } from "./timeline-helpers";
 
-// Snap resolver shared by drag/resize on zoom region cards. Pure module —
-// returns both the snapped value and which target produced it, so callers
-// can render a guide line at the active snap.
+// Snap resolver for drag/resize on region cards. Returns both the snapped
+// value and which target produced it so callers can draw a guide at the snap.
 
 export type SnapKind =
 	| "playhead"
@@ -21,8 +20,6 @@ export interface SnapTarget {
 	kind: SnapKind;
 }
 
-// User-facing label for the snap guide badge. Shared by every lane so the
-// wording stays identical no matter which lane reports the active snap.
 export function snapLabel(kind: SnapKind): string {
 	switch (kind) {
 		case "playhead":
@@ -53,12 +50,9 @@ export interface SnapResult {
 	target: SnapTarget | null;
 }
 
-// Resolve a candidate time against the supplied targets. Within `toleranceTime`
-// of any target we lock to that target; otherwise we fall through to the
-// frame grid so writes never land at sub-frame fractions.
-//
-// Targets are checked in array order — pass them with the most "intentful"
-// first (playhead, in/out) so they win ties against neighbour edges.
+// Lock to the nearest target within `toleranceTime`, else fall through to the
+// frame grid so writes never land sub-frame. Targets are checked in array order;
+// pass the most intentful first (playhead, in/out) so they win ties.
 export function snapTime(
 	candidate: number,
 	targets: SnapTarget[],
@@ -78,9 +72,6 @@ export function snapTime(
 	return { time: quantizeToFrame(candidate, fps), target: null };
 }
 
-// Convenience: produce the standard target list a zoom-card drag wants to
-// snap against. Pass `excludeRegionId` to keep a card from snapping to its
-// own edges while it's being moved.
 export interface BuildTargetsArgs {
 	playhead: number;
 	inPoint: number;
@@ -88,11 +79,7 @@ export interface BuildTargetsArgs {
 	duration: number;
 	regions: ReadonlyArray<{ id: string; start: number; end: number }>;
 	annotations?: ReadonlyArray<{ id: string; start: number; end: number }>;
-	/**
-	 * Range identifier(s) to omit from the target list — pass the moving
-	 * card's id so it doesn't snap to its own edges. Accepts either a
-	 * single id (zoom case) or a structured exclude (annotation case).
-	 */
+	/** Id of the moving card so it doesn't snap to its own edges. */
 	excludeRegionId?: string | null;
 	excludeAnnotationId?: string | null;
 }

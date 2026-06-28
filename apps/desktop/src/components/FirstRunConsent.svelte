@@ -16,7 +16,7 @@
 		desktopConsent.setProduct(product);
 		desktopConsent.setErrors(errors);
 		desktopConsent.markFirstRunSeen();
-		// Apply to the live analytics client (inits / opts-in / opts-out as needed).
+		// Inits / opts-in / opts-out the live analytics client as needed.
 		syncConsent();
 		onclose();
 	}

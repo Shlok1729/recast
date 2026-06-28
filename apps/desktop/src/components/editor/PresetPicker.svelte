@@ -254,6 +254,17 @@
 <script lang="ts">
   import LazyExternalImage from "$components/common/LazyExternalImage.svelte";
   import {
+    aspectClass,
+    bgPreviewStyle,
+    buildModel,
+    clampIndex,
+    filterPresets,
+    frameInsetPct,
+    groupPresets,
+    rowMoveIndex,
+    wallpaperId,
+  } from "./preset-picker.logic";
+  import {
     Briefcase,
     Camera,
     Check,
@@ -293,69 +304,9 @@
     currentId ? (PRESETS.find((p) => p.id === currentId) ?? null) : null,
   );
 
-  function score(p: Preset, q: string): number {
-    if (!q) return 1;
-    const n = q.toLowerCase();
-    const label = p.label.toLowerCase();
-    const cat = p.category.toLowerCase();
-    if (label.startsWith(n)) return 100;
-    if (cat.startsWith(n)) return 90;
-    if (label.includes(n)) return 80;
-    if (cat.includes(n)) return 60;
-    if ((p.description ?? "").toLowerCase().includes(n)) return 40;
-    if ((p.keywords ?? []).some((k) => k.toLowerCase().includes(n))) return 30;
-    if (p.aspect.toLowerCase().includes(n)) return 20;
-    return 0;
-  }
-
-  const filtered = $derived(
-    PRESETS.map((p) => ({ p, s: score(p, query) }))
-      .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .map((x) => x.p),
-  );
-
-  const grouped = $derived.by<[string, Preset[]][]>(() => {
-    if (query.trim()) return [["Results", filtered]];
-    const map = new Map<string, Preset[]>();
-    for (const p of filtered) {
-      if (!map.has(p.category)) map.set(p.category, []);
-      map.get(p.category)!.push(p);
-    }
-    const entries = [...map.entries()];
-    // Pin the currently-applied preset to the top for instant re-apply.
-    if (currentPreset) entries.unshift(["Current", [currentPreset]]);
-    return entries;
-  });
-
-  type Cell = { preset: Preset; index: number };
-  type Group = { category: string; rows: Cell[][] };
-
-  // Layout model: each category chunked into rows of COLS, with an explicit
-  // running `index` per cell. Indices are unique even though the pinned
-  // "Current" preset also appears in its own category — so we never rely on
-  // indexOf (which would collide on the duplicate).
-  const model = $derived.by(() => {
-    const groups: Group[] = [];
-    const flat: Preset[] = [];
-    const rows: Cell[][] = [];
-    let counter = 0;
-    for (const [category, items] of grouped) {
-      const groupRows: Cell[][] = [];
-      for (let i = 0; i < items.length; i += COLS) {
-        const cells: Cell[] = [];
-        for (let j = i; j < Math.min(i + COLS, items.length); j++) {
-          const cell = { preset: items[j], index: counter++ };
-          cells.push(cell);
-          flat.push(items[j]);
-        }
-        groupRows.push(cells);
-        rows.push(cells);
-      }
-      groups.push({ category, rows: groupRows });
-    }
-    return { groups, flat, rows };
-  });
+  const filtered = $derived(filterPresets(PRESETS, query));
+  const grouped = $derived(groupPresets(filtered, query, currentPreset));
+  const model = $derived(buildModel(grouped, COLS));
 
   $effect(() => {
     if (open) {
@@ -381,31 +332,17 @@
     close();
   }
 
-  // Find the [rowPos, col] of the current cursor within the global row list.
-  function locate(index: number): [number, number] {
-    for (let r = 0; r < model.rows.length; r++) {
-      const c = model.rows[r].findIndex((cell) => cell.index === index);
-      if (c !== -1) return [r, c];
-    }
-    return [0, 0];
-  }
-
   // Vertical move: jump a whole row, preserving the column (clamped when the
-  // target row is shorter). This is the fix for the old behaviour where Down
-  // walked DOM order and slid sideways.
+  // target row is shorter) — see `rowMoveIndex`. No-op at the top/bottom edge.
   function moveRow(dir: 1 | -1) {
-    const [row, col] = locate(selectedIndex);
-    const target = model.rows[row + dir];
-    if (!target) return;
-    selectedIndex = target[Math.min(col, target.length - 1)].index;
+    const next = rowMoveIndex(model, selectedIndex, dir);
+    if (next === null) return;
+    selectedIndex = next;
     scrollSelectedIntoView();
   }
 
   function moveCol(delta: 1 | -1) {
-    selectedIndex = Math.max(
-      0,
-      Math.min(model.flat.length - 1, selectedIndex + delta),
-    );
+    selectedIndex = clampIndex(selectedIndex + delta, model.flat.length);
     scrollSelectedIntoView();
   }
 
@@ -461,40 +398,6 @@
       );
       el?.scrollIntoView({ block: "nearest" });
     });
-  }
-
-  function bgPreviewStyle(p: Preset): string {
-    if ((p.bg === "gradient" || p.bg === "color") && p.value)
-      return `background:${p.value}`;
-    return "background:var(--color-muted)";
-  }
-
-  // WYSIWYG-ish frame inset. `padding` is a percent of the shorter source edge
-  // and the canvas is source+padding on each side, so the video occupies
-  // 1/(1+2p) of that edge — mirror that here so the thumbnail frames like the
-  // real export.
-  function frameInsetPct(padding: number): number {
-    const p = Math.max(0, padding) / 100;
-    return Math.min(20, (p / (1 + 2 * p)) * 100);
-  }
-
-  function wallpaperId(p: Preset): string {
-    return (p.value ?? "").replace(/^asset:\/\/?/, "").replace(/^asset:/, "");
-  }
-
-  function aspectClass(aspect: string): string {
-    switch (aspect) {
-      case "1:1":
-        return "aspect-square";
-      case "9:16":
-        return "aspect-[9/16]";
-      case "16:9":
-        return "aspect-video";
-      case "1.91:1":
-        return "aspect-[1.91/1]";
-      default:
-        return "aspect-video";
-    }
   }
 
   function categoryIcon(category: string): typeof Sparkles {

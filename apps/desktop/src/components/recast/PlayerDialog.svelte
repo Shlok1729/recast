@@ -71,19 +71,12 @@
       </Button>
     </header>
 
-    <!-- autohide={-1} pins the control bar. This is a framed inspect-the-
-         recording dialog, and WebView2 actually honours `autoplay` (a browser
-         blocks the un-muted play and leaves the video paused with controls
-         showing). media-chrome's controller starts in `user-inactive`, so once
-         the clip is playing and the pointer hasn't moved yet the whole bar is
-         hidden — reads as "the player has no controls". -->
-    <!-- preload="auto" (not the player's "metadata" default): exports are
-         written moov-at-end, and over the Tauri asset protocol a metadata-only
-         preload has to range-fetch the tail to find the moov atom before it can
-         decode — which stalls the <video> in NETWORK_LOADING (black frame +
-         "media loading" forever) in release builds. "auto" streams the local
-         file sequentially from byte 0, exactly like the editor preview, which
-         loads the same moov-at-end recordings without issue. -->
+    <!-- autohide={-1}: WebView2 honours autoplay, and media-chrome hides the
+         bar while user-inactive — so an autoplaying clip would look control-less. -->
+    <!-- preload="auto" (not "metadata"): exports are moov-at-end, and a
+         metadata-only preload range-fetches the tail over the asset protocol and
+         stalls in NETWORK_LOADING (black frame) in release. "auto" streams from
+         byte 0. -->
     <RecastPlayer {src} title={entry.filename} preload="auto" autoplay autohide={-1} />
 
     <footer

@@ -1,9 +1,6 @@
 <script lang="ts">
-  // Logo mark. Colours follow the *resolved* theme via mode-watcher's `mode`
-  // rune (light/dark, "system" already resolved to the active OS theme), so it
-  // updates reactively when the user toggles the theme — the previous version
-  // read `mode-watcher-mode` from storage once on mount and never resolved
-  // "system", so it stuck on one variant in both modes.
+  // Use the *resolved* mode rune (not stored "system") so colours track the
+  // active OS theme and update reactively on toggle.
   import { mode } from "@recast/ui/theme";
   import type { SVGAttributes } from "svelte/elements";
 

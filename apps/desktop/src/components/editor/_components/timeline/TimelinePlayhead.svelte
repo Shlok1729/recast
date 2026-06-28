@@ -1,22 +1,17 @@
 <script lang="ts">
   import { formatTimeByMode, type TimeMode } from "./timeline-helpers";
 
-  // Vertical playhead column with timecode pill on top and a thin guide line
-  // running the height of the timeline. While the user actively drags, the
-  // [left] transition is suppressed so the head pins under the cursor.
+  // While dragging, the [left] transition is suppressed so the head pins under the cursor.
 
   interface Props {
     currentTime: number;
-    /** Horizontal position in px, already mapped onto the output (post-cut)
-     *  axis by the parent. The label still shows `currentTime` (original time,
-     *  what the rest of the app uses); only the position is output-mapped. */
+    /** px on the output (post-cut) axis. The label still shows `currentTime`
+     *  (original time); only the position is output-mapped. */
     leftPx: number;
     fps: number;
     isDragging: boolean;
     timeMode: TimeMode;
-    /** When false (cut lane hidden), the playhead guide line is shortened
-     *  so it stops at the bottom of the annotation lane instead of dangling
-     *  into empty space. */
+    /** When false (cut lane hidden), the guide line stops at the annotation lane. */
     tall?: boolean;
   }
 

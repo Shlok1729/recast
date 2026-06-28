@@ -40,6 +40,21 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 `pnpm release:prepare <version>` consumes pending changesets and the current
 `[Unreleased]` block into a new dated section.
 
+## [Unreleased]
+
+## [0.2.8] — 2026-06-28
+
+### Highlights
+- **Camera and microphone work on macOS again** — fixed a permissions problem that stopped macOS from capturing your camera and mic.
+
+### Changed
+- Tightened copy across the desktop app and website. Removed em dashes and over-explanation from settings, experimental-feature, and editor-panel descriptions, and from a few marketing sections, so the text says what a feature does without explaining how it works internally.
+
+### Fixed
+- Website build no longer fails during prerender. A leftover static `robots.txt` was shadowing the dynamic `/robots.txt` route, so the route was never prerendered and the build errored out. The static file is gone; `/robots.txt` and `/sitemap.xml` now come from their routes.
+- Corrected the Loom and Cap comparison on the Features page. Dropped a "pause and resume is paid in Loom" row (it is free), changed Cap's "share to your own storage" from "Not supported" to "Pro only" (Cap Pro supports custom S3 and Google Drive), and relabelled per-seat pricing.
+- Fix camera and microphone permissions not working on macOS
+
 ## [0.2.7] — 2026-06-28
 
 ### Highlights

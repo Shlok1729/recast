@@ -1,13 +1,11 @@
 /**
- * Reactive state for the external-asset cache. Tracks two tiers per asset id:
- *  - `paths[id]`       — the full-resolution cached file (preferred)
- *  - `thumbPaths[id]`  — the low-res WebP thumbnail (used until full-res lands)
+ * Reactive state for the external-asset cache. Two tiers per asset id:
+ * `paths[id]` (full-res, preferred) and `thumbPaths[id]` (thumbnail until
+ * full-res lands).
  *
- * The corresponding WebView-loadable URLs (`urls`/`thumbUrls`) are cached the
- * moment a path is set so consumers don't recompute `convertFileSrc` on every
- * re-render. URL identity is stable across reads, which is what lets
- * `$derived(src)` short-circuit and stop wallpaper grids from re-creating
- * their `<img>` decode work on every tab toggle.
+ * WebView URLs (`urls`/`thumbUrls`) are precomputed when a path is set so
+ * consumers don't re-run `convertFileSrc` per render; stable URL identity lets
+ * `$derived(src)` short-circuit and avoid redundant `<img>` decodes.
  */
 
 import { convertFileSrc } from "@tauri-apps/api/core";

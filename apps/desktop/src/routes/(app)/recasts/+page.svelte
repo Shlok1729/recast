@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
   import { ConfirmDialog, RenameDialog } from "$components/recast";
   import {
     deleteFile,
@@ -9,6 +8,11 @@
     renameFile,
     type RecordingEntry,
   } from "$lib/ipc";
+  import { formatSize, relativeDate as relativeDateBase } from "$lib/format/files";
+  import {
+    openInEditor as openEditorWindow,
+    openInNewWindow,
+  } from "$lib/library/editor-window";
   import { morph } from "$lib/morph";
   import { isShareSupported, shareRecording } from "$lib/share";
   import {
@@ -42,7 +46,6 @@
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
   import { listen } from "@tauri-apps/api/event";
-  import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { SvelteSet } from "svelte/reactivity";
@@ -111,62 +114,12 @@
     thumbnails = next;
   }
 
-  function formatSize(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
-  }
+  // >1-week fallback keeps the time (date + time), matching this list's history.
+  const relativeDate = (unix: number) =>
+    relativeDateBase(unix, { withTime: true });
 
-  function formatDate(unix: number) {
-    return new Date(unix * 1000).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function relativeDate(unix: number) {
-    const diff = Date.now() / 1000 - unix;
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
-    return formatDate(unix);
-  }
-
-  function encodeEditorPath(path: string) {
-    return encodeURIComponent(btoa(encodeURIComponent(path)));
-  }
-
-  async function openInEditor(entry: RecordingEntry) {
-    const route = `/editor/${encodeEditorPath(entry.path)}`;
-    if (editorWindow === "new-window") {
-      await openInNewWindow(entry);
-    } else {
-      goto(route);
-    }
-  }
-
-  async function openInNewWindow(entry: RecordingEntry) {
-    const route = `/editor/${encodeEditorPath(entry.path)}`;
-    const label = `editor-${encodeEditorPath(entry.path)
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .slice(0, 48)}`;
-    const existing = await WebviewWindow.getByLabel(label);
-    if (existing) {
-      await existing.setFocus();
-      return;
-    }
-    new WebviewWindow(label, {
-      url: route,
-      title: `Editor - ${entry.filename}`,
-      width: 1440,
-      height: 960,
-      center: true,
-      decorations: false,
-    });
-  }
+  const openInEditor = (entry: RecordingEntry) =>
+    openEditorWindow(entry, editorWindow);
 
   async function handleRename(entry: RecordingEntry, nextName: string) {
     const newPath = await renameFile(entry.path, nextName);
@@ -211,9 +164,8 @@
   const shareSupported = isShareSupported();
 
   /**
-   * Open the OS share sheet for a recording. Raw recordings have no Drive
-   * link yet, so this just tries the file payload (Web Share Level 2) and
-   * surfaces a helpful toast when the runtime can't share files.
+   * Open the OS share sheet for a recording. Raw recordings have no Drive link,
+   * so this only tries the file payload (Web Share Level 2).
    */
   async function shareEntry(entry: RecordingEntry) {
     const result = await shareRecording({
@@ -320,7 +272,7 @@
 
 <div class="h-full overflow-y-auto scrollbar-transparent no-scrollbar">
   <div class="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
-    <!-- Hero (mirrors home page rhythm: eyebrow + heading + helper) -->
+    <!-- Hero -->
     <header
       in:fly={{ y: 12, duration: 320, easing: cubicOut }}
       class="flex flex-col gap-3"
@@ -349,7 +301,7 @@
       </p>
     </header>
 
-    <!-- Hero search bar (matches home: h-12 pill, inset shadow, hover lift) -->
+    <!-- Search bar -->
     <label
       in:fly={{ y: 12, duration: 320, delay: 60, easing: cubicOut }}
       class="group/search flex h-12 items-center gap-3 rounded-xl border border-border/60 bg-card/70 px-4 shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:border-border hover:bg-card hover:shadow-craft-sm focus-within:border-border focus-within:bg-card focus-within:shadow-craft-sm"
@@ -377,7 +329,7 @@
       {/if}
     </label>
 
-    <!-- Section header: matches home page sections (uppercase eyebrow + actions on the right) -->
+    <!-- Section header -->
     <div
       in:fly={{ y: 12, duration: 320, delay: 120, easing: cubicOut }}
       class="flex flex-col gap-3"

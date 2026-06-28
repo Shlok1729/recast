@@ -1,28 +1,18 @@
 /**
  * Feature flags for in-progress / platform-gated functionality.
  *
- * These flags gate UI surfaces only — the underlying capture, render, and
- * export pipelines remain wired up. Flipping a flag back to `true` should
- * re-enable the feature without any code changes elsewhere.
- *
- * If you're touching one of these, also read the matching design note under
- * `apps/desktop/docs/`.
+ * These gate UI surfaces only — capture/render/export stay wired up, so
+ * flipping a flag back to `true` re-enables the feature without other changes.
+ * See the matching design note under `apps/desktop/docs/`.
  */
 
 /**
- * Editor-side camera overlay UI (properties panel tab + draggable overlay
- * on the preview canvas).
- *
- * Recording with the camera still works — the bubble is captured to a
- * separate track in the .recast bundle exactly as before. This flag only
- * hides the editor controls for re-positioning, mirroring, shape, size,
- * etc. Re-enable plan + per-platform exclusion APIs (the eventual fix for
- * the floating preview window leaking into screen capture) are documented
- * in `apps/desktop/docs/camera-recording-todo.md`.
+ * Editor-side camera overlay UI (properties tab + draggable preview overlay).
+ * Recording with the camera still works; this only hides the editor controls.
+ * Re-enable plan + per-platform exclusion APIs are documented in
+ * `apps/desktop/docs/camera-recording-todo.md`.
  */
 export const CAMERA_OVERLAY_UI_ENABLED = false;
 
-// NOTE: the WebCodecs preview engine toggle moved to the experimental-features
-// store (`experimentalStore.webcodecsPreview`) so users can flip it at runtime
-// from Settings → Experimental and compare it against the classic `<video>`
-// engine. See `$lib/stores/experimental.svelte`.
+// The WebCodecs preview toggle now lives in the experimental-features store
+// (`experimentalStore.webcodecsPreview`) — see `$lib/stores/experimental.svelte`.

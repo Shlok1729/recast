@@ -4,6 +4,14 @@
     type EditorStore,
     type ZoomRegion,
   } from "$lib/stores/editor-store.svelte";
+  import {
+    cursorForHandle,
+    HANDLE_RADIUS_PX,
+    handlePositions,
+    hitTestHandle,
+    regionBox,
+    type HandleName,
+  } from "./focus-overlay.logic";
   import { onDestroy, onMount } from "svelte";
 
   interface Props {
@@ -19,7 +27,6 @@
   let rafHandle: number | null = null;
   let resizeObserver: ResizeObserver | null = null;
 
-  type HandleName = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "body";
   type DragState =
     | null
     | {
@@ -39,7 +46,6 @@
       };
   let drag: DragState = null;
 
-  const HANDLE_RADIUS_PX = 6;
   const SELECTION_COLOUR = "#3b82f6";
   const MIN_SCALE = 1.05;
   const MAX_SCALE = 3;
@@ -86,54 +92,6 @@
       x: (e.clientX - rect.left) * dpr,
       y: (e.clientY - rect.top) * dpr,
     };
-  }
-
-  /** The UV-space box the focus rectangle occupies on the source frame. */
-  function regionBox(r: ZoomRegion): { x: number; y: number; w: number; h: number } {
-    const s = Math.max(1.001, r.scale);
-    const w = 1 / s;
-    const h = 1 / s;
-    // Clamp so the rect stays inside [0,1]².
-    const cx = Math.min(Math.max(r.centerX, w / 2), 1 - w / 2);
-    const cy = Math.min(Math.max(r.centerY, h / 2), 1 - h / 2);
-    return { x: cx - w / 2, y: cy - h / 2, w, h };
-  }
-
-  function handlePositions(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-  ): Record<Exclude<HandleName, "body">, { x: number; y: number }> {
-    return {
-      nw: { x, y },
-      n: { x: x + w / 2, y },
-      ne: { x: x + w, y },
-      e: { x: x + w, y: y + h / 2 },
-      se: { x: x + w, y: y + h },
-      s: { x: x + w / 2, y: y + h },
-      sw: { x, y: y + h },
-      w: { x, y: y + h / 2 },
-    };
-  }
-
-  function hitTestHandle(
-    pt: { x: number; y: number },
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-  ): HandleName | null {
-    const dpr = getDpr();
-    const slop = HANDLE_RADIUS_PX * dpr + 2 * dpr;
-    const handles = handlePositions(x, y, w, h);
-    for (const [name, p] of Object.entries(handles)) {
-      if (Math.abs(pt.x - p.x) <= slop && Math.abs(pt.y - p.y) <= slop) {
-        return name as HandleName;
-      }
-    }
-    if (pt.x >= x && pt.x <= x + w && pt.y >= y && pt.y <= y + h) return "body";
-    return null;
   }
 
   function selectedRegion(): ZoomRegion | null {
@@ -212,27 +170,6 @@
     rafHandle = requestAnimationFrame(tick);
   }
 
-  function cursorForHandle(h: HandleName | null): string {
-    switch (h) {
-      case "nw":
-      case "se":
-        return "nwse-resize";
-      case "ne":
-      case "sw":
-        return "nesw-resize";
-      case "n":
-      case "s":
-        return "ns-resize";
-      case "e":
-      case "w":
-        return "ew-resize";
-      case "body":
-        return "move";
-      default:
-        return "";
-    }
-  }
-
   function handlePointerDown(e: PointerEvent) {
     const r = selectedRegion();
     if (!r || !canvasEl) return;
@@ -243,7 +180,7 @@
     const w = br.x - tl.x;
     const h = br.y - tl.y;
 
-    const hit = hitTestHandle(pt, tl.x, tl.y, w, h);
+    const hit = hitTestHandle(pt, tl.x, tl.y, w, h, getDpr());
     if (!hit) return;
 
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -285,7 +222,7 @@
       const box = regionBox(r);
       const tl = uvToCanvas(box.x, box.y);
       const br = uvToCanvas(box.x + box.w, box.y + box.h);
-      const hit = hitTestHandle(pt, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+      const hit = hitTestHandle(pt, tl.x, tl.y, br.x - tl.x, br.y - tl.y, getDpr());
       canvasEl.style.cursor = cursorForHandle(hit);
       return;
     }
@@ -366,18 +303,16 @@
     resizeObserver?.disconnect();
   });
 
-  // Reactive triggers — the RAF loop already picks up store changes each
-  // frame, but touching them here keeps the effect graph wired for Svelte 5.
+  // The RAF loop already reads the store each frame; touching these keeps the
+  // Svelte 5 effect graph wired.
   $effect(() => {
     void store.selectedZoomRegionId;
     void store.zoomRegions;
     void store.padding;
   });
 
-  // Editing chrome (dashed rect, handles, crosshair) is only meaningful while
-  // the user is on the Focus tab — otherwise the overlay both hides itself and
-  // stops swallowing pointer events so clicks reach the AnnotationOverlay or
-  // the preview underneath.
+  // Off the Focus tab the overlay hides and stops swallowing pointer events so
+  // clicks reach the AnnotationOverlay / preview underneath.
   const isActive = $derived(
     store.activePanel === "focus" && store.selectedZoomRegionId !== null,
   );

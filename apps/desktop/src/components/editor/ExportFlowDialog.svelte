@@ -37,10 +37,8 @@
     error,
   }: Props = $props();
 
-  // Body is sized intrinsically; the outer dialog Tweens its width + height to
-  // match what the body reports via ResizeObserver. This way each phase body
-  // declares its natural size and the wrapper just follows — no per-phase
-  // hardcoded dimensions that drift as the bodies evolve.
+  // Outer dialog Tweens its size to whatever the body reports via ResizeObserver,
+  // so each phase declares its natural size and the wrapper follows.
   let bodyEl = $state<HTMLDivElement | null>(null);
   let measuredW = $state(440);
   let measuredH = $state(0);
@@ -48,8 +46,7 @@
   const wTween = new Tween(440, { duration: 320, easing: cubicOut });
   const hTween = new Tween(0, { duration: 320, easing: cubicOut });
 
-  // Track first measurement per open-cycle so we can snap to the initial size
-  // instead of growing from zero (which would fight the scale-in entrance).
+  // Snap to the first measured size per open-cycle instead of growing from zero (which fights the scale-in).
   let snapNext = $state(true);
   $effect(() => {
     if (!open) snapNext = true;
@@ -89,8 +86,7 @@
     }
   });
 
-  // Re-focus on phase change so screen-readers re-announce + keyboard focus
-  // stays inside the dialog as content swaps under the user.
+  // Re-focus on phase change so screen-readers re-announce and focus stays in the dialog.
   $effect(() => {
     phase;
     if (open) tick().then(() => dialogRef?.focus());
@@ -115,10 +111,7 @@
     };
   }
 
-  // Custom out-transition that absolute-positions the leaving phase so it
-  // doesn't keep pushing the body's measured size while it fades. The new
-  // phase mounts in normal flow → ResizeObserver picks up its natural size
-  // → Tween animates the wrapper to match concurrent with the fade.
+  // Absolute-position the leaving phase so it stops pushing the body's measured size while it fades out.
   function phaseOut(node: HTMLElement) {
     const parent = node.parentElement;
     if (parent) {
@@ -160,12 +153,7 @@
       style="width: {wTween.current}px; height: {hTween.current || measuredH || 0}px; max-width: min(820px, calc(100vw - 2rem)); max-height: calc(100vh - 4rem);"
       class="relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-popover/95 shadow-2xl ring-1 ring-border/40 backdrop-blur-xl focus:outline-none"
     >
-      <!--
-        Body wrap is `position: relative` so the leaving phase can pin itself
-        with `position: absolute` during its fade-out. The active phase sits
-        in normal flow; ResizeObserver measures its natural size and the
-        wrapper morphs to match.
-      -->
+      <!-- relative so the leaving phase can pin itself absolute during fade-out -->
       <div bind:this={bodyEl} class="relative w-fit min-w-[280px]">
         {#key phase}
           <div

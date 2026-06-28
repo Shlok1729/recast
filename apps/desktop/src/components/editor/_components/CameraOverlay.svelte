@@ -6,11 +6,9 @@
     store: EditorStore;
     /** The screen video element, used as the time-base for camera sync. */
     videoEl: HTMLVideoElement | null;
-    /** The preview rectangle (canvas-sized div) — used as the positioning
-     *  parent and the drag-coord reference. */
+    /** Preview rectangle (canvas-sized div) — positioning parent and drag-coord reference. */
     targetEl: HTMLDivElement | null;
-    /** `convertFileSrc(camera.mp4)` for this project, or empty when no
-     *  camera was recorded. The component renders nothing when empty. */
+    /** `convertFileSrc(camera.mp4)`, or empty when no camera was recorded (renders nothing). */
     cameraSrc: string;
   }
 
@@ -18,10 +16,8 @@
 
   let cameraVideoEl: HTMLVideoElement | null = $state(null);
 
-  // Final-canvas geometry. Drives the bubble's absolute placement inside
-  // `targetEl`. The bubble's UV is in *video* space (so the user picks
-  // "bottom-right of the video" not "of the canvas-with-padding"), and we
-  // transform that into canvas-pixel offsets here.
+  // Bubble UV is in *video* space (so "bottom-right of the video", not of the padded
+  // canvas); transformed into canvas-pixel offsets here.
   const geom = $derived.by(() => {
     const m = store.metadata;
     if (!m || !m.width || !m.height) return null;
@@ -33,15 +29,8 @@
     );
   });
 
-  /**
-   * Bubble CSS position. The wrapper sits inside `targetEl` (which fills
-   * the canvas), so we express x/y/width as percentages of the canvas.
-   *
-   * Height is omitted on purpose — we use `aspect-ratio: 1` to keep the
-   * bubble square on screen regardless of video aspect (a 1:1 placement
-   * in UV coords would render rectangular on a 16:9 video, which is not
-   * what users picking "rounded square" expect).
-   */
+  // x/y/width as canvas percentages. Height is omitted; `aspect-ratio: 1` keeps
+  // the bubble square regardless of video aspect (UV 1:1 would render rectangular on 16:9).
   const bubbleStyle = $derived.by(() => {
     if (!geom) return "display:none;";
     const p = store.cameraOverlay.defaultPlacement;
@@ -51,9 +40,7 @@
     return `left:${left}%;top:${top}%;width:${width}%;`;
   });
 
-  /** border-radius derived from the saved shape. Square → 0; rounded uses
-   *  the saved corner-radius (16% default); circle is 50% (with the
-   *  enforced 1:1 aspect this gives a true circle). */
+  // square → 0; rounded → saved corner-radius (16% default); circle → 50% (true circle with the 1:1 aspect).
   const borderRadius = $derived.by(() => {
     const s = store.cameraOverlay.shape;
     if (s === "circle") return "50%";
@@ -61,12 +48,8 @@
     return `${(store.cameraOverlay.cornerRadius ?? 0.16) * 100}%`;
   });
 
-  // Drift correction: keep the camera <video> within ~150 ms of the screen
-  // video at all times. Re-runs whenever `store.currentTime` ticks (set by
-  // the screen video's `timeupdate`) and on user scrubs (handled via the
-  // route's onSeeked → store.currentTime path). The 150 ms tolerance keeps
-  // micro-jitter between two HTMLVideoElement clocks from triggering
-  // unnecessary seeks during normal playback.
+  // Keep the camera <video> within ~150ms of the screen video; the tolerance avoids
+  // re-seeking on micro-jitter between the two HTMLVideoElement clocks.
   $effect(() => {
     void store.currentTime;
     if (!cameraVideoEl || !videoEl) return;
@@ -76,19 +59,15 @@
     }
   });
 
-  // Play/pause the camera in lockstep with the screen video. Mirrors the
-  // existing audio-element sync in the editor route — set currentTime to
-  // the screen's instant before starting playback so the first frame is
-  // the right one even after a long pause.
+  // Play/pause in lockstep; set currentTime to the screen's instant before play so
+  // the first frame is correct even after a long pause.
   $effect(() => {
     const playing = store.isPlaying;
     if (!cameraVideoEl) return;
     if (playing) {
       if (videoEl) cameraVideoEl.currentTime = videoEl.currentTime;
       void cameraVideoEl.play().catch((err) => {
-        // Autoplay restrictions don't apply because we're muted, but
-        // network/decoder hiccups can still throw — keep the screen video
-        // playing in that case.
+        // Network/decoder hiccups can still throw; keep the screen video playing.
         console.warn("camera overlay play failed:", err);
       });
     } else {
@@ -96,13 +75,8 @@
     }
   });
 
-  //  Drag-to-reposition
-  //
-  // Pointer-captured drag in the preview. `dragStartUv` snapshots the
-  // placement at pointerdown and we accumulate UV-space deltas relative to
-  // the rendered video rect (NOT the canvas, so padding doesn't bias the
-  // motion). The single `pushUndoState` lives at pointerdown so the entire
-  // drag collapses to one undo entry.
+  // Drag-to-reposition. UV deltas are relative to the rendered video rect (not the
+  // canvas, so padding doesn't bias motion); pushUndoState at pointerdown = one undo entry.
   let isDragging = $state(false);
   let dragStartClient = { x: 0, y: 0 };
   let dragStartUv = { x: 0, y: 0 };
@@ -122,10 +96,7 @@
     if (!isDragging || !targetEl || !geom) return;
     const rect = targetEl.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
-    // Convert CSS-pixel drag deltas into video-UV deltas. The canvas spans
-    // the full rect; the video is at (videoX, videoY) with size
-    // (videoW, videoH) inside it. Drag distance / video CSS size =
-    // UV delta.
+    // CSS-pixel drag deltas → video-UV deltas (drag distance / video CSS size).
     const videoCssW = rect.width * (geom.videoW / geom.canvasW);
     const videoCssH = rect.height * (geom.videoH / geom.canvasH);
     if (videoCssW <= 0 || videoCssH <= 0) return;
@@ -151,9 +122,7 @@
 </script>
 
 {#if cameraSrc && store.cameraOverlay.enabled && geom}
-  <!-- Bubble wrapper — owns position, shape, shadow, and drag pointers. The
-       <video> inside fills the wrapper with object-fit:cover so the camera
-       feed fills the bubble cleanly regardless of camera resolution. -->
+  <!-- Bubble wrapper owns position, shape, shadow, and drag pointers; the <video> fills it via object-fit:cover. -->
   <div
     role="presentation"
     class="absolute select-none"

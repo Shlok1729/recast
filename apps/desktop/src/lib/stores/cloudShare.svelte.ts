@@ -14,16 +14,11 @@ import {
 export type { CloudWorkspace };
 
 /**
- * Recast Cloud share store.
- *
- * Sibling of {@link import("./gdrive.svelte").gdrive} — a `$state`-backed
- * module singleton the UI binds to. Holds sign-in state (mirrored from the
- * `auth_status` command), an `uploads` map of in-flight shares keyed by the
- * local export path, and the persisted `uploadHistory` (the manifest from
- * `commands/cloud.rs`).
- *
- * STRICTLY ADDITIVE: nothing here runs unless the user explicitly triggers a
- * share, and everything degrades to a no-op in the web build (no Tauri).
+ * Recast Cloud share store — sibling of {@link import("./gdrive.svelte").gdrive}.
+ * A `$state`-backed singleton holding sign-in state (from `auth_status`), an
+ * `uploads` map of in-flight shares keyed by export path, and the persisted
+ * `uploadHistory` manifest from `commands/cloud.rs`. Nothing runs unless the
+ * user triggers a share; everything no-ops in the web build.
  */
 
 export type CloudPhase = "preparing" | "uploading" | "finalizing" | "sharing";
@@ -55,12 +50,10 @@ export type CloudAuth = {
 
 
 /**
- * localStorage key for the user's preferred upload workspace. The value is
- * the org id; it's validated against the live membership list on every
- * status refresh and dropped if the user no longer belongs to it (e.g. they
- * left the team, or signed into a different account). This is a desktop-local
- * preference — it never mutates the server session's active org, which keeps
- * the desktop's upload target independent of what the web dashboard shows.
+ * Preferred upload workspace (org id). Validated against live membership on
+ * each status refresh and dropped if the user no longer belongs. Desktop-local
+ * — never mutates the server session's active org, so the desktop's upload
+ * target stays independent of the web dashboard.
  */
 const WORKSPACE_PREF_KEY = "recast-cloud-workspace";
 
@@ -77,8 +70,8 @@ function writeWorkspacePref(id: string | null): void {
 		if (id) globalThis.localStorage?.setItem(WORKSPACE_PREF_KEY, id);
 		else globalThis.localStorage?.removeItem(WORKSPACE_PREF_KEY);
 	} catch {
-		// Private mode / disabled storage — selection just won't persist
-		// across launches. Non-fatal; the in-memory choice still holds.
+		// Private mode / disabled storage — selection won't persist across
+		// launches, but the in-memory choice still holds.
 	}
 }
 
@@ -87,9 +80,8 @@ function createCloudShareStore() {
 	let planName = $state<string | undefined>(undefined);
 	let usage = $state<CloudAuth["usage"] | undefined>(undefined);
 
-	// Workspace targeting. `workspaces` + `defaultWorkspaceId` come from the
-	// server on each status refresh; `selectedWorkspaceId` is the desktop's
-	// persisted preference (validated against `workspaces` below).
+	// `workspaces` + `defaultWorkspaceId` come from the server each refresh;
+	// `selectedWorkspaceId` is the desktop's persisted, validated preference.
 	let workspaces = $state<CloudWorkspace[]>([]);
 	let defaultWorkspaceId = $state<string | null>(null);
 	let selectedWorkspaceId = $state<string | null>(readWorkspacePref());
@@ -97,9 +89,8 @@ function createCloudShareStore() {
 	const uploads = $state<Record<string, CloudUpload>>({});
 	const uploadHistory = $state<Record<string, CloudUploadRecord>>({});
 
-	// Flips true after the first `init()` completes. The share flow uses it to
-	// avoid a blocking network round-trip on every click — once hydrated, the
-	// cached workspace list opens the picker instantly.
+	// True after the first `init()`. Lets the share flow open the picker from
+	// the cached workspace list instead of a blocking round-trip per click.
 	let initialized = $state(false);
 	let listenersAttached = false;
 
@@ -183,11 +174,9 @@ function createCloudShareStore() {
 	}
 
 	/**
-	 * Reconcile the workspace list + server default with the persisted local
-	 * preference. Signing out (or into an account that lacks the previously
-	 * chosen workspace) clears the stale selection so we never upload into a
-	 * team the user no longer belongs to — the server would reject it anyway,
-	 * but dropping it here keeps the UI honest.
+	 * Reconcile the server workspace list + default with the local preference,
+	 * dropping a stale selection (e.g. signed out, or into an account lacking
+	 * that workspace) so the picker never points at a team the user left.
 	 */
 	function applyWorkspaces(list: CloudWorkspace[], serverDefault: string | null) {
 		workspaces = list;
@@ -240,10 +229,9 @@ function createCloudShareStore() {
 		title: string,
 		workspaceId?: string,
 	): Promise<CloudShareResult> {
-		// Seed the in-flight entry SYNCHRONOUSLY (before any await) so the
-		// corner "Preparing…" card renders the instant the user clicks Share —
-		// otherwise the awaits below (Tauri probe + dynamic import) leave the
-		// screen looking frozen for a beat.
+		// Seed SYNCHRONOUSLY (before any await) so the "Preparing…" card renders
+		// the instant Share is clicked — the awaits below would otherwise leave
+		// the screen looking frozen for a beat.
 		const fileName = path.split(/[\\/]/).pop() ?? path;
 		uploads[path] = {
 			sourcePath: path,
@@ -255,15 +243,14 @@ function createCloudShareStore() {
 		};
 		if (!(await isTauriApp())) throw new Error("not running in Tauri");
 		await attachListeners();
-		// Explicit target wins; otherwise the resolved active workspace (local
-		// pick or server default). `undefined` lets the Rust side fall back to
-		// /api/desktop/profile's defaultWorkspaceId as a last resort.
+		// Explicit target wins, else the resolved active workspace; `undefined`
+		// lets Rust fall back to the server profile's defaultWorkspaceId.
 		const target = workspaceId ?? resolveActiveWorkspaceId() ?? undefined;
 		try {
 			return await recastCloudUpload(path, title, target);
 		} catch (e) {
-			// The Rust side emitted `recast-cloud:error`; ensure the card
-			// reflects it even if the event was missed, then re-throw.
+			// Rust emitted `recast-cloud:error`; ensure the card reflects it even
+			// if the event was missed, then re-throw.
 			const existing = uploads[path];
 			if (existing && existing.status !== "error") {
 				uploads[path] = { ...existing, status: "error", error: String(e) };

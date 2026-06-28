@@ -27,14 +27,8 @@
   import ZoomSuggestionsPopover from "../../ZoomSuggestionsPopover.svelte";
   import { formatTimeByMode, type TimeMode } from "./timeline-helpers";
 
-  // Top control bar. Left cluster = edit actions (trim / focus / suggest /
-  // reset). Right cluster = view controls: playback speed + timeline zoom
-  // inline (high frequency), with low-frequency display options (time format,
-  // clip stats, shortcut hints) folded into a "View" menu.
-  //
-  // Popovers (Suggest, Remove-silence, Speed) use the portalled Popover
-  // component on purpose — the timeline sits inside an `overflow-hidden`
-  // slide wrapper, so an in-DOM popover anchored above the bar gets clipped.
+  // Popovers (Suggest, Remove-silence, Speed) must be portalled: the timeline
+  // sits in an `overflow-hidden` slide wrapper that would clip an in-DOM popover.
 
   interface Props {
     store: EditorStore;
@@ -80,12 +74,10 @@
 
   const trimHint = `Set trim points to exclude parts of the clip from export, or add focus regions to highlight important moments. You can also ask Trace to suggest focus regions based on where you moved the cursor.`;
 
-  // Popover open state — local to the toolbar; nothing upstream depends on it.
   let suggestOpen = $state(false);
   let showSilence = $state(false);
 
-  // Badge on the silence button counts ONLY silence-detected cuts. Manual
-  // ripple deletes are a separate concept and shouldn't inflate this number.
+  // Counts only silence-detected cuts; manual ripple deletes shouldn't inflate this.
   const silenceCutCount = $derived(
     store.cuts.filter((c) => c.source === "silence").length,
   );
@@ -109,11 +101,9 @@
 </script>
 
 <div class="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-  <!-- Edit actions -->
   <div class="flex items-center gap-1">
     <InspectorHint content={trimHint} />
 
-    <!-- Trim -->
     <div class={GROUP}>
       <button
         type="button"
@@ -137,7 +127,6 @@
       </button>
     </div>
 
-    <!-- Split the clip at the playhead into two independently-deletable clips. -->
     <button
       type="button"
       onclick={onSplit}
@@ -149,7 +138,6 @@
       <Kbd class="ml-0.5">S</Kbd>
     </button>
 
-    <!-- Focus / Suggest -->
     <div class={GROUP}>
       <button type="button" onclick={onAddFocusRegion} class={SEG}>
         <Search class="size-3" />
@@ -182,9 +170,7 @@
       </Popover.Root>
     </div>
 
-    <!-- Remove-silence: scans audio + screen motion for dead air. Gated
-         behind the experimental flag so first-run users don't see the
-         in-progress UI; opt-in lives in Settings → Experimental. -->
+    <!-- Gated behind the experimental flag (Settings → Experimental) — in-progress UI. -->
     {#if experimentalStore.silenceDetection}
       <Popover.Root open={showSilence} onOpenChange={(v) => (showSilence = v)}>
         <Popover.Trigger>
@@ -243,9 +229,7 @@
     </span>
   </div>
 
-  <!-- View controls -->
   <div class="flex items-center gap-1.5 text-muted-foreground">
-    <!-- Playback speed: continuous slider + quick presets -->
     <Popover.Root>
       <Popover.Trigger>
         {#snippet child({ props })}
@@ -293,7 +277,6 @@
       </Popover.Content>
     </Popover.Root>
 
-    <!-- Timeline zoom: out / level / in / fit-to-clip / fit-to-selection -->
     <div class={GROUP}>
       <button
         type="button"
@@ -339,7 +322,6 @@
       </button>
     </div>
 
-    <!-- Active-trim feedback. Stays inline (transient, only while trimmed). -->
     {#if hasTrim}
       <span
         class="inline-flex h-6 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 font-mono text-[10px] font-semibold tabular-nums text-primary"
@@ -350,7 +332,6 @@
       </span>
     {/if}
 
-    <!-- View menu: low-frequency display options -->
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>
         <button type="button" aria-label="View options" class={SOLO}>

@@ -15,14 +15,9 @@
 
   let { children, class: className, wrapperClass }: Props = $props();
 
-  // Detected synchronously from the webview UA (same test the shortcuts
-  // registry and the `(app)` shell use) so there's no chrome flash on first
-  // paint; false under SSR.
+  // Synchronous so there's no chrome flash on first paint; false under SSR.
   const isMac = ["darwin", "ios"].includes(platform());
-  // Mirror the `(app)` shell's chrome modes so the editor titlebar follows the
-  // same preference. `os-native` follows the OS — macOS traffic lights lead the
-  // bar on the left, min/max/close sit on the right for Windows/Linux. `recast`
-  // keeps the unified min/max/close cluster on the right, identical on every OS.
+  // os-native on macOS → traffic lights lead left; otherwise min/max/close right.
   const macLights = $derived(layoutMode.current === "os-native" && isMac);
 </script>
 
@@ -38,7 +33,7 @@
     <WindowControls kind="mac" class="px-1.5" />
   {/if}
 
-  <!-- Drag region: only the content area, not the window controls -->
+  <!-- Drag region: content area only, not the window controls. -->
   <div
     class={cn("flex-1 flex items-center min-w-0 h-full font-sans", className)}
     data-tauri-drag-region
@@ -48,8 +43,7 @@
     {/if}
   </div>
 
-  <!-- Keyboard-shortcuts reference. Outside the drag region so the click
-       registers; sits just left of the window controls on every main window. -->
+  <!-- Outside the drag region so the click registers. -->
   <button
     type="button"
     onclick={() => shortcutsDialog.show()}
@@ -61,8 +55,7 @@
     <Keyboard size={15} />
   </button>
 
-  <!-- Windows/Linux (and recast mode on every OS): min/max/close on the right.
-       Outside the drag region so clicks aren't intercepted. -->
+  <!-- Outside the drag region so clicks aren't intercepted. -->
   {#if !macLights}
     <WindowControls kind="win" class="shrink-0" />
   {/if}

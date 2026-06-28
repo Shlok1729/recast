@@ -105,8 +105,7 @@
       await existing.setFocus();
       return;
     }
-    // Cover the entire virtual desktop. Tauri will clamp to displays; using
-    // a large width/height ensures multi-monitor setups are fully covered.
+    // Oversize to cover the whole virtual desktop across multiple monitors.
     new WebviewWindow("region-picker", {
       url: "/select-area",
       title: "Select Area",

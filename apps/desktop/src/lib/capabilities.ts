@@ -1,14 +1,10 @@
-// Capture-capability gating for feature entry points.
+// Capture-capability gating: caches the `capture_capabilities` probe and turns an
+// unsupported feature into a ready-to-toast verdict, worded by reason:
+//   - `unsupported` → OS / native API can't do it → "not supported on <os>"
+//   - `planned`     → not shipped here yet → "not available yet"
 //
-// The Settings panel renders the full matrix; this module is the *gate* the
-// rest of the app calls before letting a user turn a capture input on. It
-// caches the one `capture_capabilities` probe and turns an unsupported feature
-// into a ready-to-toast verdict whose wording depends on WHY it's off:
-//   - `unsupported` → the OS / native API can't do it → "not supported on <os>"
-//   - `planned`     → we just haven't shipped it here yet → "not available yet"
-//
-// Fails OPEN: if the probe errors or the key is unknown, the verdict is `ok`
-// so a diagnostic hiccup never blocks a feature that might actually work.
+// Fails OPEN: probe errors or unknown keys verdict `ok`, so a diagnostic hiccup
+// never blocks a feature that might actually work.
 
 import { captureCapabilities, type CaptureCapabilities } from "$lib/ipc";
 
@@ -43,8 +39,7 @@ export async function checkCapability(
 	try {
 		caps = await loadCapabilities();
 	} catch {
-		// Couldn't run the probe — don't punish the user for a diagnostic that
-		// failed; let them try and surface the real error at use time.
+		// Probe failed — let them try and surface the real error at use time.
 		return { ok: true };
 	}
 

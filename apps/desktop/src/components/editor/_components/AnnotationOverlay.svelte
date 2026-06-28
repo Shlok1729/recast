@@ -19,6 +19,11 @@
     type Rect,
   } from "$lib/annotations/uv";
   import { FRAME_ANCHORS, snap, type SnapAnchor } from "$lib/annotations/snap";
+  import {
+    arrowGeometry,
+    blurTint,
+    strokeDashPattern,
+  } from "./annotation-draw.logic";
   import type {
     Annotation,
     AnnotationKind,
@@ -81,9 +86,8 @@
   const HOVER_FLASH_COLOUR = "rgba(59,130,246,0.85)";
   const SNAP_GUIDE_COLOUR = "rgba(59,130,246,0.7)";
 
-  //  Helpers — thin wrappers around shared modules so this file just owns
-  //  rendering + interaction state, not geometry math.
-
+  // Thin wrappers around shared geometry modules; this file owns rendering +
+  // interaction state, not the math.
   function getDpr(): number {
     return window.devicePixelRatio || 1;
   }
@@ -134,20 +138,12 @@
     opacity: number,
     t: number,
   ) {
-    // Blur annotations bypass the fade-in/out ramps in preview because:
-    //   1. A fresh blur has start ≈ currentTime, so the linear ramp puts
-    //      opacity at 0 → drawAnnotation would early-return → user sees
-    //      nothing right after creating the blur.
-    //   2. A partially-transparent blur copy mixed over the unblurred
-    //      WebGL canvas reads as flicker, not a smooth fade — Canvas2D's
-    //      globalAlpha applies to drawImage too.
-    // Plus: while a blur is the *selected* annotation, always render it
-    // even outside its [start, end] window. The user is actively editing
-    // it; floating-point drift between `a.start` (captured at creation
-    // time from `store.currentTime`) and `t` (from `videoEl.currentTime`
-    // on the next animation frame) was making fresh blurs flicker on the
-    // first few frames after placement. The export pipeline still honours
-    // `start`/`end` exactly.
+    // Blur bypasses the fade ramps in preview: a fresh blur (start ≈ currentTime)
+    // would ramp from opacity 0 and early-return, and a half-transparent blur
+    // copy over the unblurred canvas reads as flicker (globalAlpha applies to
+    // drawImage). When a blur is selected, render it even outside [start, end] —
+    // float drift between a.start and t flickered fresh blurs on placement.
+    // Export still honours start/end exactly.
     const isBlur = a.kind.kind === "blur";
     const isSelected = a.id === store.selectedAnnotationId;
     if (isBlur) {
@@ -190,19 +186,15 @@
     } else if (a.kind.kind === "image") {
       ctx.rect(x, y, w, h);
     } else if (a.kind.kind === "blur") {
-      // Real blur preview: copy the WebGL composite (full background +
-      // padding + video) into the overlay canvas, blurred with the 2D
-      // context's native `filter`. This is reliable across WebView
-      // backends, unlike `backdrop-filter` against a GPU-promoted canvas.
-      // Strength 0..1 maps to 0..32 px to match the export-side cap.
+      // Copy the WebGL composite into the overlay canvas, blurred via the 2D
+      // context's native `filter` — reliable across WebView backends, unlike
+      // backdrop-filter on a GPU-promoted canvas. Strength 0..1 → 0..32 px,
+      // matching the export-side cap.
       const k = a.kind;
       if (compositeCanvasEl && w > 1 && h > 1) {
         const blurPx = Math.max(0.001, Math.min(32, k.strength * 32));
-        // Source rect: same UV → canvas-px mapping, but in the WebGL
-        // canvas's own backing-store coordinates. Both canvases share the
-        // same DPR + size factor here because they both stretch to the
-        // same `targetEl`, so we can read `compositeCanvasEl.width/height`
-        // and treat its pixel space as proportional to ours.
+        // Source rect in the WebGL canvas's backing-store coords. Both canvases
+        // stretch to the same targetEl, so its pixel space is proportional to ours.
         const srcW = compositeCanvasEl.width;
         const srcH = compositeCanvasEl.height;
         const dstW = canvasEl?.width ?? 0;
@@ -221,10 +213,8 @@
             ctx.rect(x, y, w, h);
           }
           ctx.clip();
-          // Setting `filter` on the 2D context applies to subsequent draws
-          // — including `drawImage` from another canvas. Browser
-          // implementations promote this to a GPU shader, so the cost is
-          // negligible per blur region.
+          // `filter` applies to the following drawImage; browsers promote this
+          // to a GPU shader, so it's cheap per blur region.
           ctx.filter = `blur(${blurPx.toFixed(2)}px)`;
           try {
             ctx.drawImage(
@@ -246,16 +236,7 @@
           ctx.filter = "none";
           // Variant tint sits on top of the blurred copy so it reads
           // as a deliberate privacy treatment rather than just a smudge.
-          let tint: string | null = null;
-          if (k.variant === "white") tint = "rgba(255,255,255,0.30)";
-          else if (k.variant === "black") tint = "rgba(0,0,0,0.30)";
-          else if (k.variant === "color") {
-            const m = /^#?([0-9a-fA-F]{6})$/.exec(k.tintColor.trim());
-            if (m) {
-              const v = parseInt(m[1], 16);
-              tint = `rgba(${(v >> 16) & 0xff},${(v >> 8) & 0xff},${v & 0xff},0.30)`;
-            }
-          }
+          const tint = blurTint(k.variant, k.tintColor);
           if (tint) {
             ctx.fillStyle = tint;
             ctx.fillRect(x, y, w, h);
@@ -290,20 +271,9 @@
     const r = rectPx();
     const p1 = projectUV(k.x1, k.y1, t);
     const p2 = projectUV(k.x2, k.y2, t);
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1) return;
-
     const strokePx = Math.max(2, a.stroke.width * r.w);
-    const headLen = Math.max(strokePx * 2, k.headSize * len);
-    const headWidth = headLen * 0.7;
-    const ux = dx / len;
-    const uy = dy / len;
-    const lineEndX = p2.x - ux * headLen;
-    const lineEndY = p2.y - uy * headLen;
-    const nx = -uy;
-    const ny = ux;
+    const geo = arrowGeometry(p1, p2, strokePx, k.headSize);
+    if (!geo) return;
 
     ctx.save();
     ctx.globalAlpha = opacity;
@@ -315,16 +285,16 @@
 
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(lineEndX, lineEndY);
+    ctx.lineTo(geo.lineEnd.x, geo.lineEnd.y);
     ctx.stroke();
 
     // Reset dash before the head fill so it isn't striped.
     ctx.setLineDash([]);
 
     ctx.beginPath();
-    ctx.moveTo(p2.x, p2.y);
-    ctx.lineTo(lineEndX + nx * headWidth * 0.5, lineEndY + ny * headWidth * 0.5);
-    ctx.lineTo(lineEndX - nx * headWidth * 0.5, lineEndY - ny * headWidth * 0.5);
+    ctx.moveTo(geo.tip.x, geo.tip.y);
+    ctx.lineTo(geo.left.x, geo.left.y);
+    ctx.lineTo(geo.right.x, geo.right.y);
     ctx.closePath();
     ctx.fill();
 
@@ -339,14 +309,8 @@
   ) {
     ctx.lineWidth = strokePx;
     const style = a.stroke.style ?? "solid";
-    if (style === "dashed") {
-      ctx.setLineDash([8 * strokePx, 6 * strokePx]);
-    } else if (style === "dotted") {
-      ctx.setLineDash([2 * strokePx, 4 * strokePx]);
-      ctx.lineCap = "round";
-    } else {
-      ctx.setLineDash([]);
-    }
+    ctx.setLineDash(strokeDashPattern(style, strokePx));
+    if (style === "dotted") ctx.lineCap = "round";
   }
 
   /** Apply the optional preview-only glow (rendered before fill/stroke). */
