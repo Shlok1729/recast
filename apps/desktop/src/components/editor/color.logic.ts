@@ -1,8 +1,4 @@
-/**
- * Pure colour parsing for the WebGL preview. Kept free of any store/Svelte
- * import so it stays unit-testable (the gradient packer, which needs the store's
- * parser, lives in `gradient.logic.ts`).
- */
+/** Colour parsing for the WebGL preview. Store-free (gradient packing lives in `gradient.logic.ts`). */
 
 /**
  * `#rrggbb`/`#rrggbbaa` → normalised `[r, g, b, a]` (0..1). Falls back to the

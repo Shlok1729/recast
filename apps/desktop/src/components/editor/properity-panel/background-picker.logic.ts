@@ -1,7 +1,6 @@
 /**
- * Pure helpers for BackgroundPicker — colour interpolation, gradient-stop
- * sampling, and background `image` value classification. Extracted from the
- * component so the maths is testable and the `.svelte` file is just wiring.
+ * BackgroundPicker helpers: colour interpolation, gradient-stop sampling, and
+ * background `image` value classification.
  */
 
 /** A gradient colour stop: `color` is a hex string, `pos` is 0..100. */
@@ -30,9 +29,9 @@ export function lerpHex(c0: string, c1: string, f: number): string {
 }
 
 /**
- * Colour of a gradient at position `pos` (0..100), interpolating between the
- * surrounding stops in sRGB — mirrors the renderer so an inserted stop is
- * visually neutral. Stops need not be pre-sorted.
+ * Colour of a gradient at `pos` (0..100), interpolating surrounding stops in
+ * sRGB — mirrors the renderer so an inserted stop is visually neutral. Stops
+ * need not be pre-sorted.
  */
 export function sampleStopColor(stops: GradientStop[], pos: number): string {
 	const sorted = [...stops].sort((a, b) => a.pos - b.pos);
@@ -50,8 +49,7 @@ export function sampleStopColor(stops: GradientStop[], pos: number): string {
 	return last.color;
 }
 
-/** Values that are NOT images even if they linger in `backgroundValue` after a
- * tab switch (gradient strings, colour hex, internal asset ids). */
+/** Non-image values that can linger in `backgroundValue` after a tab switch. */
 function isNonImageValue(value: string): boolean {
 	return (
 		value.includes("gradient(") ||
@@ -74,7 +72,7 @@ function isDirectSrc(value: string): boolean {
 /**
  * Whether `value` is usable as a background image. Rejects gradient/colour/asset
  * leftovers (which would otherwise hit Tauri's asset protocol and log "file does
- * not exist"), accepts direct sources and recognised image extensions.
+ * not exist").
  */
 export function isValidImageValue(value: string): boolean {
 	if (!value) return false;
@@ -89,10 +87,9 @@ export function isValidImageValue(value: string): boolean {
 }
 
 /**
- * Resolve a background `image` value to a `src`. Returns `""` for non-image
- * leftovers, the value as-is for direct sources, and otherwise the value run
- * through `resolve` (inject `convertFileSrc` at the call site so this stays
- * Tauri-free and testable).
+ * Resolve a background `image` value to a `src`: `""` for non-image leftovers,
+ * the value as-is for direct sources, else run through `resolve` (inject
+ * `convertFileSrc` at the call site to keep this Tauri-free).
  */
 export function imagePreviewSrc(
 	value: string,

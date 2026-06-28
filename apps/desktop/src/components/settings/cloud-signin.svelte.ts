@@ -1,21 +1,6 @@
 /**
- * The Recast Cloud sign-in state machine, extracted from CloudSignIn.svelte so
- * the component is markup + wiring. Drives the device-authorization flow via the
- * Rust `auth_*` commands and the background-poller events. States:
- *
- *   loading    → initial auth_status check
- *   signed-out → "Sign in to Recast Cloud" (auth_start)
- *   waiting    → browser open, code on screen, "Cancel"
- *   signed-in  → profile card (avatar, plan, usage, manage)
- *   denied / expired → error + retry
- *
- * Lifecycle: the component calls `start()` in onMount and `dispose()` in
- * onDestroy. Reactive state (`view`, `busy`, `inFlight`) is exposed via getters;
- * read them through a local `$derived` in the component so discriminated-union
- * narrowing on `view` keeps working in the markup.
- *
- * This is a rune module (uses `$state`) and imports Tauri/stores, so it isn't
- * unit-tested; the pure formatters live in `cloud-signin.logic.ts` (tested).
+ * Recast Cloud sign-in state machine via the device-authorization flow.
+ * States: loading | signed-out | waiting | signed-in | denied | expired.
  */
 
 import {
@@ -66,8 +51,7 @@ function toProfile(s: AuthStatus): SignedInProfile {
 
 export class CloudAuth {
 	#view = $state<ViewState>({ kind: "loading" });
-	// Which action is mid-flight, so the right button shows its own spinner +
-	// active-verb label. `null` = idle.
+	// Which action is mid-flight, so the right button shows its own spinner. `null` = idle.
 	#inFlight = $state<null | "sign-in" | "sign-out">(null);
 	#unlisteners: UnlistenFn[] = [];
 	#destroyed = false;
@@ -88,8 +72,7 @@ export class CloudAuth {
 			this.#view = status.signedIn
 				? { kind: "signed-in", ...toProfile(status) }
 				: { kind: "signed-out" };
-			// Keep the shared store (which the share flow reads for workspace
-			// targeting) in sync with what we just fetched.
+			// Keep the shared store (read by the share flow) in sync.
 			void cloudShare.refreshStatus();
 		} catch (e) {
 			toast.error(`Couldn't check sign-in state: ${e}`);
@@ -132,35 +115,31 @@ export class CloudAuth {
 	}
 
 	/**
-	 * Cancel an in-flight sign-in: tell the Rust poller to stop (so an approval
-	 * in the abandoned browser tab can't silently sign the user in) and reset
-	 * the view immediately — the abort is best-effort and instant Rust-side.
+	 * Cancel an in-flight sign-in. Stops the Rust poller so an approval in the
+	 * abandoned browser tab can't silently sign the user in.
 	 */
 	async cancelSignIn(): Promise<void> {
 		this.#view = { kind: "signed-out" };
 		try {
 			await authCancel();
 		} catch (e) {
-			// Idempotent on the Rust side; surfacing it would only confuse since
-			// the UI already reset.
+			// Idempotent Rust-side; UI already reset, so don't surface.
 			console.warn("auth_cancel failed (non-fatal):", e);
 		}
 	}
 
-	/** Begin: initial status check + subscribe to the Rust poller events. */
+	/** Initial status check + subscribe to the Rust poller events. */
 	start(): void {
 		this.loadStatus();
 
-		// Each handler ignores the firing if the view is no longer "waiting" —
-		// defense in depth on top of `auth_cancel`, in case a poll response
-		// landed between the user clicking Cancel and the abort taking effect.
+		// Each handler ignores the firing if the view left "waiting" — defense in
+		// depth over `auth_cancel`, in case a poll landed between Cancel and abort.
 		void (async () => {
 			const handles = await Promise.all([
 				listen<AuthStatus>("auth:signed-in", (event) => {
 					if (this.#view.kind !== "waiting") return;
 					const s = event.payload;
-					// The Rust poller already fetched the full profile, so the payload
-					// carries plan + usage — no refetch needed.
+					// Payload already carries the full profile (plan + usage) — no refetch.
 					this.#view = {
 						kind: "signed-in",
 						...toProfile(s ?? ({} as AuthStatus)),
@@ -181,17 +160,15 @@ export class CloudAuth {
 					toast.error(`Sign-in error: ${event.payload}`);
 					this.#view = { kind: "signed-out" };
 				}),
-				// Self-host endpoint changed (Settings → Cloud → Server endpoint):
-				// the Rust side dropped the old token, so re-check against the new
-				// endpoint, flipping the card back to signed-out without a reload.
+				// Self-host endpoint changed: Rust dropped the old token, so re-check
+				// against the new endpoint without a reload.
 				listen("cloud:endpoint-changed", () => {
 					if (this.#view.kind === "waiting") void this.cancelSignIn();
 					this.#view = { kind: "loading" };
 					this.loadStatus();
 				}),
 			]);
-			// If dispose() ran while the listens were resolving, releasing here
-			// avoids leaking the handles forever.
+			// dispose() may have run while the listens were resolving — release now.
 			if (this.#destroyed) {
 				for (const un of handles) un();
 				return;

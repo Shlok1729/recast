@@ -1,7 +1,6 @@
 /**
- * Pure maths for FocusPanel: the zoom scale at a given time (ramp-in → hold →
- * ramp-out), the sparkline path that visualises it, and the max ramp length for
- * a region. Extracted from the component so the curve maths is testable.
+ * FocusPanel zoom maths: scale at a given time (ramp-in → hold → ramp-out), the
+ * sparkline path that visualises it, and a region's max ramp length.
  */
 
 import type { Easing } from "$lib/easing/cubic-bezier";
@@ -13,9 +12,8 @@ export function regionMaxRamp(r: ZoomRegion): number {
 }
 
 /**
- * Zoom scale at absolute time `t` for region `r`: 1 outside the region, ramping
- * up over `rampIn` (eased by `easeIn`), holding at `r.scale`, then ramping back
- * down over `rampOut` (eased by `easeOut`).
+ * Zoom scale at absolute time `t`: 1 outside the region, eased ramp up to
+ * `r.scale` over `rampIn`, hold, then eased ramp back down over `rampOut`.
  */
 export function scaleAt(r: ZoomRegion, t: number): number {
 	if (t <= r.start || t >= r.end) return 1;

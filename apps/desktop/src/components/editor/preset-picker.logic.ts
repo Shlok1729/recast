@@ -1,11 +1,7 @@
 /**
- * Pure helpers for PresetPicker — fuzzy search scoring, thumbnail styling, and
- * aspect/wallpaper string mapping. Extracted from the component so the search
- * ranking and frame maths are testable. The keyboard-nav state machine stays in
- * the component (it owns reactive cursor state).
- *
- * Functions take a structural `PresetLike` (the subset of `Preset` they read)
- * so this module doesn't depend on the component's exported `Preset` type.
+ * PresetPicker helpers: fuzzy search scoring, thumbnail styling, aspect/wallpaper
+ * mapping, and the keyboard-grid navigation model. Functions take a structural
+ * `PresetLike` so this module doesn't depend on the component's `Preset` type.
  */
 
 export interface PresetLike {
@@ -46,10 +42,9 @@ export function bgPreviewStyle(p: PresetLike): string {
 }
 
 /**
- * WYSIWYG frame inset percent. `padding` is a percent of the shorter source
- * edge and the canvas is source+padding on each side, so the video occupies
- * `1/(1+2p)` of that edge — this mirrors that so the thumbnail frames like the
- * real export. Capped at 20%.
+ * WYSIWYG frame inset percent. `padding` is a percent of the shorter source edge
+ * applied each side, so the video occupies `1/(1+2p)` of that edge — mirrored
+ * here so the thumbnail frames like the real export. Capped at 20%.
  */
 export function frameInsetPct(padding: number): number {
 	const p = Math.max(0, padding) / 100;
@@ -78,11 +73,8 @@ export function aspectClass(aspect: string): string {
 }
 
 // ── Keyboard-grid navigation model ──────────────────────────────────────────
-// The picker is a search box over a grid grouped by category. The pure pieces
-// below build the layout model and compute cursor moves; the component keeps the
-// reactive state (query/selectedIndex), the DOM refs, and focus/scroll effects.
-// Generic over `T extends PresetLike` so callers pass their own `Preset` type
-// without this module importing it.
+// Builds the per-category grid layout and computes cursor moves; the component
+// keeps the reactive state, DOM refs, and focus/scroll effects.
 
 export interface Cell<T> {
 	preset: T;

@@ -1,8 +1,6 @@
 /**
- * Pure geometry for the focus/zoom-region editing overlay: the UV-space box a
- * region occupies, its resize-handle positions, hit-testing, and the cursor for
- * a handle. Extracted from FocusOverlay so the maths is testable; the component
- * keeps the canvas/store wiring and the drawing.
+ * Focus/zoom-region overlay geometry: the UV-space box a region occupies, its
+ * resize-handle positions, hit-testing, and the cursor for a handle.
  *
  * NOTE: this is the zoom-region editor's own source-space geometry — it does NOT
  * use the zoom-aware/aspect-aware helpers in `$lib/annotations/uv.ts` (those are
@@ -30,10 +28,7 @@ export interface Box {
 /** Half-size (px, pre-DPR) of a resize handle; also the draw size. */
 export const HANDLE_RADIUS_PX = 6;
 
-/**
- * The UV-space box a zoom region occupies on the source frame: a square of side
- * `1/scale` centred on (centerX, centerY), clamped so it stays inside [0,1]².
- */
+/** UV-space box for a zoom region: a `1/scale`-side square centred on (centerX, centerY), clamped inside [0,1]². */
 export function regionBox(r: {
 	scale: number;
 	centerX: number;
@@ -66,10 +61,7 @@ export function handlePositions(
 	};
 }
 
-/**
- * Which handle (or "body") a point hits within a px-space rect, or null. `dpr`
- * scales the hit slop so the grab radius is consistent across displays.
- */
+/** Which handle (or "body") a point hits in a px-space rect, or null. `dpr` scales the grab slop per display. */
 export function hitTestHandle(
 	pt: { x: number; y: number },
 	x: number,

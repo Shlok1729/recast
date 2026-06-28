@@ -1,12 +1,7 @@
 /**
- * Pure timecode formatters for the editor panels. These were reinvented in
- * half a dozen components (FocusPanel, AnnotationsPanel, AudioPanel, InfoPanel,
- * SilenceReviewPopover, ExportDialog) with subtle drift; they live here now.
- *
- * All take a time in SECONDS, clamp negatives to 0, and treat non-finite input
- * as 0 (so a `NaN` duration renders the zero clock, not `NaN:NaN`). Minutes are
- * not rolled into hours — recordings are short and the panels never showed an
- * hours field.
+ * Pure timecode formatters for the editor panels. All take SECONDS, clamp
+ * negatives to 0, and treat non-finite as 0 (NaN → zero clock, not `NaN:NaN`).
+ * Minutes are never rolled into hours — recordings are short.
  */
 
 function safe(sec: number): number {

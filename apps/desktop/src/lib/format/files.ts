@@ -1,8 +1,4 @@
-/**
- * Pure formatters for file listings (recordings, exports, the home activity
- * strips). These were copy-pasted across the library route pages; they live
- * here now so the behaviour is defined once and is unit-testable.
- */
+/** Pure formatters for file listings (recordings, exports, activity strips). */
 
 /** Human-readable byte size, e.g. `1.5 MB`. Caps at MB (recordings/exports). */
 export function formatSize(bytes: number): string {
@@ -36,13 +32,9 @@ export function formatDateTime(unix: number): string {
 }
 
 /**
- * Relative age: `just now` / `5m ago` / `2h ago` / `3d ago`, then an absolute
- * date once older than a week. `unix` is epoch SECONDS.
- *
- * `now` is the reference epoch in MILLISECONDS (default `Date.now()`); pass a
- * reactive clock at the call site to make the label tick over time. `withTime`
- * picks the >1-week fallback format (date+time vs short date) — the two callers
- * historically differed here, so it's explicit rather than guessed.
+ * Relative age (`just now` / `5m ago` / `3d ago`), then an absolute date past a
+ * week. `unix` is epoch SECONDS; `now` is the reference epoch in MILLISECONDS
+ * (default `Date.now()`). `withTime` picks the >1-week fallback format.
  */
 export function relativeDate(
 	unix: number,

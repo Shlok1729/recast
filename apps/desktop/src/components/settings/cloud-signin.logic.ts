@@ -1,7 +1,4 @@
-/**
- * Pure label/formatting helpers for CloudSignIn. The auth state machine (view
- * state, the `auth_*` command handlers, event listeners) stays in the component.
- */
+/** Pure label/formatting helpers for CloudSignIn. */
 
 /** Title-case a workspace role for the badge ("owner" → "Owner"). */
 export function roleLabel(role: string): string {

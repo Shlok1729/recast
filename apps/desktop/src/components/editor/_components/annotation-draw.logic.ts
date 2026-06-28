@@ -1,9 +1,6 @@
 /**
- * Pure, testable bits of the annotation canvas rendering: arrow head geometry,
- * stroke dash patterns, and blur-variant tint colours. The imperative drawing
- * (ctx.fill/stroke/clip etc.) stays in AnnotationOverlay — it's view-bound to
- * the component's canvas/project helpers and isn't meaningfully unit-testable;
- * these helpers are the maths it builds on.
+ * Annotation rendering maths: arrow-head geometry, stroke dash patterns, and
+ * blur-variant tint colours. The imperative drawing stays in AnnotationOverlay.
  */
 
 export type StrokeStyle = "solid" | "dashed" | "dotted";

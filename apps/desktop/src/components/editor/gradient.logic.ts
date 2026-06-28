@@ -2,10 +2,6 @@
  * Packs the store's gradient string into the flat uniform arrays the WebGL
  * preview shader consumes. Shares the store's gradient parser with the picker
  * and the Rust rasteriser so preview === export.
- *
- * This imports the store (for `parseGradient`/`MAX_GRADIENT_STOPS`), so it isn't
- * unit-tested under the pure-logic vitest setup; the pure colour parsing it
- * builds on lives in `color.logic.ts` (which is tested).
  */
 
 import {

@@ -1,13 +1,8 @@
 /**
- * Pure click/press animation maths for the cursor overlay, extracted from
- * VideoPreview. The captured cursor track (per ~8ms sample, with button state)
- * is collapsed into one `PressEvent` per click, and the press/click visuals are
+ * Click/press animation maths for the cursor overlay. The captured cursor track
+ * is collapsed into one `PressEvent` per click; the press/click visuals are
  * deterministic functions of time around those events. Mirrors `cursor_anim.rs`
- * so the editor preview and the export agree frame-for-frame.
- *
- * Everything here is pure: feed it the press events (built once via
- * `buildPressEvents`) and a timestamp. The component keeps the cursor-sample
- * state and the WebGL drawing.
+ * so editor preview and export agree frame-for-frame.
  */
 
 /** One collapsed click: down/up time + the captured click position. */
@@ -60,9 +55,8 @@ export function smoothStep01(t: number): number {
 }
 
 /**
- * Collapse raw cursor samples into one press event per click. Reads button
- * state from the RAW samples — smoothing reshapes x/y but must never move click
- * timing/position.
+ * Collapse raw cursor samples into one press event per click. Button state is
+ * read from RAW samples — smoothing reshapes x/y but must never move click timing/position.
  */
 export function buildPressEvents(samples: PressSample[]): PressEvent[] {
 	const events: PressEvent[] = [];

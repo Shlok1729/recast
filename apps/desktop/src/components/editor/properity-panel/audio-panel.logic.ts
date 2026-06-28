@@ -1,8 +1,4 @@
-/**
- * Pure helpers + data for AudioPanel: fade presets, the dB readout, and the SVG
- * gain-envelope path. Extracted so the maths is testable; the component keeps
- * the store wiring (and a thin wrapper that feeds clip duration into the path).
- */
+/** AudioPanel helpers + data: fade presets, the dB readout, and the SVG gain-envelope path. */
 
 export interface FadePreset {
 	label: string;
@@ -18,9 +14,8 @@ export const FADE_PRESETS: FadePreset[] = [
 ];
 
 /**
- * dB-ish display ("0 dB" at 100%, calibrated as 20·log10(volume/100)). Not the
- * exact same curve as the Rust ffmpeg `volume=` filter (a linear multiplier) but
- * matches user intuition.
+ * dB-ish display: 20·log10(volume/100), so "0 dB" at 100%. Intentionally not the
+ * ffmpeg `volume=` curve (a linear multiplier) — this matches user intuition.
  */
 export function dbForVolume(v: number): string {
 	if (v <= 0) return "−∞ dB";
@@ -30,9 +25,8 @@ export function dbForVolume(v: number): string {
 }
 
 /**
- * SVG path for a gain envelope across a 100×24 box. Mirrors the FFmpeg afade
- * behaviour: linear ramp 0→1 over `fadeIn` at the head, hold at 1, then linear
- * ramp 1→0 over `fadeOut` at the tail. Each fade is capped at half the clip.
+ * SVG gain-envelope path over a 100×24 box, mirroring FFmpeg afade: linear ramp
+ * 0→1 over `fadeIn`, hold, then 1→0 over `fadeOut`. Each fade capped at half the clip.
  */
 export function envelopePath(
 	fadeIn: number,

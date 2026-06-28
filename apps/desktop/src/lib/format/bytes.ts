@@ -1,10 +1,6 @@
 /**
- * Human-readable byte size up to TB, e.g. `1.4 GB`, `932 MB`, `84 KB`. Shared by
- * InfoPanel and CloudSignIn (which had identical maths, differing only in the
- * zero/empty placeholder — hence `zeroLabel`).
- *
- * Distinct from `formatSize` in `./files.ts`, which is the MB-capped file-listing
- * variant; keep both.
+ * Human-readable byte size up to TB, e.g. `1.4 GB`. `zeroLabel` is the
+ * zero/empty placeholder. Distinct from the MB-capped `formatSize` in `./files.ts`.
  */
 export function formatBytes(
 	bytes: number | undefined,
