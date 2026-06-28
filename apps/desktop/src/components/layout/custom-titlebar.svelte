@@ -36,7 +36,7 @@
   <!-- Drag region: content area only, not the window controls. -->
   <div
     class={cn("flex-1 flex items-center min-w-0 h-full font-sans", className)}
-    data-tauri-drag-region
+    
   >
     {#if children}
       {@render children()}

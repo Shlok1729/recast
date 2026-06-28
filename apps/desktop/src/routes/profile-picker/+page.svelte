@@ -96,19 +96,19 @@
   <!-- Header -->
   <header
     class="flex items-center justify-between border-b border-border-subtle px-4 h-10 shrink-0"
-    data-tauri-drag-region
   >
     <div class="flex items-center gap-2" data-tauri-drag-region>
-      <SlidersIcon size={11} class="text-muted-foreground" />
-      <span
-        class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-      >
+      <SlidersIcon size={11} class="text-muted-foreground pointer-events-none" />
+      <span class="pointer-events-none text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         Switch profile
       </span>
     </div>
+    
+    <!-- Empty space for dragging -->
+    <div class="flex-1 h-full" data-tauri-drag-region></div>
+
     <Button
       onclick={closeWindow}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
       size="icon-sm"
       variant="ghost"
       class="opacity-0 group-hover/root:opacity-100 transition-opacity"
@@ -216,15 +216,17 @@
 
   <!-- Footer hint -->
   <footer
-    data-tauri-drag-region
     class="flex items-center justify-between border-t border-border-subtle bg-card/50 px-3 h-9 shrink-0"
   >
-    <span class="text-[10px] font-medium text-muted-foreground/80">
+    <span class="pointer-events-none text-[10px] font-medium text-muted-foreground/80" data-tauri-drag-region>
       ↑↓ Enter · ⌘1-⌘8 · Esc
     </span>
+
+    <!-- Empty space for dragging -->
+    <div class="flex-1 h-full" data-tauri-drag-region></div>
+
     <Button
       onclick={closeWindow}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
       variant="ghost"
       size="xs"
     >

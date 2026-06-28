@@ -118,7 +118,7 @@
 
 <div
   class="flex h-full w-full items-center gap-1.5 px-2 text-[11px]"
-  data-tauri-drag-region
+  
 >
   <div class="flex items-center gap-0.5">
     <Tooltip.Root>
@@ -148,7 +148,7 @@
     ></span>
   {/if}
 
-  <div class="mx-auto flex items-center gap-1.5" data-tauri-drag-region>
+  <div class="mx-auto flex items-center gap-1.5">
     <Tooltip.Root>
       <Tooltip.Trigger>
         <Button
