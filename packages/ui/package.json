@@ -44,6 +44,10 @@
       "svelte": "./src/components/ui/command/index.ts",
       "default": "./src/components/ui/command/index.ts"
     },
+    "./cutout": {
+      "svelte": "./src/components/ui/cutout/index.ts",
+      "default": "./src/components/ui/cutout/index.ts"
+    },
     "./dialog": {
       "svelte": "./src/components/ui/dialog/index.ts",
       "default": "./src/components/ui/dialog/index.ts"
@@ -71,6 +75,10 @@
     "./label": {
       "svelte": "./src/components/ui/label/index.ts",
       "default": "./src/components/ui/label/index.ts"
+    },
+    "./local-icon": {
+      "svelte": "./src/components/ui/local-icon/index.ts",
+      "default": "./src/components/ui/local-icon/index.ts"
     },
     "./markdown": {
       "svelte": "./src/components/ui/markdown/index.ts",

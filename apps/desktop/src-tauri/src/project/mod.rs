@@ -10,6 +10,20 @@ pub mod format;
 pub mod reader;
 pub mod writer;
 
+/// Cheap format probe: reads only the ZIP central directory (entry names) — no
+/// extraction or media decompression — to decide whether `path` is a legacy v1
+/// bundle. Returns false for unreadable or non-archive files.
+pub fn is_legacy_project(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let Ok(archive) = zip::ZipArchive::new(file) else {
+        return false;
+    };
+    let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+    !format::is_v2(&names)
+}
+
 /// Re-pack a legacy v1 `.recast` as v2 in place, keeping a one-time
 /// `*.recast.bak` of the original first (recordings can be irreplaceable).
 /// No-op if the project is already v2. The atomic rename inside `write_project`

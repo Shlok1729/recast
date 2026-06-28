@@ -45,9 +45,9 @@
     Unlink2,
     X,
   } from "@lucide/svelte";
-  import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
+  import { Cutout } from "@recast/ui/cutout";
   import * as DropdownMenu from "@recast/ui/dropdown-menu";
   import { Kbd } from "@recast/ui/kbd";
   import { safeStorage } from "@recast/ui/persisted-state";
@@ -638,7 +638,7 @@
                   : "flex-row items-center gap-3 rounded-lg p-1.5",
                 isSelected
                   ? "border-primary/60 bg-primary/5"
-                  : "border-border/40 bg-card/40 hover:border-border hover:bg-card/70 hover:shadow-craft-sm",
+                  : "border-border/40 bg-card hover:border-border hover:shadow-craft-sm",
               )}
             >
               <!-- Thumbnail -->
@@ -695,12 +695,20 @@
                   </div>
                 {/if}
 
-                <Badge
-                  variant="secondary"
-                  class="absolute right-1.5 top-1.5 h-4 px-1 text-[8.5px] font-bold uppercase tracking-wider backdrop-blur"
-                >
-                  {getExtension(entry.filename)}
-                </Badge>
+                {#if view === "grid"}
+                  <Cutout
+                    corner="bl"
+                    surface="card"
+                    radius={8}
+                    class="flex items-center px-2.5 pt-2.5 pb-1"
+                  >
+                    <span
+                      class="text-[8.5px] font-bold uppercase leading-none tracking-wider text-muted-foreground"
+                    >
+                      {getExtension(entry.filename)}
+                    </span>
+                  </Cutout>
+                {/if}
 
                 <!-- Drive upload progress chip on the thumbnail (paired with the bottom bar). -->
                 {#if activeUpload}

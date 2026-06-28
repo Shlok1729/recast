@@ -2442,10 +2442,16 @@ pub fn cancel_export(export_id: String, state: State<'_, AppState>) -> Result<()
     Ok(())
 }
 
+/// Crash-recovery shadow write, fired on a ~30s timer — async + spawn_blocking
+/// so the JSON serialize + atomic file write never stall the UI thread.
 #[tauri::command]
-pub fn autosave_project(project_path: String, edits_json: String) -> Result<(), String> {
-    crate::project::autosave::save_autosave(Path::new(&project_path), &edits_json)
-        .map_err(|e| e.to_string())
+pub async fn autosave_project(project_path: String, edits_json: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::project::autosave::save_autosave(Path::new(&project_path), &edits_json)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("autosave task panicked: {e}"))?
 }
 
 /// Re-pack a legacy `.recast` as the current format in place (keeps a `.bak`).
@@ -2481,13 +2487,20 @@ pub async fn save_project_edits(project_path: String, edits_json: String) -> Res
 }
 
 #[tauri::command]
-pub fn clear_autosave(project_path: String) {
-    crate::project::autosave::clear_autosave(Path::new(&project_path));
+pub async fn clear_autosave(project_path: String) {
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        crate::project::autosave::clear_autosave(Path::new(&project_path));
+    })
+    .await;
 }
 
+/// Scans the autosave temp dir + parses each shadow file — async so a cluttered
+/// recovery dir doesn't block startup on the UI thread.
 #[tauri::command]
-pub fn get_recoverable_sessions() -> Vec<crate::project::autosave::AutosaveState> {
-    crate::project::autosave::find_recoverable_sessions()
+pub async fn get_recoverable_sessions() -> Vec<crate::project::autosave::AutosaveState> {
+    tauri::async_runtime::spawn_blocking(crate::project::autosave::find_recoverable_sessions)
+        .await
+        .unwrap_or_default()
 }
 
 /// Analyse a captured cursor track and return the list of moments that would
@@ -2498,16 +2511,22 @@ pub fn get_recoverable_sessions() -> Vec<crate::project::autosave::AutosaveState
 /// improvement would otherwise keep serving stale (often far noisier)
 /// suggestions. Detection is cheap (µs over the in-memory track).
 #[tauri::command]
-pub fn suggest_zoom_regions(
+pub async fn suggest_zoom_regions(
     cursor_path: String,
 ) -> Result<Vec<crate::cursor::smoothing::ZoomTrigger>, String> {
-    let bytes = fs::read(Path::new(&cursor_path)).map_err(|e| format!("read cursor track: {e}"))?;
-    let track: crate::cursor::CursorTrack =
-        serde_json::from_slice(&bytes).map_err(|e| format!("parse cursor track: {e}"))?;
-    Ok(crate::cursor::smoothing::detect_zoom_triggers(
-        &track.samples,
-        &track.clicks,
-    ))
+    // The cursor track is multi-MB on long recordings; read + parse off-thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes =
+            fs::read(Path::new(&cursor_path)).map_err(|e| format!("read cursor track: {e}"))?;
+        let track: crate::cursor::CursorTrack =
+            serde_json::from_slice(&bytes).map_err(|e| format!("parse cursor track: {e}"))?;
+        Ok(crate::cursor::smoothing::detect_zoom_triggers(
+            &track.samples,
+            &track.clicks,
+        ))
+    })
+    .await
+    .map_err(|e| format!("suggest task panicked: {e}"))?
 }
 
 #[cfg(test)]

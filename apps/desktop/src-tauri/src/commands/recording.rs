@@ -278,11 +278,16 @@ fn list_files_by_ext(dir: &PathBuf, exts: &[&str]) -> Result<Vec<RecordingEntry>
                 .duration_since(std::time::SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
+            // Only `.recast` carries a format; the probe reads just the zip
+            // central directory, and this whole scan is already off the main
+            // thread (spawn_blocking).
+            let needs_migration = file_ext == "recast" && crate::project::is_legacy_project(&path);
             entries.push(RecordingEntry {
                 filename: entry.file_name().to_string_lossy().to_string(),
                 path: path.to_string_lossy().to_string(),
                 size_bytes: meta.len(),
                 created,
+                needs_migration,
             });
         }
     }
