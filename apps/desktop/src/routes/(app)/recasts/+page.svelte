@@ -164,9 +164,8 @@
   const shareSupported = isShareSupported();
 
   /**
-   * Open the OS share sheet for a recording. Raw recordings have no Drive
-   * link yet, so this just tries the file payload (Web Share Level 2) and
-   * surfaces a helpful toast when the runtime can't share files.
+   * Open the OS share sheet for a recording. Raw recordings have no Drive link,
+   * so this only tries the file payload (Web Share Level 2).
    */
   async function shareEntry(entry: RecordingEntry) {
     const result = await shareRecording({
@@ -273,7 +272,7 @@
 
 <div class="h-full overflow-y-auto scrollbar-transparent no-scrollbar">
   <div class="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
-    <!-- Hero (mirrors home page rhythm: eyebrow + heading + helper) -->
+    <!-- Hero -->
     <header
       in:fly={{ y: 12, duration: 320, easing: cubicOut }}
       class="flex flex-col gap-3"
@@ -302,7 +301,7 @@
       </p>
     </header>
 
-    <!-- Hero search bar (matches home: h-12 pill, inset shadow, hover lift) -->
+    <!-- Search bar -->
     <label
       in:fly={{ y: 12, duration: 320, delay: 60, easing: cubicOut }}
       class="group/search flex h-12 items-center gap-3 rounded-xl border border-border/60 bg-card/70 px-4 shadow-(--shadow-craft-inset) backdrop-blur transition-all duration-200 hover:border-border hover:bg-card hover:shadow-craft-sm focus-within:border-border focus-within:bg-card focus-within:shadow-craft-sm"
@@ -330,7 +329,7 @@
       {/if}
     </label>
 
-    <!-- Section header: matches home page sections (uppercase eyebrow + actions on the right) -->
+    <!-- Section header -->
     <div
       in:fly={{ y: 12, duration: 320, delay: 120, easing: cubicOut }}
       class="flex flex-col gap-3"

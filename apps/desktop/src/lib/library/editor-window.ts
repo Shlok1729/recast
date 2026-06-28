@@ -1,8 +1,7 @@
 /**
- * Opening a recording/export in the editor — either in the current window or a
- * dedicated webview. This was duplicated verbatim across the home and recasts
- * route pages; it lives here so the window label/sizing and the path encoding
- * stay in one place.
+ * Opening a recording/export in the editor (current window or a dedicated
+ * webview). Shared by the home and recasts pages so the window label/sizing
+ * and path encoding stay in one place.
  */
 
 import { goto } from "$app/navigation";

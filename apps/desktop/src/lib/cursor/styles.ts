@@ -1,27 +1,12 @@
 /**
- * Curated cursor sprite library. Each style is an SVG so we can recolour and
- * resample at any DPI without bundling pixel assets.
+ * Cursor sprite library. SVGs so we can recolour/resample at any DPI without
+ * pixel assets. Add a variant by dropping an `.svg` into `./sprites/` and
+ * referencing its bare filename via `sprite()` in `CURSOR_STYLES`.
  *
- * The sprite art lives as standalone files under `./sprites/*.svg` and is
- * pulled in at build time via `import.meta.glob` (`?raw`), so adding a new
- * variant is just: drop an `.svg` into `./sprites/`, then add a manifest entry
- * to `CURSOR_STYLES` below referencing it by bare filename through `sprite()`.
- * No string editing, no import bookkeeping.
- *
- * Coordinate system: every sprite is authored at 64×64 with the *click
- * hotspot* at `hotspot` (in sprite-space px). The preview overlay applies
- * `transform: translate(-hotspotX, -hotspotY)` so the cursor's tip lands on
- * the captured pointer position regardless of which sprite is selected.
- * Strokes use round joins/caps and inline filters for soft drop shadows so
- * every variant reads cleanly at the 32–96 px rendered scale users see in
- * playback. Filters are scoped via unique IDs to avoid clashes when multiple
- * sprites end up in the DOM.
- *
- * `dot` is the historical soft-circle path, drawn by the WebGL2 shader and
- * the Rust export overlay. `macos` adds an Apple-style cursor with two
- * sprites: the arrow shown at rest, and the link-pointing hand swapped in
- * while the captured cursor is mid-click. Per-state lookup happens via
- * `cursorStyleDataUrl(id, "press" | "rest")`.
+ * Every sprite is authored at 64×64 with its click hotspot at `hotspot`
+ * (sprite-space px); the overlay translates by `-hotspot` so the tip lands on
+ * the captured pointer position. Drop-shadow filters use unique IDs to avoid
+ * clashing when multiple sprites share the DOM.
  */
 
 import type { CursorStyleId } from "$lib/stores/editor-store.svelte";
@@ -47,19 +32,15 @@ export interface CursorStyle {
   dragHotspot?: { x: number; y: number };
 }
 
-// Eagerly load every sprite as a raw SVG string at build time, keyed by its
-// path (e.g. "./sprites/macos-arrow.svg"). Bundled into the build — no runtime
-// filesystem access, so it works unchanged inside the Tauri WebView.
+// Raw SVG strings inlined at build time (no runtime fs access), keyed by path.
 const spriteModules = import.meta.glob<string>("./sprites/*.svg", {
   query: "?raw",
   import: "default",
   eager: true,
 });
 
-/** Resolve a sprite by its bare filename (no `./sprites/` prefix or `.svg`
- *  extension). Throws loudly at module init if a manifest entry points at a
- *  file that doesn't exist, so a typo surfaces immediately in dev rather than
- *  silently rendering an empty cursor. */
+/** Resolve a sprite by bare filename. Throws at module init on a missing file
+ *  so a typo surfaces immediately instead of rendering an empty cursor. */
 function sprite(name: string): string {
   const svg = spriteModules[`./sprites/${name}.svg`];
   if (!svg) {
@@ -77,15 +58,13 @@ export const CURSOR_STYLES: CursorStyle[] = [
     id: "dot",
     label: "Soft dot",
     description: "Default cursor, used in preview and export.",
-    // The actual `dot` cursor is drawn by the WebGL2 shader; this SVG is
-    // only the picker swatch.
+    // `dot` is drawn by the WebGL2 shader; this SVG is only the picker swatch.
     svg: sprite("dot"),
     hotspot: { x: 32, y: 32 },
   },
   {
-    // System-accurate Apple cursor set. rest=arrow, press=link hand,
-    // rightPress=contextual menu, drag=grab. Hotspots anchored to each
-    // sprite's tip/grab point. See ./sprites/CREDITS.md for attribution.
+    // Apple cursor set: rest=arrow, press=link hand, rightPress=context, drag=grab.
+    // See ./sprites/CREDITS.md for attribution.
     id: "macos-system",
     label: "macOS System",
     description: "Apple cursor set: arrow, link hand, grab, and right-click states.",
@@ -99,9 +78,9 @@ export const CURSOR_STYLES: CursorStyle[] = [
     dragHotspot: { x: 32, y: 32 },
   },
   {
-    // System-accurate Windows cursor set. Windows has no distinct right-click
-    // cursor, so rightPress falls back to press → rest. drag uses the 4-way
-    // move cursor. See ./sprites/CREDITS.md for attribution.
+    // Windows cursor set. No distinct right-click cursor, so rightPress falls
+    // back to press → rest; drag uses the 4-way move cursor.
+    // See ./sprites/CREDITS.md for attribution.
     id: "windows-system",
     label: "Windows System",
     description: "Windows cursor set: arrow, link hand, and move (drag) states.",

@@ -44,8 +44,7 @@
 
   let { store }: Props = $props();
 
-  // Tick `now` every 30s so the relative-time labels ("Saved 2 min ago")
-  // stay fresh without paying for a per-frame redraw.
+  // Tick every 30s so relative-time labels stay fresh without a per-frame redraw.
   let now = $state(Date.now());
   let nowTimer: ReturnType<typeof setInterval> | null = null;
   onMount(() => {
@@ -59,8 +58,7 @@
     store.activePanel = tab;
   }
 
-  // Keeps the "--:--" placeholder (a presentation choice) but defers the clock
-  // formatting to the shared helper.
+  // Keeps the "--:--" placeholder; defers clock formatting to the shared helper.
   function formatDuration(seconds: number | undefined): string {
     if (!seconds || seconds <= 0) return "--:--";
     return clock(seconds);
@@ -80,8 +78,7 @@
   const formatBytes = (bytes: number | undefined): string =>
     formatBytesBase(bytes, "--");
 
-  // Annotation kind counts. Always render every kind (with 0) so the row
-  // doesn't shift around as the user adds/removes shapes.
+  // Every kind always rendered (with 0) so the row doesn't shift as shapes change.
   const KIND_META: Array<{
     id: AnnotationKindName;
     label: string;

@@ -1,15 +1,22 @@
 <script lang="ts">
-  import {
-    detectSilence,
-    type SilenceDetectOptions,
-    type SilenceSegment,
-  } from "$lib/ipc";
+  import { detectSilence, type SilenceSegment } from "$lib/ipc";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import { overlapsAny } from "$lib/timeline/cuts";
   import {
     clockDecis as formatTime,
     compactDuration as formatDuration,
   } from "$lib/format/time";
+  import {
+    BULK_MIN_CONFIDENCE,
+    confidenceBarClass,
+    confidenceLabel,
+    confidenceTextClass,
+    cutBounds,
+    parseSensitivity,
+    SENSITIVITY_OPTIONS,
+    SENSITIVITY_PRESETS,
+    type Sensitivity,
+  } from "./silence-review.logic";
   import {
     AlertTriangle,
     Check,
@@ -32,48 +39,17 @@
 
   let { store, onclose }: Props = $props();
 
-  // A small margin kept at each end of a cut so speech onsets/tails right
-  // beside the silence are never clipped.
-  const CUT_PADDING = 0.12;
-  // Bulk "Cut all" only takes confident suggestions — uncertain ones are
-  // left for the user to judge individually.
-  const BULK_MIN_CONFIDENCE = 0.5;
-
-  // Detection sensitivity. "Balanced" uses the Rust-side defaults; the other
-  // two trade recall against false positives. Persisted across sessions.
-  type Sensitivity = "relaxed" | "balanced" | "aggressive";
+  // Persisted across sessions (presets/options live in silence-review.logic).
   const SENSITIVITY_KEY = "recast-silence-sensitivity";
-  const PRESETS: Record<Sensitivity, SilenceDetectOptions> = {
-    relaxed: {
-      flatnessDb: 3,
-      minAudioSilence: 1,
-      minSegment: 1.5,
-    },
-    balanced: {},
-    aggressive: {
-      flatnessDb: 8,
-      minAudioSilence: 0.4,
-      minSegment: 0.6,
-    },
-  };
-  const SENSITIVITY_OPTIONS: Array<{ id: Sensitivity; label: string }> = [
-    { id: "relaxed", label: "Relaxed" },
-    { id: "balanced", label: "Balanced" },
-    { id: "aggressive", label: "Aggressive" },
-  ];
 
-  function loadSensitivity(): Sensitivity {
-    const v = safeStorage.get<string>(SENSITIVITY_KEY, "");
-    return v === "relaxed" || v === "aggressive" ? v : "balanced";
-  }
-
-  let sensitivity = $state<Sensitivity>(loadSensitivity());
+  let sensitivity = $state<Sensitivity>(
+    parseSensitivity(safeStorage.get<string>(SENSITIVITY_KEY, "")),
+  );
 
   function setSensitivity(next: Sensitivity) {
     if (next === sensitivity) return;
     sensitivity = next;
     safeStorage.set(SENSITIVITY_KEY, next);
-    // The load effect re-runs because it reads `sensitivity`.
   }
 
   type Status = "idle" | "loading" | "ready" | "error" | "empty";
@@ -82,7 +58,7 @@
   // Suggestions the user hasn't yet cut or dismissed.
   let pending = $state<SilenceSegment[]>([]);
 
-  // Re-runs whenever `sensitivity` changes (it is read below).
+  // Re-runs whenever `sensitivity` changes.
   $effect(() => {
     void sensitivity;
     void loadSuggestions();
@@ -101,7 +77,7 @@
         store.audioPath,
         store.microphonePath,
         store.cursorPath,
-        PRESETS[sensitivity],
+        SENSITIVITY_PRESETS[sensitivity],
       );
       // Drop anything already removed by a cut, or previously dismissed,
       // then surface the strongest candidates first.
@@ -133,35 +109,15 @@
     return overlapsAny(blockers, seg.start, seg.end);
   }
 
-  function confidenceLabel(c: number): string {
-    if (c >= 0.66) return "Strong";
-    if (c >= 0.4) return "Likely";
-    return "Uncertain";
-  }
-
-  function confidenceTextClass(c: number): string {
-    if (c >= 0.66) return "text-success";
-    if (c >= 0.4) return "text-warning";
-    return "text-muted-foreground";
-  }
-
-  function confidenceBarClass(c: number): string {
-    if (c >= 0.66) return "bg-success";
-    if (c >= 0.4) return "bg-warning";
-    return "bg-muted-foreground/60";
-  }
-
   function previewAt(seg: SilenceSegment) {
     store.currentTime = seg.start;
   }
 
   /** Apply the keep-margin and commit a cut. Returns true if a cut landed. */
   function commitCut(seg: SilenceSegment): boolean {
-    const pad = Math.min(CUT_PADDING, (seg.end - seg.start) / 3);
-    const start = seg.start + pad;
-    const end = seg.end - pad;
-    if (end - start < 0.2) return false;
-    return store.addCut(start, end, "silence") !== null;
+    const b = cutBounds(seg.start, seg.end);
+    if (!b) return false;
+    return store.addCut(b.start, b.end, "silence") !== null;
   }
 
   function cut(seg: SilenceSegment) {
@@ -196,9 +152,7 @@
     status = "empty";
   }
 
-  // Reverts the user's accumulated "dismiss" decisions for this project so
-  // previously-rejected suggestions can be re-surfaced. Re-runs detection
-  // immediately so the popover repopulates without a manual click.
+  // Clear dismissed decisions and re-scan so rejected suggestions re-surface.
   function resetDismissedAndRescan() {
     store.clearDismissedSilences();
     void loadSuggestions();

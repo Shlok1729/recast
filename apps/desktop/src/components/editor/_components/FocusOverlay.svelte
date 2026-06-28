@@ -303,18 +303,16 @@
     resizeObserver?.disconnect();
   });
 
-  // Reactive triggers — the RAF loop already picks up store changes each
-  // frame, but touching them here keeps the effect graph wired for Svelte 5.
+  // The RAF loop already reads the store each frame; touching these keeps the
+  // Svelte 5 effect graph wired.
   $effect(() => {
     void store.selectedZoomRegionId;
     void store.zoomRegions;
     void store.padding;
   });
 
-  // Editing chrome (dashed rect, handles, crosshair) is only meaningful while
-  // the user is on the Focus tab — otherwise the overlay both hides itself and
-  // stops swallowing pointer events so clicks reach the AnnotationOverlay or
-  // the preview underneath.
+  // Off the Focus tab the overlay hides and stops swallowing pointer events so
+  // clicks reach the AnnotationOverlay / preview underneath.
   const isActive = $derived(
     store.activePanel === "focus" && store.selectedZoomRegionId !== null,
   );

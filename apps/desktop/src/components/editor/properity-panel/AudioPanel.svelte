@@ -45,8 +45,7 @@
     updateAudioSettings({ volume: 100 }, true);
   }
 
-  // M keyboard shortcut. Suppressed inside text inputs and contenteditable
-  // (e.g. text annotations) so it doesn't fire while the user is typing.
+  // Suppress the M shortcut while typing in an input/contenteditable.
   function isEditableTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     if (target.isContentEditable) return true;
@@ -62,8 +61,8 @@
     }
   }
 
-  // Volume zones for the slider readout. Above 100% the export pipeline
-  // applies straight gain, which can clip — surface that as a warning.
+  // Volume zones for the readout. Above 100% the export applies straight gain,
+  // which can clip — surfaced as a warning.
   type Zone = "muted" | "low" | "nominal" | "boost" | "hot";
   const volumeZone = $derived.by<Zone>(() => {
     if (store.audioSettings.muted) return "muted";
@@ -87,8 +86,8 @@
     );
   }
 
-  // The currently matching preset (if any) drives the Segmented selection;
-  // dragging the sliders to a custom value leaves nothing selected.
+  // Matching preset drives the Segmented selection; a custom slider value
+  // leaves nothing selected.
   const activePreset = $derived(
     FADE_PRESETS.find((p) => isPresetActive(p))?.label ?? "",
   );
@@ -96,21 +95,19 @@
     FADE_PRESETS.map((p) => ({ value: p.label, label: p.label })),
   );
 
-  // Wrappers: read the reactive store, defer the maths to the shared helpers.
+  // Wrappers: read the reactive store, defer maths to the shared helpers.
   const envelopePath = (fadeIn: number, fadeOut: number): string =>
     envelopePathBase(fadeIn, fadeOut, store.clipDuration || 1);
   const formatClipDuration = (): string => clock(store.clipDuration || 0);
 </script>
 
-<!-- Local, focus-aware: `M` toggles mute (documented in the central shortcut
-     registry). `<svelte:window>` so Svelte rebinds it on every HMR patch. -->
+<!-- `M` toggles mute. `<svelte:window>` so Svelte rebinds it on each HMR patch. -->
 <svelte:window onkeydown={handleKey} />
 
 <div
   class="flex flex-col gap-4"
   in:fly={{ y: 8, duration: 260, delay: 40, easing: cubicOut }}
 >
-  <!-- Output: master gain readout sits directly above the slider that drives it -->
   <PanelSection
     title="Output"
     hint="Volume affects editor playback and export. Press M to toggle mute."
@@ -143,7 +140,6 @@
     {/snippet}
 
     <div class="flex flex-col gap-2.5">
-      <!-- Hero meter: gain % + dB + clipping warning + linear gain bar -->
       <div
         class="rounded-md border border-border bg-card/60 px-3 py-2.5"
         class:opacity-50={store.audioSettings.muted}
@@ -189,7 +185,6 @@
           {/if}
         </div>
 
-        <!-- Linear gain bar with 100% reference mark -->
         <div class="relative mt-2 h-1.5 overflow-hidden rounded-full bg-background">
           <div
             class="absolute inset-y-0 left-0 transition-all duration-300 {volumeZone ===
@@ -211,7 +206,6 @@
         </div>
       </div>
 
-      <!-- The control for the readout above -->
       <SliderControl
         label="Output volume"
         value={store.audioSettings.volume}
@@ -246,7 +240,6 @@
       </span>
     {/snippet}
 
-    <!-- Envelope visualization -->
     <div class="rounded-md border border-border bg-background/60 p-2">
       <svg
         viewBox="0 0 100 24"
@@ -283,7 +276,6 @@
       </div>
     </div>
 
-    <!-- Presets -->
     <div class="mt-2">
       <Segmented
         size="xs"

@@ -93,7 +93,6 @@
 >
   <div class="flex flex-col gap-3">
     {#if isShape}
-      <!-- Stroke -->
       <div class="space-y-2">
         <SliderControl
           label="Stroke width"
@@ -122,7 +121,6 @@
           />
         </div>
 
-        <!-- Stroke color: quick swatches + custom picker -->
         <div class="flex flex-wrap items-center gap-1">
           {#each STROKE_SWATCHES as swatch (swatch)}
             {@const isActive = annotation.stroke.color === swatch}
@@ -170,7 +168,6 @@
     {/if}
 
     {#if hasFill}
-      <!-- Fill -->
       <div class="space-y-1.5">
         <span class="text-[10px] text-muted-foreground">Fill</span>
         <div class="flex flex-wrap items-center gap-1">
@@ -227,7 +224,6 @@
       </div>
     {/if}
 
-    <!-- Master opacity -->
     <SliderControl
       label="Opacity"
       value={(annotation.opacity ?? 1) * 100}
@@ -240,7 +236,6 @@
       onchange={(v) => setOpacity(v / 100)}
     />
 
-    <!-- Glow disclosure -->
     <div
       class="space-y-2 rounded-xl border border-border/60 bg-card/40 p-2 shadow-(--shadow-craft-inset)"
     >

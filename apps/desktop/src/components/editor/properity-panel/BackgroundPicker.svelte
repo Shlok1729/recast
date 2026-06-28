@@ -80,12 +80,9 @@
     recents = pushRecentColor(color);
   }
 
-  // ── Custom gradient builder ────────────────────────────────────────────
-  // The draft is the editing source of truth; it serialises to the same CSS
-  // string the store holds and both renderers (WebGL preview + Rust export)
-  // parse. We keep a local draft so dragging a stop doesn't round-trip
-  // through the store on every pointer-move, then stream it back via
-  // `setBackgroundLive` (coalesced undo) for a live preview.
+  // Local editing draft so dragging a stop doesn't round-trip through the store
+  // every pointer-move; streamed back via setBackgroundLive (coalesced undo). It
+  // serialises to the same CSS string both renderers (preview + Rust export) parse.
   let gradientDraft = $state<GradientSpec>(
     parseGradient(
       store.backgroundType === "gradient" ? store.backgroundValue : DEFAULT_GRADIENT,
@@ -94,9 +91,8 @@
   let selectedStop = $state(0);
   let gradientBarEl = $state<HTMLDivElement | null>(null);
 
-  // Reconcile the draft when the store's gradient changes from the outside
-  // (undo/redo, a preset click). Guard with a serialise-compare so our own
-  // live edits don't bounce back and fight the drag.
+  // Reconcile the draft on outside changes (undo/redo, preset click). The
+  // serialise-compare stops our own live edits from bouncing back into the drag.
   $effect(() => {
     if (store.backgroundType !== "gradient") return;
     const current = store.backgroundValue;
@@ -201,11 +197,9 @@
     selectedStop = stops.length - 1;
   }
 
-  // Mode tabs (Wallpaper/Color/Gradient/Image) drive which preset list is
-  // shown — they do NOT mutate the actual background. The store is only
-  // updated when the user explicitly picks a preset. This keeps a user's
-  // applied background intact while they browse other modes, and prevents
-  // a tab-switch from silently replacing it with the first preset.
+  // Mode tabs only choose which preset list is shown — they don't mutate the
+  // background (only an explicit preset pick does), so browsing other modes
+  // keeps the applied background intact.
   let displayedMode = $state<BackgroundType>(store.backgroundType);
   $effect(() => {
     displayedMode = store.backgroundType;
@@ -275,10 +269,8 @@
 </script>
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
-  <!-- Reusable blur control. Background blur only affects texture backgrounds
-       (image/wallpaper) — the shader leaves color/gradient fills sharp — so it
-       lives contextually inside those two modes instead of as a global knob
-       that does nothing two-thirds of the time. -->
+  <!-- Blur only affects texture backgrounds (image/wallpaper), so it lives
+       inside those modes rather than as a global knob. -->
   {#snippet blurControl()}
     <SliderControl
       label="Background blur"
@@ -298,11 +290,9 @@
     </SliderControl>
   {/snippet}
 
-  <!-- Frame + Drop shadow are pinned ABOVE the background browser. They shape
-       the video rect regardless of background type and are used often, so they
-       stay in a fixed, scroll-free position instead of being pushed down by the
-       variable-height background modes (a short Color grid vs. a tall Wallpaper
-       grid would otherwise make these controls jump around). -->
+  <!-- Frame + Drop shadow pinned above the background browser: they apply to
+       every background and are used often, so they keep a fixed position
+       instead of jumping with the variable-height background modes. -->
   <PanelSection
     title="Frame"
     hint="Padding adds space around the recording; corner radius rounds its edges. Both apply to every background."
@@ -342,8 +332,6 @@
     </SliderControl>
   </PanelSection>
 
-  <!-- Drop shadow — collapses to a single toggle row, so it stays compact at
-       the top even when off. -->
   <PanelSection
     title="Drop shadow"
     hint="Adds depth by casting a soft shadow under the recording onto the canvas background."
@@ -435,13 +423,9 @@
     {/if}
   </PanelSection>
 
-  <!-- Background mode switcher + per-mode preset lists, built on the shared
-       Tabs component (variant="soft") so it matches the outer properties-panel
-       tabs and gets the same sliding active-indicator plus content slide/fade.
-       Placed LAST: it's the tall, browse-heavy section, so scrolling is
-       reserved for it. The active tab is intentionally decoupled from the
-       store: switching tabs only changes which preset list is shown — the
-       background isn't mutated until a preset is clicked (see `displayedMode`). -->
+  <!-- Background mode switcher + per-mode preset lists. Placed last as the
+       tall, browse-heavy section. The active tab is decoupled from the store —
+       it only picks the preset list shown (see `displayedMode`). -->
   <Tabs.Root
     value={displayedMode}
     onValueChange={(v: string) => (displayedMode = v as BackgroundType)}
@@ -463,10 +447,8 @@
             title={mode.label}
             class="h-6 flex-1 gap-1 px-2 text-[11px] font-medium"
           >
-            <!-- Explicit `size-` class (not the `size` prop): Tabs.Trigger's
-                 base style forces unsized SVGs to size-4, so the class both
-                 sets the real 11px size (size-2.75) and opts out of that
-                 default. -->
+            <!-- `size-` class, not the `size` prop: Tabs.Trigger forces unsized
+                 SVGs to size-4, so the class both sets 11px and opts out. -->
             <Icon class="size-2.75" />
             <span class="hidden @[260px]/panel:inline">{mode.label}</span>
           </Tabs.Trigger>
@@ -608,10 +590,9 @@
       </div>
     </PanelSection>
 
-    <!-- Custom gradient builder. The bar is the source of truth: drag a stop
-         to move it, double-click empty space to add one, pick the selected
-         stop's color below, and set the angle. Edits stream live to the
-         preview and coalesce into a single undo step per gesture. -->
+    <!-- Custom gradient builder: drag stops, double-click to add, edit the
+         selected stop's color/position/angle. Edits stream live and coalesce
+         into one undo step per gesture. -->
     <PanelSection
       title="Custom"
       hint="Drag stops to reposition · double-click the bar to add a stop."
@@ -631,7 +612,6 @@
       {/snippet}
 
       <div class="flex flex-col gap-2.5">
-        <!-- Gradient track + draggable stop handles -->
         <div
           bind:this={gradientBarEl}
           ondblclick={addStopAtPointer}
@@ -658,7 +638,6 @@
           {/each}
         </div>
 
-        <!-- Selected stop: color + remove -->
         <div class="flex items-center gap-1.5">
           <div class="min-w-0 flex-1">
             <ColorField
@@ -684,7 +663,6 @@
           </Button>
         </div>
 
-        <!-- Selected stop position -->
         <SliderControl
           label="Position"
           value={gradientDraft.stops[selectedStop]?.pos ?? 0}
@@ -700,7 +678,6 @@
           {/snippet}
         </SliderControl>
 
-        <!-- Gradient angle -->
         <SliderControl
           label="Angle"
           value={gradientDraft.angle}

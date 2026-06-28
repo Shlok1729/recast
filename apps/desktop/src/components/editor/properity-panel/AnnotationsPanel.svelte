@@ -60,8 +60,7 @@
     store.annotations.find((a) => a.id === store.selectedAnnotationId) ?? null,
   );
 
-  // Which ramp the Fade-curves editor targets — one large graph at a time
-  // (matches the Focus panel) instead of two cramped side-by-side editors.
+  // Which ramp the Fade-curves editor targets (one graph at a time).
   let customCurve = $state<"in" | "out">("in");
 
   type ToolDef = {
@@ -71,8 +70,7 @@
     hotkey: string;
   };
 
-  // Working tools only. (Image/polygon roadmap entries were removed — a
-  // disabled, locked tile is clutter, not discovery.)
+  // Working tools only — disabled/locked roadmap tiles are clutter.
   const tools: ToolDef[] = [
     { id: "select", label: "Select", icon: MousePointer2, hotkey: "V" },
     { id: "rect", label: "Rectangle", icon: Square, hotkey: "R" },
@@ -150,12 +148,10 @@
   });
 </script>
 
-<!-- Local, focus-aware tool hotkeys (V/R/O/A/T/B — documented in the central
-     shortcut registry). `<svelte:window>` so HMR can't leak the listener. -->
+<!-- Tool hotkeys (V/R/O/A/T/B). `<svelte:window>` so HMR can't leak the listener. -->
 <svelte:window onkeydown={handleHotkey} />
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
-  <!-- Tools — the "create" surface, at the top (the way you add annotations). -->
   <PanelSection
     title="Tools"
     hint="Pick a tool, then drag on the preview. Annotations are anchored in video-space so they follow zoom and crop. Press Esc to cancel placement; hold Alt while dragging to bypass snap."
@@ -207,7 +203,6 @@
     {/if}
   </PanelSection>
 
-  <!-- Layers -->
   {#if store.annotations.length === 0}
     <div
       class="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border/70 bg-card/40 px-3 py-6 text-center"
@@ -226,13 +221,12 @@
     <AnnotationLayerPanel {store} />
   {/if}
 
-  <!-- Selected annotation editor — appearance & content lead; timing, fade
-       curves, and geometry collapse below (what you reach for after drawing). -->
+  <!-- Selected annotation editor — appearance/content lead; timing, fade
+       curves, geometry collapse below. -->
   {#if selected}
     {@const a = selected}
     {@const Icon = kindIcon(a)}
     <div class="flex flex-col gap-3 border-t border-border/50 pt-3">
-      <!-- Orientation header + delete -->
       <div class="flex items-center justify-between gap-2">
         <div class="flex min-w-0 items-center gap-1.5">
           <span
@@ -262,7 +256,6 @@
         </Button>
       </div>
 
-      <!-- Text content + typography (text's primary edit surface) -->
       {#if a.kind.kind === "text"}
         {@const k = a.kind}
         {@const currentFont =
@@ -405,7 +398,6 @@
         </PanelSection>
       {/if}
 
-      <!-- Blur is its own primary edit surface -->
       {#if a.kind.kind === "blur"}
         {@const k = a.kind}
         <PanelSection title="Blur">
@@ -480,10 +472,8 @@
         </PanelSection>
       {/if}
 
-      <!-- Appearance: stroke / fill / opacity / glow (adapts per kind) -->
       <AnnotationAppearance {store} annotation={a} />
 
-      <!-- Shape-specific finishing -->
       {#if a.kind.kind === "rect"}
         {@const k = a.kind}
         <PanelSection title="Shape">
@@ -525,7 +515,6 @@
         </PanelSection>
       {/if}
 
-      <!-- Timing -->
       <PanelSection title="Timing" collapsible defaultOpen>
         <SliderControl
           label="Start"
@@ -573,7 +562,6 @@
         />
       </PanelSection>
 
-      <!-- Fade curves: one large editor, switched in/out (matches Focus). -->
       <PanelSection title="Fade curves" collapsible defaultOpen={false}>
         {#snippet action()}
           <Button variant="ghost" size="xs" onclick={resetCurves}>Reset</Button>
@@ -605,7 +593,6 @@
         </div>
       </PanelSection>
 
-      <!-- Geometry: numeric box + frame alignment (power-user, collapsed). -->
       <AnnotationGeometry {store} annotation={a} />
     </div>
   {:else if store.annotations.length > 0}

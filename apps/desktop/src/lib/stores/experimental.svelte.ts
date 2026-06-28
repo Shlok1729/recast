@@ -1,13 +1,7 @@
 /**
- * Experimental-features flags, shared across the settings page and any
- * surface that gates a feature behind one. Persisted to localStorage so the
- * choice survives reload; off by default so first-run users don't see
- * unfinished UI.
- *
- * Add a new flag by extending `ExperimentalFlag`, adding it to `DEFAULTS`,
- * and exposing a getter/setter pair on the store. The settings page reads
- * the registry via `FLAG_META` to render a row per flag without manual
- * wiring.
+ * Experimental-feature flags, persisted to localStorage and off by default.
+ * Add one by extending `ExperimentalFlag` + `DEFAULTS`; the settings page
+ * renders a row per flag from `FLAG_META`.
  */
 
 import { PersistedState } from "@recast/ui/persisted-state";
@@ -44,11 +38,6 @@ export const FLAG_META: FlagMeta[] = [
 	},
 ];
 
-// NOTE: timeline split/cut editing (formerly the `timelineEditing` flag) has
-// GRADUATED to an always-on feature — its cut math is parity-tested against the
-// Rust export (see cut-parity fixtures) and the timeline collapses cuts in
-// output time. It no longer has a flag. Silence detection + WebCodecs stay
-// opt-in until they clear their own validation gates.
 const DEFAULTS: Record<ExperimentalFlag, boolean> = {
 	silenceDetection: false,
 	webcodecsPreview: false,
@@ -58,11 +47,9 @@ const DEFAULTS: Record<ExperimentalFlag, boolean> = {
 const STORAGE_KEY = "recast-experimental-flags";
 
 function createExperimentalStore() {
-	// Backed by the shared PersistedState primitive: synchronous first read,
-	// JSON storage merged over DEFAULTS (so adding a flag later doesn't wipe a
-	// user's saved choices), and cross-window `storage` sync. Tauri v2 webviews
-	// share a localStorage origin, so flipping a flag in the settings window is
-	// reflected in any open editor windows without a reload.
+	// Merges saved JSON over DEFAULTS so adding a flag later keeps existing
+	// choices. Tauri v2 webviews share a localStorage origin, so a flip in the
+	// settings window reaches open editor windows without a reload.
 	const flags = new PersistedState<Record<ExperimentalFlag, boolean>>(STORAGE_KEY, DEFAULTS);
 
 	return {

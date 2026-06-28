@@ -11,6 +11,7 @@
 		parseTimeParam,
 		type CommentSegment,
 	} from "$lib/share/format";
+	import { toggleReactionState } from "$lib/share/engagement";
 	import Logo from "$lib/logo.svelte";
 	import {
 	  ArrowRight,
@@ -451,23 +452,9 @@
 	const totalReactions = $derived(reactions.reduce((sum, r) => sum + r.count, 0));
 
 	async function react(emoji: string) {
-		const had = myReactions.has(emoji);
-		const nextSet = new Set(myReactions);
-		const next = reactions.map((r) => ({ ...r }));
-		const idx = next.findIndex((r) => r.emoji === emoji);
-		if (had) {
-			nextSet.delete(emoji);
-			if (idx >= 0) {
-				next[idx].count -= 1;
-				if (next[idx].count <= 0) next.splice(idx, 1);
-			}
-		} else {
-			nextSet.add(emoji);
-			if (idx >= 0) next[idx].count += 1;
-			else next.push({ emoji, count: 1 });
-		}
-		myReactions = nextSet;
-		reactions = next;
+		const nextState = toggleReactionState({ myReactions, reactions }, emoji);
+		myReactions = nextState.myReactions;
+		reactions = nextState.reactions;
 		if (isDemo) return;
 		try {
 			await toggleReaction(slug, { sessionId, emoji, atSeconds: Math.floor(currentTime) });

@@ -92,8 +92,7 @@
 
 
 
-  // Reactive wrapper: closes over `now` so the relative label re-renders as the
-  // clock ticks. The >1-week fallback here is a short date (no time).
+  // Closes over `now` so the relative label re-renders as the clock ticks.
   const formatDate = (unix: number) => relativeDate(unix, { now });
 
   const openInEditor = (entry: RecordingEntry) =>
@@ -128,8 +127,7 @@
     });
   }
 
-  // Recording modes — each launches the panel; the panel honors the last
-  // chosen source. The mode hint is purely visual prompting today.
+  // Each mode launches the panel; the hint is visual prompting only today.
   const modes = [
     {
       id: "screen",
@@ -157,7 +155,6 @@
     },
   ] as const;
 
-  // Quick actions surfaced as chips below the modes.
   type QuickAction = {
     id: string;
     label: string;

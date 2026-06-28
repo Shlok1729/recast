@@ -86,9 +86,8 @@
   const HOVER_FLASH_COLOUR = "rgba(59,130,246,0.85)";
   const SNAP_GUIDE_COLOUR = "rgba(59,130,246,0.7)";
 
-  //  Helpers — thin wrappers around shared modules so this file just owns
-  //  rendering + interaction state, not geometry math.
-
+  // Thin wrappers around shared geometry modules; this file owns rendering +
+  // interaction state, not the math.
   function getDpr(): number {
     return window.devicePixelRatio || 1;
   }
@@ -139,20 +138,12 @@
     opacity: number,
     t: number,
   ) {
-    // Blur annotations bypass the fade-in/out ramps in preview because:
-    //   1. A fresh blur has start ≈ currentTime, so the linear ramp puts
-    //      opacity at 0 → drawAnnotation would early-return → user sees
-    //      nothing right after creating the blur.
-    //   2. A partially-transparent blur copy mixed over the unblurred
-    //      WebGL canvas reads as flicker, not a smooth fade — Canvas2D's
-    //      globalAlpha applies to drawImage too.
-    // Plus: while a blur is the *selected* annotation, always render it
-    // even outside its [start, end] window. The user is actively editing
-    // it; floating-point drift between `a.start` (captured at creation
-    // time from `store.currentTime`) and `t` (from `videoEl.currentTime`
-    // on the next animation frame) was making fresh blurs flicker on the
-    // first few frames after placement. The export pipeline still honours
-    // `start`/`end` exactly.
+    // Blur bypasses the fade ramps in preview: a fresh blur (start ≈ currentTime)
+    // would ramp from opacity 0 and early-return, and a half-transparent blur
+    // copy over the unblurred canvas reads as flicker (globalAlpha applies to
+    // drawImage). When a blur is selected, render it even outside [start, end] —
+    // float drift between a.start and t flickered fresh blurs on placement.
+    // Export still honours start/end exactly.
     const isBlur = a.kind.kind === "blur";
     const isSelected = a.id === store.selectedAnnotationId;
     if (isBlur) {
@@ -195,19 +186,15 @@
     } else if (a.kind.kind === "image") {
       ctx.rect(x, y, w, h);
     } else if (a.kind.kind === "blur") {
-      // Real blur preview: copy the WebGL composite (full background +
-      // padding + video) into the overlay canvas, blurred with the 2D
-      // context's native `filter`. This is reliable across WebView
-      // backends, unlike `backdrop-filter` against a GPU-promoted canvas.
-      // Strength 0..1 maps to 0..32 px to match the export-side cap.
+      // Copy the WebGL composite into the overlay canvas, blurred via the 2D
+      // context's native `filter` — reliable across WebView backends, unlike
+      // backdrop-filter on a GPU-promoted canvas. Strength 0..1 → 0..32 px,
+      // matching the export-side cap.
       const k = a.kind;
       if (compositeCanvasEl && w > 1 && h > 1) {
         const blurPx = Math.max(0.001, Math.min(32, k.strength * 32));
-        // Source rect: same UV → canvas-px mapping, but in the WebGL
-        // canvas's own backing-store coordinates. Both canvases share the
-        // same DPR + size factor here because they both stretch to the
-        // same `targetEl`, so we can read `compositeCanvasEl.width/height`
-        // and treat its pixel space as proportional to ours.
+        // Source rect in the WebGL canvas's backing-store coords. Both canvases
+        // stretch to the same targetEl, so its pixel space is proportional to ours.
         const srcW = compositeCanvasEl.width;
         const srcH = compositeCanvasEl.height;
         const dstW = canvasEl?.width ?? 0;
@@ -226,10 +213,8 @@
             ctx.rect(x, y, w, h);
           }
           ctx.clip();
-          // Setting `filter` on the 2D context applies to subsequent draws
-          // — including `drawImage` from another canvas. Browser
-          // implementations promote this to a GPU shader, so the cost is
-          // negligible per blur region.
+          // `filter` applies to the following drawImage; browsers promote this
+          // to a GPU shader, so it's cheap per blur region.
           ctx.filter = `blur(${blurPx.toFixed(2)}px)`;
           try {
             ctx.drawImage(

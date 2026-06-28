@@ -24,7 +24,6 @@
   import InspectorHint from "../InspectorHint.svelte";
   import PanelSection from "./PanelSection.svelte";
 
-  // Semantic-token accents — no hardcoded hex beyond the actual highlight swatches
   const highlightColors = [
     "#3b82f6",
     "#ef4444",
@@ -47,9 +46,7 @@
     registry.get("cursor", store.cursorSettings.style),
   );
 
-  // Smoothing + easing presets come from the registry so installed extension
-  // packs surface alongside the built-ins (which register there too), instead
-  // of reading the static built-in arrays directly.
+  // From the registry so installed extension packs surface alongside built-ins.
   const smoothingPresets = $derived(registry.list("smoothing"));
   const easingPresets = $derived(
     registry
@@ -65,9 +62,8 @@
     store.updateCursorSettings(updates);
   }
 
-  // Cursor SVGs can come from downloaded extension packs (untrusted). Render
-  // them through a data-URL <img> rather than {@html} so SVG loads in the
-  // browser's secure static mode — scripts/event handlers never execute.
+  // Cursor SVGs may come from untrusted extension packs. Render via a data-URL
+  // <img>, not {@html}, so SVG loads in secure static mode (no script execution).
   function svgSwatchUrl(svg: string): string {
     return (
       "data:image/svg+xml;utf8," +
@@ -77,7 +73,6 @@
 </script>
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
-  <!-- Visibility toggle (no section title — panel name is shown in the header) -->
   <div
     class="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-card/40 px-2.5 py-1.5"
   >
@@ -95,7 +90,6 @@
   </div>
 
   {#if store.cursorSettings.enabled}
-    <!-- Style + size = "the cursor itself" -->
     <PanelSection
       title="Style"
       hint="Pick a cursor style and size. The soft dot works in preview and export; other styles preview in the editor but export as the soft dot for now."
@@ -183,7 +177,6 @@
       </div>
     </PanelSection>
 
-    <!-- Motion = how the captured path is smoothed AND eased between samples -->
     <PanelSection
       title="Motion"
       hint="Gaussian-window smoothing over the captured path, click-snap anchoring, and an optional easing curve that reshapes interpolation between samples."
@@ -214,7 +207,6 @@
           />
         {/if}
 
-        <!-- Smoothing presets -->
         <div class="flex flex-wrap gap-1">
           {#each smoothingPresets as preset, i (preset.id)}
             {@const isActive =
@@ -303,7 +295,7 @@
           </SliderControl>
         {/if}
 
-        <!-- Motion easing — opt-in curve, presets-first with a hidden custom graph -->
+        <!-- Motion easing — opt-in, presets-first with a hidden custom graph -->
         <div
           class="space-y-2 rounded-xl border border-border/60 bg-card/40 p-2 shadow-(--shadow-craft-inset)"
         >

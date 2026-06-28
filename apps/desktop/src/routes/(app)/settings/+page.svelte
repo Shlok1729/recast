@@ -88,25 +88,19 @@
   let editorWindow = $state<EditorBehavior>("navigate");
   let countdown = $state<CountdownSeconds>(3);
   let closeToTray = $state(true);
-  // Capture quality + frame rate (global recording preferences, read by the
-  // recording panel at start time via shared localStorage). `recordingFps`
-  // null = unset → backend default 60.
+  // Global recording prefs, read by the recording panel via shared localStorage.
   let recordingQuality = $state<RecordingQuality>("auto");
   let recordingFps = $state<number>(60);
-  // Highest refresh rate among attached displays — the capture pipeline can't
-  // produce more unique frames/sec than this, so we only offer fps options up
-  // to it. Defaults to 60 until displays are probed.
+  // Highest display refresh — capture can't produce more unique fps than this,
+  // so fps options are capped to it. 60 until displays are probed.
   let maxRefreshHz = $state(60);
-  // Land on Recording — the daily-use panel (output directory, profiles,
-  // editor behavior) — rather than the leftmost General tab, matching how
-  // people actually reach for these settings.
   let activeTab = $state<SettingsTab>("general");
 
   onMount(() => {
     fetchSettings();
     profilesStore.hydrate();
-    // `mode-watcher-mode` is owned by the mode-watcher library — we only read
-    // it here to reflect the current choice in the radio group.
+    // `mode-watcher-mode` is owned by mode-watcher; we only read it to reflect
+    // the current choice in the radio group.
     currentTheme = safeStorage.get<Theme>("mode-watcher-mode", currentTheme);
     editorWindow = safeStorage.get<EditorBehavior>(
       "recast-editor-window",
@@ -115,10 +109,8 @@
     countdown = recordingCountdown.value;
     recordingQuality = loadRecordingQuality();
     recordingFps = loadRecordingFps() ?? 60;
-    // Gate the fps options by the refresh of the display that will actually be
-    // recorded (the last-selected source), not just the global max — so the
-    // options reflect the user's real target. Re-sync whenever they change the
-    // source in the picker window.
+    // Gate fps options by the refresh of the display that'll actually be
+    // recorded (the last-selected source); re-sync when the source changes.
     void syncMaxRefresh();
     const unlistenSource = listen("source-selected", () => void syncMaxRefresh());
     return () => {
@@ -126,9 +118,8 @@
     };
   });
 
-  /** Resolve the relevant display refresh: the selected monitor's rate when a
-   *  monitor is the active source, else the highest attached display (windows
-   *  /regions don't pin a single display). Best effort — falls back to 60. */
+  /** Selected monitor's refresh when a monitor is the active source, else the
+   *  highest attached display (windows/regions don't pin one). Falls back to 60. */
   async function syncMaxRefresh() {
     try {
       const [displays, last] = await Promise.all([
@@ -157,24 +148,21 @@
 
   function updateRecordingFps(value: number) {
     recordingFps = value;
-    // Persist 60 as null (the "unset/default" sentinel) so a fresh install and
-    // an explicit 60 choice behave identically downstream.
+    // 60 persists as null (the unset/default sentinel) so a fresh install and an
+    // explicit 60 behave identically downstream.
     persistRecordingFps(value === 60 ? null : value);
   }
 
-  // Frame-rate options gated by detected display refresh. 60 is always
-  // available; 120/144/240 appear only when a monitor can actually present
-  // them (a small tolerance covers 119.88/143.86-style reported rates).
+  // 60 is always available; 120/144/240 appear only when a monitor can present
+  // them (tolerance covers 119.88/143.86-style reported rates).
   const fpsOptions = $derived(
     [60, 120, 144, 240].filter(
       (rate) => rate === 60 || maxRefreshHz >= rate - 2,
     ),
   );
 
-  // What capture will actually use on the selected display: the user's desired
-  // rate capped to the highest option this display supports. The stored
-  // preference itself is never mutated, so switching back to a high-refresh
-  // display restores the higher rate.
+  // Desired rate capped to this display's max. The stored preference is never
+  // mutated, so switching back to a high-refresh display restores it.
   const effectiveFps = $derived(
     Math.min(recordingFps, fpsOptions[fpsOptions.length - 1] ?? 60),
   );
@@ -348,16 +336,8 @@
       </p>
     </header>
 
-    <!-- Tabs, grouped by concern:
-           General      — appearance, window behavior + telemetry consent
-           Recording    — storage, editor, capture profiles (daily-use)
-           Cloud        — Recast Cloud + Google Drive (network integrations)
-           Experimental — opt-in unfinished features
-           About        — version, links, and device/encoder diagnostics
-         Telemetry lives under General (it's a small, two-toggle consent
-         block, not its own surface); Experimental gets a dedicated tab so
-         its growing flag list doesn't crowd anything else.
-         Each panel slides/fades in via tw-animate-css inside Tabs.Content. -->
+    <!-- Telemetry lives under General (small two-toggle block); Experimental
+         gets its own tab so its growing flag list doesn't crowd anything. -->
     <div
       in:fly={{ y: 12, duration: 320, delay: 80, easing: cubicOut }}
       class="flex min-w-0 flex-col gap-6"
@@ -393,10 +373,6 @@
           </Tabs.Trigger>
         </Tabs.List>
 
-        <!-- Each Tabs.Content carries its own subtle slide-in/fade-in via
-             tw-animate-css (defined in @recast/ui's tabs-content.svelte) —
-             no need for custom Svelte transitions. Panels not matching the
-             active value unmount, so we don't pay layout cost. -->
         <Tabs.Content value="recording" class="flex min-w-0 flex-col gap-8">
               <!-- Storage / Output directory -->
               <section id="settings-storage" class="flex flex-col gap-3">
@@ -444,10 +420,8 @@
                 </div>
               </section>
 
-              <!-- Countdown before recording. Read by the recording panel
-                   (panel/+page.svelte) via the shared COUNTDOWN_KEY localStorage
-                   entry. Recording profiles can override it per-profile for
-                   quick access. -->
+              <!-- Read by the recording panel via shared localStorage; profiles
+                   can override it per-profile. -->
               <section id="settings-countdown" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2
@@ -501,11 +475,8 @@
                 </div>
               </section>
 
-              <!-- Capture quality. Global recording preference read by the
-                   recording panel via shared localStorage. Higher tiers raise
-                   fidelity at the cost of real-time encode headroom; if the GPU
-                   can't keep up the result is motion judder, never desync (the
-                   pacer/encoder compensate dropped frames). -->
+              <!-- Higher tiers raise fidelity at the cost of encode headroom; if
+                   the GPU can't keep up the result is judder, never desync. -->
               <section id="settings-capture-quality" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2
@@ -560,10 +531,8 @@
                 </div>
               </section>
 
-              <!-- Capture frame rate. Options are gated by detected display
-                   refresh — capturing above the monitor's refresh only
-                   duplicates frames, so we don't offer rates no display can
-                   present. 60 is always available. -->
+              <!-- Options gated by display refresh: capturing above it only
+                   duplicates frames. 60 is always available. -->
               <section id="settings-capture-fps" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2
@@ -760,11 +729,8 @@
         </Tabs.Content>
 
         <Tabs.Content value="cloud" class="flex min-w-0 flex-col gap-8">
-              <!-- Recast Cloud sign-in. The desktop app is fully usable without
-                   it; Cloud unlocks the Loom-style sharing layer (instant
-                   share links, viewer analytics, password protection,
-                   custom branding). Free tier ships 10 active links with a
-                   watermark; paid tier removes both. See [[positioning_plan]]. -->
+              <!-- Optional. Cloud unlocks the Loom-style sharing layer. Free
+                   tier = 10 active links + watermark; paid removes both. -->
               <section id="settings-cloud" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2
@@ -786,13 +752,8 @@
                 </div>
               </section>
 
-              <!-- Self-hosting server endpoint. Gated behind the `selfHosting`
-                   experimental flag (Settings → Experimental) because Recast
-                   Cloud's server isn't shipped yet — there's nothing to point
-                   at by default, so this stays hidden for everyone except
-                   early self-hosters who opt in. When enabled, the Rust
-                   resolver validates the URL and falls back to the bundled
-                   default, so a bad value can't break sign-in. -->
+              <!-- Gated behind the `selfHosting` flag: Cloud's server isn't
+                   shipped, so there's nothing to point at by default. -->
               {#if experimentalStore.isEnabled("selfHosting")}
                 <section id="settings-cloud-endpoint" class="flex flex-col gap-3">
                   <div class="px-1">
@@ -821,11 +782,8 @@
                 </section>
               {/if}
 
-              <!-- Google Drive connection. Independent of the cloud Account
-                   section above: signing into Recast Cloud and connecting
-                   Google Drive are separate authentications. Both belong on
-                   the Cloud tab since they're both external integrations
-                   that take exports off this machine. -->
+              <!-- Separate auth from Recast Cloud above; both are external
+                   integrations that take exports off this machine. -->
               <section id="settings-google-drive" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2
@@ -1007,10 +965,8 @@
                 </div>
               </section>
 
-              <!-- Privacy & Telemetry. Two independent, locally-stored opt-ins:
-                   usage analytics (strictly opt-in, default off) and crash
-                   reports (default on). Both anonymous; crash reports are
-                   PII-scrubbed before leaving the machine. -->
+              <!-- Two locally-stored opt-ins: usage analytics (default off) and
+                   crash reports (default on, PII-scrubbed). -->
               <section id="settings-privacy" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2
@@ -1229,10 +1185,8 @@
                 </div>
               </section>
 
-              <!-- Device & diagnostics. Encoder availability is probed live
-                   against this machine's GPU (not just "compiled in"), so the
-                   matrix reflects what Recast can actually use here — handy in
-                   bug reports and for users wondering why capture is on CPU. -->
+              <!-- Encoder availability is probed live against this GPU (not just
+                   "compiled in"), so the matrix reflects what's actually usable. -->
               <section id="settings-device" class="flex flex-col gap-3">
                 <div class="px-1">
                   <h2

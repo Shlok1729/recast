@@ -51,8 +51,7 @@
     { value: "source", label: "Source", desc: "Original resolution" },
   ];
 
-  // Encoder effort — orthogonal to resolution. Same visual quality target;
-  // trades encode time against file size. "Balanced" is the historical default.
+  // Encoder effort — orthogonal to resolution; trades encode time for file size.
   const speeds: { value: ExportSpeed; label: string; desc: string }[] = [
     { value: "fast", label: "Fast", desc: "Quicker · larger" },
     { value: "balanced", label: "Balanced", desc: "Recommended" },
@@ -89,11 +88,9 @@
     store.exportFps = v;
   }
 
-  // Frame-rate options derived from the SOURCE recording. We only ever offer
-  // the source rate (default, preserves the original) plus standard lower rates
-  // — never higher, since duplicating frames adds size without smoothness. If
-  // the user's stored choice exceeds the current source (e.g. a different clip),
-  // it falls back to Original at export via the Rust-side clamp.
+  // Source rate plus standard lower rates only — never higher (duplicating
+  // frames adds size without smoothness). A stored choice above the current
+  // source falls back to Original via the Rust-side clamp.
   const sourceFps = $derived(Math.max(1, Math.round(store.metadata?.fps ?? 60)));
   const fpsOptions = $derived([
     { value: null as number | null, label: "Original", desc: `${sourceFps} fps` },
@@ -105,8 +102,7 @@
         desc: f === 24 ? "Cinematic" : "Smaller file",
       })),
   ]);
-  // Only worth showing when there's an actual choice (source > 24). Uses the
-  // store directly rather than `isGif` (declared further down) to avoid a
+  // Reads the store directly rather than `isGif` (declared below) to avoid a
   // use-before-declaration.
   const showFps = $derived(
     store.exportFormat !== "gif" && fpsOptions.length > 1,
@@ -118,12 +114,9 @@
   );
   const clipDuration = $derived(Math.max(0, clipEnd - store.trimStart));
   const sourceDuration = $derived(store.metadata?.duration ?? 0);
-  // Time removed by cuts (manual deletes + accepted silence) that fall inside
-  // the trim — clamped to the trim window and merged so overlaps don't double
-  // count. Mirrors the Rust export's collect_export_cuts.
+  // Cut time inside the trim window, clamped and merged. Mirrors the Rust
+  // export's collect_export_cuts. `effectiveCuts` already drops opted-off cuts.
   const removedDuration = $derived.by(() => {
-    // `effectiveCuts` already drops cuts whose feature is opted off, so the
-    // figure matches exactly what the export pipeline will remove.
     if (store.effectiveCuts.length === 0) return 0;
     const clamped = store.effectiveCuts
       .map((c) => ({
@@ -134,7 +127,6 @@
       .filter((c) => c.end > c.start);
     return totalCutDuration(clamped);
   });
-  // The actual exported length: trimmed clip minus the cuts inside it.
   const outputDuration = $derived(Math.max(0, clipDuration - removedDuration));
   const hasTrim = $derived(
     store.trimStart > 0 ||
@@ -151,11 +143,8 @@
     ditherModes.find((d) => d.value === store.gifSettings.dither),
   );
 
-  // The body lays its option sections out in two columns on roomy viewports
-  // (wider, not taller) and collapses to a single stacked column when there
-  // isn't space. The flow-dialog wrapper observes the width/height this body
-  // reports and morphs its chrome to match — so we just declare the target
-  // width here; the growth is the wrapper's morph.
+  // Two columns on roomy viewports, single stacked column when tight. The
+  // flow-dialog wrapper morphs its chrome to the width this body reports.
   let viewportWidth = $state(
     typeof window !== "undefined" ? window.innerWidth : 1280,
   );
@@ -521,10 +510,8 @@
 {/snippet}
 
 {#snippet fpsSection()}
-  <!-- Frame rate: output fps for MP4/WebM. Defaults to Original (the source
-       rate) so exports keep the recording's smoothness; lower rates shrink
-       the file. Hidden for GIF (its own fps control) and when the source is
-       already ≤24 fps (no meaningful choice). -->
+  <!-- Output fps for MP4/WebM. Hidden for GIF (own fps control) and when the
+       source is already ≤24 fps (no meaningful choice). -->
   <section
     in:fly={{ y: 8, duration: 240, delay: 185, easing: cubicOut }}
     class="flex flex-col gap-2.5"
@@ -575,8 +562,7 @@
 {/snippet}
 
 {#snippet speedSection()}
-  <!-- Speed: encoder effort. Hidden for GIF, which uses a palette 2-pass
-       and ignores these codec preset knobs entirely. -->
+  <!-- Hidden for GIF, which uses a palette 2-pass and ignores codec presets. -->
   <section
     in:fly={{ y: 8, duration: 240, delay: 200, easing: cubicOut }}
     class="flex flex-col gap-2.5"
@@ -645,7 +631,6 @@
     </div>
   </header>
 
-  <!-- Stat strip — full width across the top, above the option columns. -->
   <section
     in:fly={{ y: 8, duration: 240, delay: 70, easing: cubicOut }}
     class="flex items-stretch divide-x divide-border/40 border-b border-border/40 bg-muted/15 px-5 py-2.5"
@@ -718,11 +703,8 @@
       {/if}
     </div>
   {:else}
-    <!-- Roomy viewports: two columns so the dialog grows wider, not taller.
-         Left = what & resolution (Format, Quality); right = motion & effort
-         (Frame rate, Speed) — or the GIF panel, which replaces the codec
-         knobs GIF doesn't use. items-start keeps each section top-aligned so
-         the shorter column doesn't stretch its cards. -->
+    <!-- Two columns: left = Format/Quality, right = Frame rate/Speed (or the
+         GIF panel, which replaces the codec knobs GIF doesn't use). -->
     <div class="grid grid-cols-2 items-start gap-x-6 gap-y-5 px-5 py-5">
       <div class="flex min-w-0 flex-col gap-5">
         {@render formatSection()}
