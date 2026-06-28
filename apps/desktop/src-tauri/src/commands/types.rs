@@ -76,6 +76,8 @@ pub struct EditorDocument {
     pub camera_path: Option<String>,
     pub metadata: VideoMetadata,
     pub render_state: RenderState,
+    /// True when a legacy bundle must be migrated before the editor loads it.
+    pub needs_migration: bool,
 }
 
 #[derive(Serialize, Clone)]

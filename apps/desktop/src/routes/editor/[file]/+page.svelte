@@ -1,6 +1,7 @@
 <script lang="ts">
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
+  import ConfirmDialog from "$components/recast/ConfirmDialog.svelte";
   import EditorToolbar from "$components/editor/EditorToolbar.svelte";
   import ExportDialog from "$components/editor/ExportDialog.svelte";
   import ExportFlowDialog, {
@@ -21,6 +22,7 @@
     extractWaveform,
     generateThumbnails,
     loadEditorDocument,
+    migrateProject,
     openFileLocation,
     refreshTray,
     saveProjectEdits,
@@ -145,6 +147,12 @@
   let error = $state("");
   let loadedPath = $state("");
   let thumbnailToken = 0;
+
+  // Legacy-format gate: a v1 `.recast` must be migrated before the editor
+  // touches it. `migrationDone` distinguishes a confirmed update (→ reload)
+  // from a dismissal (→ leave, don't open an un-migrated project).
+  let showMigration = $state(false);
+  let migrationDone = false;
 
   // Autosave: save edit state every 30 seconds while editing.
   const AUTOSAVE_INTERVAL_MS = 30_000;
@@ -521,6 +529,12 @@
 
     try {
       const document = await loadEditorDocument(data.filePath);
+      if (document.needsMigration) {
+        // Stop before loading anything — prompt to update the format first.
+        isLoading = false;
+        showMigration = true;
+        return;
+      }
       documentPath = document.projectPath;
       store.videoPath = document.projectPath;
       store.metadata = document.metadata;
@@ -566,6 +580,22 @@
       log.error("session", "recast_load_failed", { error: String(err) });
       error = `Could not load project: ${err}`;
       isLoading = false;
+    }
+  }
+
+  // Throwing here keeps ConfirmDialog open with the error shown.
+  async function confirmMigration() {
+    await migrateProject(data.filePath);
+    migrationDone = true;
+  }
+
+  function onMigrationOpenChange(open: boolean) {
+    if (open) return;
+    if (migrationDone) {
+      migrationDone = false;
+      void loadDocument();
+    } else {
+      void goto("/recasts");
     }
   }
 
@@ -1300,6 +1330,16 @@
       onToggleTimeline={() => (showTimeline = !showTimeline)}
     />
   </CustomTitlebar>
+
+  <ConfirmDialog
+    bind:open={showMigration}
+    title="Update project format"
+    description="This project was made with an older version of Recast. Update it to the current format to keep editing — a backup (.bak) is saved next to it first."
+    confirmLabel="Update project"
+    cancelLabel="Not now"
+    onConfirm={confirmMigration}
+    onOpenChange={onMigrationOpenChange}
+  />
 
   <!-- Project has silence cuts but the flag is off, so they're hidden and
        skipped on export — surface an inline opt-in so work isn't lost. -->

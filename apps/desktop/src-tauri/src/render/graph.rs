@@ -1048,6 +1048,7 @@ mod tests {
             center_y: 0.5,
             motion_blur: 0.0,
             hidden: false,
+            extra: Default::default(),
         }
     }
 

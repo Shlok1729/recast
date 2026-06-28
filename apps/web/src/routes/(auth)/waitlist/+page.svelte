@@ -70,13 +70,6 @@
 		class="bg-grid bg-grid-fade pointer-events-none absolute inset-0 -z-10 opacity-30"
 	></div>
 
-	<a
-		href="/"
-		class="absolute left-6 top-6 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
-	>
-		<ArrowLeft class="size-3.5" />
-		Back to site
-	</a>
 
 	<div
 		class="w-full max-w-md"

@@ -381,6 +381,11 @@ pub struct ZoomRegion {
     /// smoother export motion should tune `easeIn`/`easeOut` instead.
     #[serde(default)]
     pub motion_blur: f64,
+    /// JS-side fields (`id`, `source`) the export doesn't read but must
+    /// round-trip — without this they'd be dropped when the load path
+    /// re-serializes the render state back to the editor.
+    #[serde(flatten, default)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl ZoomRegion {

@@ -2,11 +2,12 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 use zip::{ZipArchive, ZipWriter};
 
+use crate::project::format::{self, ProjectManifest};
 use crate::project::ProjectMetadata;
 
 pub struct ProjectWriteRequest {
@@ -14,7 +15,7 @@ pub struct ProjectWriteRequest {
     pub metadata: ProjectMetadata,
     pub recording_path: PathBuf,
     pub cursor_path: PathBuf,
-    pub audio_path: PathBuf,
+    pub audio_path: Option<PathBuf>,
     pub microphone_path: Option<PathBuf>,
     pub camera_path: Option<PathBuf>,
     pub edits_json: String,
@@ -60,28 +61,39 @@ fn write_project_inner(path: &Path, request: &ProjectWriteRequest) -> Result<()>
         .compression_method(CompressionMethod::Stored)
         .unix_permissions(0o644);
 
-    writer.start_file("metadata.json", deflated)?;
+    let manifest = ProjectManifest::new(
+        request.metadata.created_at_unix_ms,
+        request.audio_path.is_some(),
+        request.microphone_path.is_some(),
+        request.camera_path.is_some(),
+        true,
+    );
+    writer.start_file(format::MANIFEST_NAME, deflated)?;
+    writer.write_all(format::to_canonical_string(&serde_json::to_value(&manifest)?)?.as_bytes())?;
+
+    writer.start_file(format::METADATA_NAME, deflated)?;
     writer.write_all(serde_json::to_string_pretty(&request.metadata)?.as_bytes())?;
 
-    writer.start_file("cursor.json", deflated)?;
+    writer.start_file(format::ASSET_CURSOR_TRACK, deflated)?;
     copy_file(&request.cursor_path, &mut writer)?;
 
-    writer.start_file("audio.wav", stored)?;
-    copy_file(&request.audio_path, &mut writer)?;
+    if let Some(ref audio_path) = request.audio_path {
+        writer.start_file(format::ASSET_AUDIO, stored)?;
+        copy_file(audio_path, &mut writer)?;
+    }
 
-    writer.start_file("edits.json", deflated)?;
-    writer.write_all(request.edits_json.as_bytes())?;
+    write_edit_sections(&mut writer, deflated, &request.edits_json)?;
 
-    writer.start_file("recording.mp4", stored)?;
+    writer.start_file(format::ASSET_VIDEO, stored)?;
     copy_file(&request.recording_path, &mut writer)?;
 
     if let Some(ref mic_path) = request.microphone_path {
-        writer.start_file("microphone.wav", stored)?;
+        writer.start_file(format::ASSET_MICROPHONE, stored)?;
         copy_file(mic_path, &mut writer)?;
     }
 
     if let Some(ref cam_path) = request.camera_path {
-        writer.start_file("camera.mp4", stored)?;
+        writer.start_file(format::ASSET_CAMERA, stored)?;
         copy_file(cam_path, &mut writer)?;
     }
 
@@ -89,12 +101,29 @@ fn write_project_inner(path: &Path, request: &ProjectWriteRequest) -> Result<()>
     Ok(())
 }
 
-/// Rewrite the `edits.json` entry inside an existing `.recast` archive in place,
-/// preserving all other entries (recording.mp4, audio.wav, etc.) by raw-copying
+/// Split a flat edits payload into per-section files, each canonically
+/// serialized so the bundle diffs cleanly. The single place edits are written.
+fn write_edit_sections(
+    writer: &mut ZipWriter<File>,
+    options: SimpleFileOptions,
+    edits_json: &str,
+) -> Result<()> {
+    let flat: serde_json::Value =
+        serde_json::from_str(edits_json).context("edits payload is not valid JSON")?;
+    for (section, value) in format::split_edits(&flat) {
+        writer.start_file(format::section_path(section), options)?;
+        writer.write_all(format::to_canonical_string(&value)?.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// Rewrite the `edits/` section files inside an existing v2 `.recast` archive in
+/// place, preserving all other entries (manifest, metadata, media) by raw-copying
 /// their compressed bytes — no decode/re-encode of media.
 ///
 /// The write is atomic: a sibling `.recast.tmp` is produced first and only
-/// renamed over the original on success.
+/// renamed over the original on success. Errors if the archive is not v2 (the
+/// editor migrates first), so a save can never produce a hybrid v1/v2 bundle.
 pub fn update_project_edits(project_path: &Path, edits_json: &str) -> Result<()> {
     let temp_path = project_path.with_extension("recast.tmp");
 
@@ -126,6 +155,11 @@ fn update_project_edits_inner(
         .with_context(|| format!("failed to open project at {}", project_path.display()))?;
     let mut archive = ZipArchive::new(src).context("failed to read project archive")?;
 
+    let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+    if !format::is_v2(&names) {
+        bail!("cannot save edits: project is not format v2 (migrate first)");
+    }
+
     let dst = File::create(temp_path)?;
     let mut writer = ZipWriter::new(dst);
     let deflated = SimpleFileOptions::default()
@@ -134,14 +168,13 @@ fn update_project_edits_inner(
 
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i)?;
-        if entry.name() == "edits.json" {
+        if entry.name().starts_with("edits/") {
             continue;
         }
         writer.raw_copy_file(entry)?;
     }
 
-    writer.start_file("edits.json", deflated)?;
-    writer.write_all(edits_json.as_bytes())?;
+    write_edit_sections(&mut writer, deflated, edits_json)?;
 
     writer.finish()?;
     Ok(())

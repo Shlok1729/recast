@@ -177,7 +177,7 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<String, String
             metadata,
             recording_path: artifacts.recording_path.clone(),
             cursor_path: artifacts.cursor_path.clone(),
-            audio_path: artifacts.audio_path.clone(),
+            audio_path: Some(artifacts.audio_path.clone()),
             microphone_path: artifacts.microphone_path.clone(),
             camera_path: artifacts.camera_path.clone(),
             edits_json: serde_json::to_string_pretty(&default_render_state)

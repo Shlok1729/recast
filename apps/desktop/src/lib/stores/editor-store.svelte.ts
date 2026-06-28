@@ -464,6 +464,8 @@ export interface EditorRenderState {
 	cursorBounceSpeedMs: number;
 	cursorSway: number;
 	zoomRegions: Array<{
+		/** Stable identity, persisted so sections diff cleanly across saves. */
+		id?: string;
 		start: number;
 		end: number;
 		scale: number;
@@ -1685,6 +1687,7 @@ export function createEditorStore() {
 			cursorBounceSpeedMs: cursorSettings.bounceSpeedMs,
 			cursorSway: cursorSettings.sway,
 			zoomRegions: zoomRegions.map((region) => ({
+				id: region.id,
 				start: region.start,
 				end: region.end,
 				scale: region.scale,
@@ -1757,7 +1760,7 @@ export function createEditorStore() {
 			sway: state.cursorSway ?? cursorSettings.sway,
 		};
 		zoomRegions = (state.zoomRegions ?? []).map((region) => ({
-			id: generateId(),
+			id: region.id ?? generateId(),
 			start: region.start,
 			end: region.end,
 			scale: region.scale,
