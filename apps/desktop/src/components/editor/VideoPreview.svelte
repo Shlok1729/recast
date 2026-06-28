@@ -23,6 +23,7 @@
 	import { onDestroy, onMount } from "svelte";
 	import { CAMERA_OVERLAY_UI_ENABLED } from "$lib/feature-flags";
 	import { experimentalStore } from "$lib/stores/experimental.svelte";
+	import { analytics } from "$lib/analytics/client";
 	import { WebCodecsVideoSource } from "$lib/playback/webcodecs-source";
 	import { PlaybackClock } from "$lib/playback/clock";
 	import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
@@ -1818,6 +1819,31 @@ void main() {
 		}
 	});
 
+	// Coarse resolution bucket for telemetry cohorting (the default-on decision
+	// is "decode-fps by OS + resolution"). Keyed off the larger dimension.
+	function resolutionTier(w: number, h: number): string {
+		const p = Math.max(w, h);
+		if (p >= 4500) return "5k";
+		if (p >= 3000) return "4k";
+		if (p >= 2000) return "1440p";
+		if (p >= 1700) return "1080p";
+		if (p >= 1200) return "720p";
+		return "sd";
+	}
+
+	// Map a source-init failure to a coarse, PII-safe reason. The raw message can
+	// in principle carry a URL/path, so we NEVER send it — only this enum.
+	function classifyWcError(err: unknown): string {
+		const m = (err instanceof Error ? err.message : String(err)).toLowerCase();
+		if (m.includes("unavailable") || m.includes("worker") || m.includes("videoframe"))
+			return "unsupported";
+		if (m.includes("track")) return "no_video_track";
+		if (m.includes("codec") || m.includes("config") || m.includes("decoder"))
+			return "codec_unsupported";
+		if (m.includes("http") || m.includes("fetch")) return "fetch_failed";
+		return "decode_error";
+	}
+
 	// WebCodecs frame source (re)create when the media src changes — or when the
 	// `webcodecsPreview` experiment is toggled. Owns its own worker + decoder;
 	// disposed and rebuilt per source. A demux/codec failure leaves wcSource null
@@ -1855,6 +1881,28 @@ void main() {
 					return;
 				}
 				source.onFrame = () => requestRedraw();
+				// Telemetry: the engine initialised successfully (gates default-on).
+				// Consent-gated + no-op in dev inside the analytics client.
+				const tier = resolutionTier(source.width, source.height);
+				analytics.capture("webcodecs_preview_init", {
+					width: source.width,
+					height: source.height,
+					fps: Math.round(source.fps),
+					resolution: tier,
+					ingestion: source.ingestion,
+				});
+				// One aggregate throughput sample, emitted when this source is disposed.
+				source.onStats = (s) => {
+					analytics.capture("webcodecs_preview_perf", {
+						avg_fps: Math.round(s.avgFps),
+						min_fps: Math.round(s.minFps),
+						max_late_ms: Math.round(s.maxLateMs),
+						width: source.width,
+						height: source.height,
+						fps: Math.round(source.fps),
+						resolution: tier,
+					});
+				};
 				wcSource = source;
 				wcReady = true;
 				webcodecsActive = true;
@@ -1875,6 +1923,11 @@ void main() {
 					"WebCodecs source unavailable; using <video> fallback:",
 					err,
 				);
+				// Telemetry: how often real users silently drop to <video>, and why.
+				// This is the fallback-rate half of the default-on decision.
+				analytics.capture("webcodecs_preview_fallback", {
+					reason: classifyWcError(err),
+				});
 			});
 		return () => {
 			cancelled = true;
