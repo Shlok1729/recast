@@ -50,6 +50,8 @@ export interface RecordingEntry {
 	path: string;
 	sizeBytes: number;
 	created: number;
+	/** `.recast` only: a legacy bundle that must be migrated before editing. */
+	needsMigration: boolean;
 }
 
 export interface EditorDocument {

@@ -51,6 +51,9 @@ pub struct RecordingEntry {
     pub path: String,
     pub size_bytes: u64,
     pub created: u64,
+    /// `.recast` only: a legacy v1 bundle the editor must migrate first.
+    /// Detected from the ZIP central directory, no extraction.
+    pub needs_migration: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

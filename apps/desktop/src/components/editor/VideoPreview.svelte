@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { resolveAsset } from "$lib/assets";
 	import { computeCanvasGeometry } from "$lib/canvas-geometry";
-	import {
-	  smoothCursorPath,
-	  smoothingStrengthToSigmaMs,
-	} from "$lib/cursor/smoothing";
+	import { smoothingStrengthToSigmaMs } from "$lib/cursor/smoothing";
+	import { CursorSmoother } from "$lib/cursor/smoother";
 	import {
 		cursorSpriteHotspot,
 		resolveBackgroundWireValue,
@@ -150,6 +148,8 @@
 	type IdlePeriodJS = { startUs: number; endUs: number };
 	let cursorSamplesRaw: CursorSampleJS[] = [];
 	let cursorSamples: CursorSampleJS[] = []; // post-smoothing; read by interpolateCursor
+	// Off-thread smoother; results are applied async (see loadCursorTrackIfNeeded).
+	let smoother: CursorSmoother | null = null;
 	let idlePeriods: IdlePeriodJS[] = [];
 	let loadedCursorPath = "";
 
@@ -646,6 +646,13 @@ void main() {
 			// Rebuild once per track load; the result is keyed by sample
 			// timestamps, which never move regardless of smoothing settings.
 			pressEvents = buildPressEvents(cursorSamplesRaw);
+			if (!smoother) {
+				smoother = new CursorSmoother((samples) => {
+					cursorSamples = samples;
+					requestRedraw();
+				});
+			}
+			smoother.load(cursorSamplesRaw);
 			ensureSmoothingCurrent();
 		} catch (err) {
 			console.warn("Cursor track load failed:", err);
@@ -656,8 +663,12 @@ void main() {
 		}
 	}
 
-	// Recompute the smoothed cursor path whenever the inputs change. Called
-	// once per draw() — cheap signature check, real work only on deltas.
+	// Recompute the smoothed cursor path whenever the inputs change. Called once
+	// per draw() — cheap signature check, real work only on deltas. The signature
+	// is set immediately (in-flight marker) so the per-frame call doesn't re-fire
+	// the request while the worker runs; the result is applied async via the
+	// smoother's callback. `sigmaMs <= 0` is the raw path — applied inline since
+	// there's nothing to compute.
 	function ensureSmoothingCurrent() {
 		if (cursorSamplesRaw.length === 0) {
 			cursorSamples = cursorSamplesRaw;
@@ -667,14 +678,18 @@ void main() {
 		const cs = store.cursorSettings;
 		const sig = `${loadedCursorPath}|${cs.smoothing}|${cs.snapToClicks ? 1 : 0}|${cs.snapWindowMs}`;
 		if (sig === smoothingSignature) return;
+		smoothingSignature = sig;
 		const sigmaMs = smoothingStrengthToSigmaMs(cs.smoothing);
-		const result = smoothCursorPath(cursorSamplesRaw, {
+		if (sigmaMs <= 0) {
+			cursorSamples = cursorSamplesRaw;
+			requestRedraw();
+			return;
+		}
+		smoother?.request({
 			sigmaMs,
 			snapToClicks: cs.snapToClicks,
 			snapWindowMs: cs.snapWindowMs,
 		});
-		cursorSamples = result.samples;
-		smoothingSignature = sig;
 	}
 
 	// Idle hide fade — shared 200ms ramp at each end of an idle period.
@@ -1475,6 +1490,8 @@ void main() {
 	onDestroy(() => {
 		stopVideoFrameLoop();
 		if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+		smoother?.dispose();
+		smoother = null;
 		wcSource?.dispose();
 		wcSource = null;
 		if (gl) {

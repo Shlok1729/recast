@@ -1,41 +1,214 @@
 <script lang="ts">
-	import Container from "$lib/components/Container.svelte";
-	import SeoMeta from "$lib/components/SeoMeta.svelte";
-	import { TOOLS } from "$lib/tools/registry";
-	import { Badge } from "@recast/ui/badge";
-	import * as Card from "@recast/ui/card";
-	import { ShieldCheck } from "@lucide/svelte";
+  import { Container, Footer, SeoMeta } from "$lib/components";
+  import { TOOLS } from "$lib/tools/registry";
+  import { toolIcon } from "$lib/tools/tool-icons";
+  import {
+    ArrowRight,
+    Download,
+    MousePointerClick,
+    ShieldCheck,
+    Upload,
+    UserX,
+    WifiOff,
+  } from "@lucide/svelte";
+  import { Cutout } from "@recast/ui/cutout";
+  import { LocalIcon } from "@recast/ui/local-icon";
+
+  const steps = [
+    {
+      icon: MousePointerClick,
+      title: "Pick a tool",
+      body: "Convert, trim, compress, mute — each tool is a single focused page.",
+    },
+    {
+      icon: Upload,
+      title: "Drop your file",
+      body: "It loads into your browser's own video engine. Nothing is uploaded.",
+    },
+    {
+      icon: Download,
+      title: "Save the result",
+      body: "Download the output instantly. No watermark, no account, no wait.",
+    },
+  ];
+
+  const privacy = [
+    { icon: WifiOff, label: "Runs offline", body: "Works after the page loads." },
+    { icon: ShieldCheck, label: "No upload", body: "Files never leave your device." },
+    { icon: UserX, label: "No account", body: "No sign-up, no email, no limits." },
+  ];
 </script>
 
 <SeoMeta
-	title="Free Browser Video Tools"
-	description="Convert, trim, compress, and extract from video for free. Everything runs in your browser. Your files are never uploaded."
-	eyebrow="Tools"
+  title="Free Browser Video Tools"
+  description="Convert, trim, compress, and extract from video for free. Everything runs in your browser. Your files are never uploaded."
+  eyebrow="Tools"
 />
 
-<div class="pt-24 pb-24 sm:pt-28">
-	<Container size="wide">
-		<header class="mx-auto max-w-2xl text-center">
-			<Badge variant="secondary" class="gap-1.5">
-				<ShieldCheck class="size-3.5" /> No upload, no account
-			</Badge>
-			<h1 class="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">Free video tools</h1>
-			<p class="mt-3 text-base text-muted-foreground">
-				Quick conversions that run entirely in your browser. Your files never leave your device.
-			</p>
-		</header>
+<main class="flex flex-col pb-8">
+  <!-- Hero -->
+  <Container size="wide" class="pt-28 pb-10 sm:pt-32">
+    <header class="mx-auto max-w-2xl text-center">
+      <span
+        class="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-card px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground shadow-(--shadow-craft-inset)"
+      >
+        <ShieldCheck class="size-3.5 text-primary" /> No upload · No account
+      </span>
+      <h1 class="mt-5 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+        Free video tools
+      </h1>
+      <p class="mt-3 text-pretty text-base leading-relaxed text-muted-foreground">
+        Quick conversions that run entirely in your browser. Your files never
+        leave your device.
+      </p>
+    </header>
+  </Container>
 
-		<div class="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-			{#each TOOLS as tool (tool.slug)}
-				<a href={`/tools/${tool.slug}`} class="group block">
-					<Card.Root class="h-full transition-colors group-hover:border-primary/60">
-						<Card.Header>
-							<Card.Title class="text-base">{tool.title}</Card.Title>
-							<Card.Description>{tool.tagline}</Card.Description>
-						</Card.Header>
-					</Card.Root>
-				</a>
-			{/each}
-		</div>
-	</Container>
-</div>
+  <!-- Tools grid -->
+  <Container size="wide">
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {#each TOOLS as tool (tool.slug)}
+        <a
+          href={`/tools/${tool.slug}`}
+          class="group relative flex h-full flex-col gap-3 overflow-hidden rounded-2xl border border-border/50 bg-card p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-border hover:shadow-md"
+        >
+          <Cutout
+            corner="tr"
+            surface="background"
+            radius={14}
+            class="flex items-center pb-4 pl-4 pr-3 pt-2"
+          >
+            <span
+              class="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground"
+            >
+              {tool.outputLabel}
+            </span>
+          </Cutout>
+
+          <span
+            class="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary"
+          >
+            <LocalIcon iconNode={toolIcon(tool.slug)} class="size-5" />
+          </span>
+
+          <h3 class="text-base font-semibold tracking-tight">{tool.title}</h3>
+          <p class="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+            {tool.tagline}
+          </p>
+
+          <span
+            class="mt-auto inline-flex items-center gap-1.5 pt-4 text-xs font-semibold text-primary"
+          >
+            Open tool
+            <ArrowRight
+              class="size-3.5 transition-transform group-hover:translate-x-0.5"
+            />
+          </span>
+        </a>
+      {/each}
+    </div>
+  </Container>
+
+  <!-- How it works — cutout step cards -->
+  <Container size="wide" class="mt-20">
+    <div class="mx-auto mb-8 max-w-xl text-center">
+      <span
+        class="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+      >
+        <span class="size-1.5 rounded-full bg-primary"></span>
+        How it works
+      </span>
+      <h2 class="mt-3 text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
+        Three steps, zero uploads
+      </h2>
+    </div>
+
+    <div class="grid gap-5 sm:grid-cols-3">
+      {#each steps as step, i (step.title)}
+        <article
+          class="group relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-border/50 bg-card p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+        >
+          <Cutout
+            corner="tr"
+            surface="background"
+            radius={14}
+            class="flex items-center justify-center pb-4 pl-4 pr-3 pt-2"
+          >
+            <span class="text-[11px] font-bold tabular-nums text-muted-foreground">
+              0{i + 1}
+            </span>
+          </Cutout>
+
+          <span
+            class="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"
+          >
+            <step.icon class="size-5" />
+          </span>
+          <h3 class="text-base font-semibold tracking-tight">{step.title}</h3>
+          <p class="text-sm leading-relaxed text-muted-foreground">{step.body}</p>
+        </article>
+      {/each}
+    </div>
+  </Container>
+
+  <!-- Privacy panel — one cutout-tagged surface -->
+  <Container size="wide" class="mt-16">
+    <div
+      class="relative overflow-hidden rounded-3xl border border-border/50 bg-card shadow-sm"
+    >
+      <Cutout corner="tl" surface="background" radius={14} class="pb-3.5 pl-3 pr-4 pt-2.5">
+        <span class="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
+          Private by default
+        </span>
+      </Cutout>
+
+      <div class="grid gap-6 p-6 pt-11 sm:grid-cols-3 sm:p-8 sm:pt-11">
+        {#each privacy as item (item.label)}
+          <div class="flex items-start gap-3">
+            <span
+              class="grid size-9 shrink-0 place-items-center rounded-lg bg-foreground/5 text-foreground"
+            >
+              <item.icon class="size-4.5" />
+            </span>
+            <div>
+              <p class="text-sm font-semibold tracking-tight">{item.label}</p>
+              <p class="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">
+                {item.body}
+              </p>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </Container>
+
+  <!-- CTA -->
+  <Container size="wide" class="mt-16">
+    <div
+      class="relative overflow-hidden rounded-3xl border border-border/50 bg-card px-6 py-10 text-center shadow-sm sm:px-10"
+    >
+      <Cutout corner="tr" surface="background" radius={12} class="pb-3 pl-3.5 pr-3.5 pt-1.5">
+        <span class="text-[11px] font-bold tracking-wide text-foreground">Free forever</span>
+      </Cutout>
+
+      <div class="mx-auto max-w-xl">
+        <h2 class="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
+          Want the full editor?
+        </h2>
+        <p class="mt-3 text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
+          These tools are the quick path. Recast for desktop records, polishes,
+          and exports a finished demo — offline, in one app.
+        </p>
+        <a
+          href="/download"
+          class="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-craft-sm transition-transform hover:-translate-y-0.5"
+        >
+          Download Recast
+          <ArrowRight class="size-4" />
+        </a>
+      </div>
+    </div>
+  </Container>
+
+  <Footer />
+</main>

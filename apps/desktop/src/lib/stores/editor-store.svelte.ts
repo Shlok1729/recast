@@ -885,13 +885,13 @@ export function createEditorStore() {
 	let exportProgress = $state<number | null>(null);
 	let isExporting = $state(false);
 
-	// Undo/Redo stacks (simplified — stores snapshots of key settings)
-	// Undo/redo history — arrays of full serialized-project JSON strings, always
+	// Undo/redo history — arrays of de-proxied settings snapshots, always
 	// reassigned with spreads (never index-mutated) and bounded to
 	// `MAX_UNDO_HISTORY`. `$state.raw` since only the array identity is read
-	// reactively; the string contents never need proxying.
-	let undoStack = $state.raw<string[]>([]);
-	let redoStack = $state.raw<string[]>([]);
+	// reactively; the snapshot contents are already plain.
+	type EditorSettings = ReturnType<typeof captureSettings>;
+	let undoStack = $state.raw<EditorSettings[]>([]);
+	let redoStack = $state.raw<EditorSettings[]>([]);
 
 	// Dirty tracking — flips to true the moment the user makes any undoable edit,
 	// clears when the edits are persisted to the .recast archive (markSaved) or
@@ -901,18 +901,16 @@ export function createEditorStore() {
 	// Frozen snapshot of the last on-disk state. Used by `revertToSaved` to
 	// blow away every unsaved edit at once without walking the undo stack.
 	// Captured whenever the project is loaded from disk or successfully saved.
-	let savedSnapshot = $state<string | null>(null);
+	let savedSnapshot = $state<EditorSettings | null>(null);
 
 	// Timeline zoom
 	let timelineZoom = $state(1); // 1x = fit to width
 
-	function getSettingsSnapshot(): string {
-		// Captures every undoable state field. Anything left out here
-		// silently survives a `pushUndoState` call but isn't restored on
-		// undo — the user sees the unrelated edits revert while their
-		// annotation/camera tweak stays put. Keep this list in sync with
-		// `applySnapshot` so they round-trip 1:1.
-		return JSON.stringify({
+	// Every undoable state field. Anything left out here silently survives a
+	// `pushUndoState` call but isn't restored on undo — the user sees unrelated
+	// edits revert while their tweak stays put. Keep in sync with `applySnapshot`.
+	function captureSettings() {
+		return {
 			backgroundType,
 			backgroundValue,
 			backgroundBlur,
@@ -935,7 +933,14 @@ export function createEditorStore() {
 			outputAspect,
 			lastAppliedPresetId,
 			cursorMotionEasing,
-		});
+		};
+	}
+
+	// Deep, de-proxied clone via `$state.snapshot` rather than a JSON round-trip,
+	// so undo/redo never pays a stringify+parse on the press. `applySnapshot`
+	// copies each field into fresh state, so the stored snapshot stays pristine.
+	function getSettingsSnapshot(): EditorSettings {
+		return $state.snapshot(captureSettings()) as EditorSettings;
 	}
 
 	const MAX_UNDO_HISTORY = 50;
@@ -998,14 +1003,15 @@ export function createEditorStore() {
 		applySnapshot(next);
 	}
 
-	function applySnapshot(json: string) {
-		const s = JSON.parse(json);
+	// Each field is copied (spread/map) into fresh state, never aliased — the
+	// snapshot lives on the undo stack and must stay immutable across re-applies.
+	function applySnapshot(s: EditorSettings) {
 		backgroundType = s.backgroundType;
 		backgroundValue = s.backgroundValue;
 		backgroundBlur = s.backgroundBlur;
 		padding = normalizeFramePaddingPercent(s.padding, metadata);
 		borderRadius = s.borderRadius ?? 0;
-		shadow = s.shadow ?? shadow;
+		shadow = s.shadow ? { ...s.shadow } : shadow;
 		trimStart = s.trimStart;
 		trimEnd = s.trimEnd;
 		zoomRegions = (s.zoomRegions ?? []).map((r: ZoomRegion) => ({
@@ -1032,9 +1038,11 @@ export function createEditorStore() {
 				hoveredAnnotationId = null;
 			}
 		}
-		cursorSettings = s.cursorSettings;
-		audioSettings = s.audioSettings ?? audioSettings;
-		watermarkSettings = s.watermarkSettings ?? watermarkSettings;
+		cursorSettings = { ...s.cursorSettings };
+		audioSettings = s.audioSettings ? { ...s.audioSettings } : audioSettings;
+		watermarkSettings = s.watermarkSettings
+			? { ...s.watermarkSettings }
+			: watermarkSettings;
 		// Camera overlay was previously captured in the snapshot but not
 		// restored here, which silently destroyed camera-overlay edits on
 		// undo. Deep-copy so subsequent mutations don't alias the snapshot.

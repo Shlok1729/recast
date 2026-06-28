@@ -162,6 +162,10 @@
     stopAutosave();
     autosaveTimer = setInterval(async () => {
       if (!documentPath || isLoading) return;
+      // Skip the full-state serialize when nothing changed since the last
+      // save/autosave — most idle ticks are clean, so the 30s timer stays off
+      // the main thread entirely until there's real work to persist.
+      if (!store.isDirty) return;
       try {
         const editsJson = JSON.stringify(store.toRenderState());
         await autosaveProject(documentPath, editsJson);
@@ -1146,6 +1150,12 @@
   async function handleSave() {
     if (!documentPath || isSaving || isLoading) return;
     isSaving = true;
+    // Paint the saving state before the synchronous serialize so the button
+    // reflects the click immediately. The serialize itself stays on the main
+    // thread by necessity — Tauri's IPC bridge JSON-encodes command args on the
+    // main thread anyway, so a worker would only add a proxy-stripping clone of
+    // equal cost; the win is gating autosave on isDirty (see startAutosave).
+    await tick();
     try {
       const editsJson = JSON.stringify(store.toRenderState());
       const savedAt = await saveProjectEdits(documentPath, editsJson);

@@ -42,6 +42,13 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 
 ## [Unreleased]
 
+### Added
+- Update older recordings to the current project format in bulk from the library, or one at a time from a recording's menu. Recordings that still use the old format are marked so you can see which need updating.
+
+### Changed
+- Recordings now save in a new project format that keeps each part of your edit (background, zoom, annotations, audio) in its own section, so project files are more robust and easier to inspect. Older recordings are updated to the new format when you open them, and a copy of the original is kept alongside it first.
+- The editor stays responsive on long recordings. Adjusting cursor smoothing no longer freezes the preview, undo and redo are quicker, and autosave no longer causes a brief stutter.
+
 ## [0.2.8] — 2026-06-28
 
 ### Highlights

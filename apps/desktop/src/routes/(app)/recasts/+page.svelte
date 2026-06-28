@@ -1,14 +1,15 @@
 <script lang="ts">
   import { ConfirmDialog, RenameDialog } from "$components/recast";
+  import { formatSize, relativeDate as relativeDateBase } from "$lib/format/files";
   import {
     deleteFile,
     generateThumbnails,
     listRecasts,
+    migrateProject,
     openFileLocation,
     renameFile,
     type RecordingEntry,
   } from "$lib/ipc";
-  import { formatSize, relativeDate as relativeDateBase } from "$lib/format/files";
   import {
     openInEditor as openEditorWindow,
     openInNewWindow,
@@ -23,6 +24,7 @@
     Film,
     FolderOpen,
     Grid3x3,
+    History,
     List,
     ListChecks,
     MoreHorizontal,
@@ -35,9 +37,9 @@
     Trash2,
     X,
   } from "@lucide/svelte";
-  import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
+  import { Cutout } from "@recast/ui/cutout";
   import * as DropdownMenu from "@recast/ui/dropdown-menu";
   import { Kbd } from "@recast/ui/kbd";
   import { safeStorage } from "@recast/ui/persisted-state";
@@ -68,6 +70,11 @@
   let selectMode = $state(false);
   let bulkDeleteOpen = $state(false);
   const selected = new SvelteSet<string>();
+
+  // Legacy-format migration: surfaced only when the scan finds older bundles.
+  let migrateAllOpen = $state(false);
+  let migrating = $state(false);
+  const legacyCount = $derived(entries.filter((e) => e.needsMigration).length);
 
   onMount(() => {
     fetchRecasts();
@@ -268,6 +275,38 @@
     }
     exitSelectMode();
   }
+
+  // Migrate every legacy bundle sequentially — each `migrateProject` runs off
+  // the Rust main thread, and awaiting one at a time avoids parallel disk
+  // re-zips. Failures are surfaced, not thrown, so the dialog still closes.
+  async function handleMigrateAll() {
+    const legacy = entries.filter((e) => e.needsMigration);
+    migrating = true;
+    let ok = 0;
+    for (const e of legacy) {
+      try {
+        await migrateProject(e.path);
+        ok++;
+      } catch (err) {
+        console.warn("Migration failed:", e.path, err);
+      }
+    }
+    migrating = false;
+    const failed = legacy.length - ok;
+    if (failed > 0) toast.error(`Updated ${ok} · ${failed} failed`);
+    else toast.success(`Updated ${ok} project${ok === 1 ? "" : "s"}`);
+    await fetchRecasts();
+  }
+
+  async function handleMigrateOne(entry: RecordingEntry) {
+    try {
+      await migrateProject(entry.path);
+      toast.success(`Updated "${entry.filename}"`);
+      await fetchRecasts();
+    } catch (err) {
+      toast.error(`Update failed: ${err}`);
+    }
+  }
 </script>
 
 <div class="h-full overflow-y-auto scrollbar-transparent no-scrollbar">
@@ -341,6 +380,24 @@
           {query ? `Results for “${query}”` : "All recordings"}
         </h2>
         <div class="flex items-center gap-1.5">
+          {#if legacyCount > 0}
+            <Button
+              variant="secondary"
+              size="xs"
+              class="h-7 gap-1 text-[11px]"
+              onclick={() => (migrateAllOpen = true)}
+              disabled={migrating}
+              title="Update older projects to the current format"
+            >
+              {#if migrating}
+                <RefreshCw size={11} class="animate-spin" />
+              {:else}
+                <History size={11} />
+              {/if}
+              Update {legacyCount} older
+            </Button>
+          {/if}
+
           <Button
             variant={selectMode ? "secondary" : "ghost"}
             size="xs"
@@ -486,7 +543,7 @@
                 : "flex-row items-center gap-3 rounded-lg p-1.5",
               isSelected
                 ? "border-primary/60 bg-primary/5"
-                : "border-border/40 bg-card/40 hover:border-border hover:bg-card/70 hover:shadow-craft-sm",
+                : "border-border/40 bg-card hover:border-border hover:shadow-craft-sm",
             )}
           >
             <!-- Thumbnail -->
@@ -539,12 +596,18 @@
               {/if}
 
               {#if view === "grid"}
-                <Badge
-                  variant="secondary"
-                  class="absolute right-1.5 top-1.5 h-4 px-1 text-[8.5px] font-bold uppercase tracking-wider backdrop-blur"
+                <Cutout
+                  corner="bl"
+                  surface="card"
+                  radius={8}
+                  class="flex items-center px-2.5 pt-2.5 pb-1"
                 >
-                  .recast
-                </Badge>
+                  <span
+                    class="text-[8.5px] font-bold uppercase leading-none tracking-wider text-muted-foreground"
+                  >
+                    .recast
+                  </span>
+                </Cutout>
               {/if}
             </div>
 
@@ -561,6 +624,14 @@
               <div class="truncate text-[10.5px] text-muted-foreground/80">
                 {formatSize(entry.sizeBytes)} · {relativeDate(entry.created)}
               </div>
+              {#if entry.needsMigration}
+                <span
+                  class="mt-1 inline-flex w-fit items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] font-medium text-warning"
+                  title="Older project format — update to keep editing"
+                >
+                  <History size={9} /> Older format
+                </span>
+              {/if}
             </div>
 
             <!-- Actions -->
@@ -590,6 +661,12 @@
                     {/snippet}
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Content align="end" size="sm" class="w-44">
+                    {#if entry.needsMigration}
+                      <DropdownMenu.Item onSelect={() => handleMigrateOne(entry)}>
+                        <History class="size-3" /> Update format
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator />
+                    {/if}
                     <DropdownMenu.Item onSelect={() => openInEditor(entry)}>
                       <Pencil class="size-3" /> Open in editor
                     </DropdownMenu.Item>
@@ -684,6 +761,19 @@
       </Button>
     </div>
   </div>
+{/if}
+
+{#if migrateAllOpen}
+  <ConfirmDialog
+    open={true}
+    title={`Update ${legacyCount} older project${legacyCount === 1 ? "" : "s"}?`}
+    description="These projects use an older format. Each is updated in place to the current format, keeping a backup (.bak) next to it. You can also update them one at a time from a project's menu."
+    confirmLabel="Update all"
+    onConfirm={handleMigrateAll}
+    onOpenChange={(v) => {
+      if (!v) migrateAllOpen = false;
+    }}
+  />
 {/if}
 
 {#if bulkDeleteOpen}
