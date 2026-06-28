@@ -368,6 +368,7 @@ fn load_editor_document_blocking(path: String) -> Result<EditorDocument, String>
                 size_bytes: fs::metadata(&input).map(|m| m.len()).unwrap_or_default(),
             },
             render_state,
+            needs_migration: project.needs_migration,
         });
     }
 
@@ -385,6 +386,7 @@ fn load_editor_document_blocking(path: String) -> Result<EditorDocument, String>
             trim_end: metadata.duration,
             ..RenderState::default()
         },
+        needs_migration: false,
     })
 }
 
@@ -2444,6 +2446,18 @@ pub fn cancel_export(export_id: String, state: State<'_, AppState>) -> Result<()
 pub fn autosave_project(project_path: String, edits_json: String) -> Result<(), String> {
     crate::project::autosave::save_autosave(Path::new(&project_path), &edits_json)
         .map_err(|e| e.to_string())
+}
+
+/// Re-pack a legacy `.recast` as the current format in place (keeps a `.bak`).
+/// Heavy zip I/O, so it runs off the main thread.
+#[tauri::command]
+pub async fn migrate_project(project_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::project::migrate_project(Path::new(&project_path))
+    })
+    .await
+    .map_err(|e| format!("migrate task panicked: {e}"))?
+    .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

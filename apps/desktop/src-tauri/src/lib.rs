@@ -321,6 +321,7 @@ pub fn run() {
             commands::rename_file,
             commands::get_video_metadata,
             commands::load_editor_document,
+            commands::migrate_project,
             commands::generate_thumbnails,
             commands::export_video,
             commands::cancel_export,

@@ -62,6 +62,8 @@ export interface EditorDocument {
 	cameraPath?: string | null;
 	metadata: VideoMetadata;
 	renderState: EditorRenderState;
+	/** True for a legacy bundle — migrate before loading the editor. */
+	needsMigration: boolean;
 }
 
 export interface AutosaveState {
@@ -438,6 +440,11 @@ export function recastCloudForgetUpload(path: string): Promise<void> {
 
 export function loadEditorDocument(path: string): Promise<EditorDocument> {
 	return invoke<EditorDocument>("load_editor_document", { path });
+}
+
+/** Re-pack a legacy `.recast` to the current format in place (keeps a `.bak`). */
+export function migrateProject(projectPath: string): Promise<void> {
+	return invoke<void>("migrate_project", { projectPath });
 }
 
 export function generateThumbnails(path: string, count: number): Promise<string[]> {

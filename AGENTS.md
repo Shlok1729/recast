@@ -56,6 +56,10 @@ pnpm db:generate | db:migrate # drizzle-kit (NEVER db:push to prod)
 1. **Match the surrounding code.** Comment density, naming, idioms, file structure. New code
    should be indistinguishable from what's already there. Don't introduce a new pattern when an
    established one exists.
+   - **Comments earn their place: explain *why*, not *what*.** No narration that restates the code,
+     no decorative section banners, no generic AI-boilerplate phrasing ("This function is
+     responsible for…", "Note that…"). A comment that an experienced reader would skip shouldn't
+     exist. Keep the ones that encode a *why* or a bug history (see rule 2).
 2. **Surgical changes, not rewrites.** This is a mature codebase. Fix the thing asked; don't
    "modernize" untouched code. Preserve invariant-bearing comments — if you move code, move its
    comment. Many comments encode hard-won platform bug history; deleting them re-opens bugs.
@@ -75,6 +79,12 @@ pnpm db:generate | db:migrate # drizzle-kit (NEVER db:push to prod)
    merges to `main`** — don't push to or force-push shared branches.
 10. **When unsure about a product/behavioural decision, ask** — don't guess at scope. When the
     answer is in the code or a sensible default exists, act and say what you assumed.
+11. **Separate concerns; don't duplicate.** Pure logic, reactive state, and markup/lifecycle each
+    live in their own place — pure logic in `.ts`/`.logic.ts`, shared reactive state in a
+    `.svelte.ts` rune module, markup + lifecycle in `.svelte`; on the backend, business logic in a
+    service module, not inside the command/handler (see §3, §4). One source of truth for any rule —
+    extract a shared helper instead of copy-pasting, and keep state flow one-directional and
+    explicit (derive, don't sync).
 
 ---
 
