@@ -7,6 +7,7 @@
     Info,
     MousePointer,
     Pencil,
+    SquareSplitHorizontal,
     Target,
     Video,
     Volume2,
@@ -18,6 +19,7 @@
   import AudioPanel from "./AudioPanel.svelte";
   import BackgroundPicker from "./BackgroundPicker.svelte";
   import CameraPanel from "./CameraPanel.svelte";
+  import ClipPanel from "./ClipPanel.svelte";
   import CursorPanel from "./CursorPanel.svelte";
   import ExtensionsPanel from "./ExtensionsPanel.svelte";
   import FocusPanel from "./FocusPanel.svelte";
@@ -37,6 +39,7 @@
   // flips back to true. The CameraPanel component itself is intact.
   // See apps/desktop/docs/camera-recording-todo.md.
   const tabs: TabType[] = [
+    { id: "clip", label: "Clip", icon: SquareSplitHorizontal },
     { id: "background", label: "Background", icon: ImageIcon },
     { id: "focus", label: "Focus", icon: Target },
     { id: "annotations", label: "Annotations", icon: Pencil },
@@ -50,6 +53,13 @@
   ];
 
   let { store, cameraPath = null }: Props = $props();
+
+  // Switch to Clip when a clip/segment is selected from the timeline.
+  $effect(() => {
+    if (store.selectedClipStart !== null) {
+      store.activePanel = "clip";
+    }
+  });
 
   // Switch to Focus when a zoom region is selected from the timeline.
   $effect(() => {
@@ -118,6 +128,10 @@
         {activeTabLabel}
       </span>
     </div>
+
+    <Tabs.Content value="clip" class={tabContentClass}>
+      <ClipPanel {store} />
+    </Tabs.Content>
 
     <Tabs.Content value="background" class={tabContentClass}>
       <BackgroundPicker {store} />

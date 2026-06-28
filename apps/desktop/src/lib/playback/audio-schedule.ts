@@ -20,6 +20,10 @@ export interface Region {
 	start: number;
 	/** End (seconds). */
 	end: number;
+	/** Playback speed (>0); 1 = normal. A 2× region plays its audio twice as
+	 *  fast (and occupies half the output time), matching the per-segment clip
+	 *  speed. Optional — absent/≤0 means 1×. */
+	speed?: number;
 }
 
 /**
@@ -60,15 +64,19 @@ export function keptRegions(
 	return regions;
 }
 
-/** One scheduled audio chunk: play the buffer slice `[bufferOffset, +duration]`
- * starting `whenDelay` seconds from "now" (the moment scheduling begins). */
+/** One scheduled audio chunk: play `duration` SOURCE seconds of the buffer from
+ * `bufferOffset` at `rate`, starting `whenDelay` output-seconds from "now". The
+ * audio clock runs in output (== wall) time, so a 2× chunk consumes twice the
+ * source per output-second and is positioned on the warped output axis. */
 export interface ScheduledChunk {
-	/** Seconds from now to begin this chunk (0 = immediately, mid-region). */
+	/** Output-seconds from now to begin this chunk (0 = immediately, mid-region). */
 	whenDelay: number;
 	/** Offset into the (original-time) audio buffer to start playing from. */
 	bufferOffset: number;
-	/** How long to play. */
+	/** SOURCE seconds of buffer to play (wall time = duration / rate). */
 	duration: number;
+	/** Playback rate (= region speed). */
+	rate: number;
 	/** Output-time span this chunk occupies (for resync/debugging). */
 	outStart: number;
 	outEnd: number;
@@ -76,9 +84,10 @@ export interface ScheduledChunk {
 
 /**
  * Plan the chunks to schedule so playback continues from OUTPUT time
- * `fromOutputTime`. Output time is gapless: region N starts where region N-1
- * ended. Regions already fully behind the playhead are skipped; the region the
- * playhead is inside starts immediately (`whenDelay` 0) at the right offset.
+ * `fromOutputTime`. Output time is gapless and SPEED-WARPED: a region of source
+ * length L at speed s occupies L/s on the output axis. Region N starts where
+ * region N-1 ended. Regions fully behind the playhead are skipped; the region
+ * the playhead is inside starts immediately (`whenDelay` 0) at the right offset.
  */
 export function planAudioSchedule(
 	regions: ReadonlyArray<Region>,
@@ -87,21 +96,26 @@ export function planAudioSchedule(
 	const out: ScheduledChunk[] = [];
 	let outCursor = 0;
 	for (const region of regions) {
-		const dur = region.end - region.start;
-		if (dur <= EPS) continue;
+		const sourceDur = region.end - region.start;
+		if (sourceDur <= EPS) continue;
+		const rate = region.speed && region.speed > 0 ? region.speed : 1;
+		const outDur = sourceDur / rate;
 		const outStart = outCursor;
-		const outEnd = outCursor + dur;
+		const outEnd = outCursor + outDur;
 		outCursor = outEnd;
 		if (outEnd <= fromOutputTime + EPS) continue; // already played
 
-		const intoRegion = Math.max(0, fromOutputTime - outStart);
+		const intoOutput = Math.max(0, fromOutputTime - outStart);
 		const whenDelay = Math.max(0, outStart - fromOutputTime);
-		const duration = dur - intoRegion;
+		// Output time into the region maps to source seconds at `rate`.
+		const sourceInto = intoOutput * rate;
+		const duration = sourceDur - sourceInto;
 		if (duration <= EPS) continue;
 		out.push({
 			whenDelay,
-			bufferOffset: region.start + intoRegion,
+			bufferOffset: region.start + sourceInto,
 			duration,
+			rate,
 			outStart,
 			outEnd,
 		});

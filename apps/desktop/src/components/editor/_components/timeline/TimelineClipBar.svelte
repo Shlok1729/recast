@@ -1,8 +1,13 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import { originalToOutput } from "$lib/timeline/cuts";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
+  import {
+    type FilmstripTile,
+    planFilmstrip,
+  } from "$lib/timeline/filmstrip";
+  import type { TileProvider } from "$lib/timeline/filmstrip-source";
   import { deriveSeams } from "$lib/timeline/segments";
-  import { Trash2 } from "@lucide/svelte";
+  import { Gauge, Trash2 } from "@lucide/svelte";
   import { fade } from "svelte/transition";
   import {
     formatTimeByMode,
@@ -12,9 +17,10 @@
     quantizeToFrame,
     type TimeMode,
   } from "./timeline-helpers";
+  import { buildSnapTargets, snapTime } from "./timeline-snap";
 
   // Clip bar with thumbnails and in/out trim handles. Owns its drag state;
-  // the parent only supplies `clientXToTime` (handles scroll offset) to resolve pointer X.
+  // the parent only supplies `clientXToOutput` (handles scroll offset) to resolve pointer X.
 
   interface Props {
     store: EditorStore;
@@ -26,7 +32,13 @@
     clipWidth: number;
     thumbnailWidth: number;
     timeMode: TimeMode;
-    clientXToTime: (clientX: number) => number;
+    /** Pointer clientX → output seconds (pre-map); trim maps it via a frozen map. */
+    clientXToOutput: (clientX: number) => number;
+    // Density-based filmstrip. When null, the stretched Rust strip is rendered.
+    tileProvider: TileProvider | null;
+    filmstripVersion: number;
+    viewportLeftPx: number;
+    viewportWidthPx: number;
   }
 
   let {
@@ -39,13 +51,25 @@
     clipWidth,
     thumbnailWidth,
     timeMode,
-    clientXToTime,
+    clientXToOutput,
+    tileProvider,
+    filmstripVersion,
+    viewportLeftPx,
+    viewportWidthPx,
   }: Props = $props();
+
+  // Target tile width and the cache-key height namespace; overscan decodes a bit
+  // beyond the viewport so tiles are ready just before they scroll in.
+  const TILE_TARGET_W = 96;
+  const TILE_KEY_HEIGHT = 48;
+  const FILMSTRIP_OVERSCAN = 240;
+
+  const formatSpeed = (s: number) => `${s}×`;
 
   // One block per kept segment on the OUTPUT (post-cut) axis: a cut occupies zero
   // width and later clips slide left to close the gap. `xOf` maps original time onto that axis.
   const pps = $derived(pixelsPerSecond);
-  const xOf = (t: number) => originalToOutput(store.effectiveCuts, t) * pps;
+  const xOf = (t: number) => originalToOutput(store.timeMap, t) * pps;
   // Thumbnail strip is laid across this; each block is internally cut-free, so it shows its slice via a margin offset.
   const clipDuration = $derived(Math.max(0.0001, store.outPoint - store.inPoint));
   const stripFullWidth = $derived(clipDuration * pps);
@@ -66,6 +90,53 @@
       stripOffset: -(seg.start - store.inPoint) * pps,
     })),
   );
+  // Density-based filmstrip tiles, planned per kept block and virtualized to the
+  // viewport. Empty (fallback to the stretched strip) when there's no provider.
+  const filmstripTiles = $derived(
+    tileProvider
+      ? planFilmstrip(
+          clipBlocks.map((b) => ({
+            key: b.key,
+            leftPx: b.left,
+            widthPx: b.width,
+            originalStart: b.start,
+            originalEnd: b.end,
+          })),
+          { leftPx: viewportLeftPx, widthPx: viewportWidthPx },
+          {
+            tileWidthPx: TILE_TARGET_W,
+            tileHeightPx: TILE_KEY_HEIGHT,
+            overscanPx: FILMSTRIP_OVERSCAN,
+          },
+        )
+      : [],
+  );
+  const tilesByBlock = $derived.by(() => {
+    const map = new Map<number, FilmstripTile[]>();
+    for (const tile of filmstripTiles) {
+      const list = map.get(tile.blockKey);
+      if (list) list.push(tile);
+      else map.set(tile.blockKey, [tile]);
+    }
+    return map;
+  });
+  // Tile URLs, re-resolved whenever a freshly decoded tile bumps the version.
+  const tileUrls = $derived.by(() => {
+    void filmstripVersion;
+    const map = new Map<string, string | undefined>();
+    if (tileProvider) {
+      for (const tile of filmstripTiles) {
+        map.set(tile.cacheKey, tileProvider.get(tile));
+      }
+    }
+    return map;
+  });
+  $effect(() => {
+    if (tileProvider && filmstripTiles.length > 0) {
+      tileProvider.request(filmstripTiles);
+    }
+  });
+
   const splitMarkers = $derived(
     store.splitPoints
       .filter((p) => p > store.inPoint && p < store.outPoint)
@@ -96,19 +167,24 @@
   }
 
   let activeTrimHandle = $state<"in" | "out" | null>(null);
+  // Output-x of the active trim snap target (playhead/region/etc.), or null.
+  let trimSnapX = $state<number | null>(null);
 
   // `originalAt` = the handle value at pointer-down, for the frames-delta tooltip.
   let trimDragContext = $state<{
     which: "in" | "out";
     originalAt: number;
   } | null>(null);
-
   function startTrimDrag(event: PointerEvent, which: "in" | "out") {
     if (duration <= 0) return;
     event.preventDefault();
     event.stopPropagation();
     // Single undo entry per drag.
     store.pushUndoState();
+    // Un-collapse the axis for the drag: the clip un-brackets to the full
+    // recording (trimmed head/tail ghosted), the handle follows the cursor, and
+    // dragging outward restores. Reverts to the collapsed view on pointer-up.
+    store.isTrimming = true;
     activeTrimHandle = which;
     trimDragContext = {
       which,
@@ -123,6 +199,8 @@
     const onUp = (e: PointerEvent) => {
       activeTrimHandle = null;
       trimDragContext = null;
+      trimSnapX = null;
+      store.isTrimming = false;
       document.body.style.cursor = "";
       try {
         (event.currentTarget as Element).releasePointerCapture(e.pointerId);
@@ -138,13 +216,38 @@
     window.addEventListener("pointercancel", onUp);
   }
 
+  // Snap the dragged handle to the playhead, clip edges, and region/annotation
+  // boundaries (not its own point); falls through to the frame grid otherwise.
+  function snapTrim(raw: number, which: "in" | "out"): number {
+    const targets = buildSnapTargets({
+      playhead: store.currentTime,
+      inPoint: store.inPoint,
+      outPoint: store.outPoint,
+      duration,
+      regions: store.zoomRegions,
+      annotations: store.annotations,
+    }).filter((target) =>
+      which === "in"
+        ? target.kind !== "in-point"
+        : target.kind !== "out-point",
+    );
+    const tolerance = pps > 0 ? 6 / pps : 0;
+    const result = snapTime(raw, targets, tolerance, fps);
+    // Surface the active snap as a guide line at the target's position.
+    trimSnapX = result.target ? xOf(result.target.time) : null;
+    return result.time;
+  }
+
   function updateTrimFromPointer(
     clientX: number,
     which: "in" | "out",
     scrub = false,
   ) {
-    const raw = clientXToTime(clientX);
-    const t = quantizeToFrame(raw, fps);
+    // Output px → original time. While trimming, store.timeMap is the full
+    // recording axis (stable, not collapsing under the drag), so absolute
+    // mapping tracks the cursor and lets the handle move across the whole source.
+    const raw = outputToOriginal(store.timeMap, clientXToOutput(clientX));
+    const t = snapTrim(raw, which);
     const min = minClipDuration(fps);
     if (which === "in") {
       const next = Math.max(0, Math.min(t, store.outPoint - min));
@@ -196,21 +299,67 @@
 </script>
 
 <div class="relative h-12">
+  <!-- Ghost bands: while trimming, the axis un-collapses to the full recording
+       and the trimmed head/tail show dimmed, so you can see and re-drag them. -->
+  {#if store.isTrimming}
+    {#if clipLeft > 1}
+      <div
+        class="pointer-events-none absolute inset-y-0 left-0 z-8 rounded-l-md border border-border/40 bg-background/60"
+        style="width: {clipLeft}px;"
+      ></div>
+    {/if}
+    <div
+      class="pointer-events-none absolute inset-y-0 right-0 z-8 rounded-r-md border border-border/40 bg-background/60"
+      style="left: {clipLeft + clipWidth}px;"
+    ></div>
+    {#if trimSnapX !== null}
+      <div
+        class="pointer-events-none absolute inset-y-0 z-9 w-px bg-primary"
+        style="left: {trimSnapX}px;"
+      ></div>
+    {/if}
+  {/if}
+
   {#each clipBlocks as block (block.key)}
     {@const selected =
       store.selectedClipStart !== null &&
       Math.abs(store.selectedClipStart - block.start) < 1e-4}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    {@const speed = store.segmentSpeedAt(block.start)}
+    <!-- Select on POINTERDOWN, not click: the timeline scroller calls
+         setPointerCapture on its own pointerdown, which redirects pointerup and
+         makes the synthesised click land on the scroller (seek) instead of here.
+         We don't stop propagation, so the click still seeks too (select + seek). -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       role="button"
       tabindex="-1"
-      onclick={() => (store.selectedClipStart = block.start)}
+      onpointerdown={() => (store.selectedClipStart = block.start)}
       class="group/clip absolute inset-y-0 cursor-pointer overflow-hidden rounded-md border bg-primary/5 transition-[box-shadow,border-color] {selected
         ? 'border-primary ring-2 ring-primary/50'
         : 'border-primary/40 hover:border-primary/70'}"
       style="left: {block.left}px; width: {block.width}px;"
     >
-      {#if store.thumbnailStrip.length > 0}
+      {#if tileProvider}
+        {#each tilesByBlock.get(block.key) ?? [] as tile (tile.cacheKey)}
+          {@const url = tileUrls.get(tile.cacheKey)}
+          <div
+            class="absolute inset-y-0 overflow-hidden"
+            style="left: {tile.offsetPx}px; width: {tile.widthPx}px;"
+          >
+            {#if url}
+              <img
+                in:fade={{ duration: 120 }}
+                src={url}
+                alt=""
+                class="h-full w-full object-cover"
+                draggable="false"
+              />
+            {:else}
+              <div class="h-full w-full bg-muted/40"></div>
+            {/if}
+          </div>
+        {/each}
+      {:else if store.thumbnailStrip.length > 0}
         <div
           class="flex h-full"
           style="width: {stripFullWidth}px; margin-left: {block.stripOffset}px;"
@@ -231,6 +380,17 @@
           class="flex h-full items-center justify-center text-[10px] text-muted-foreground"
         >
           Generating thumbnails…
+        </div>
+      {/if}
+
+      <!-- Read-only speed badge (the editable control lives in the Clip panel). -->
+      {#if speed !== 1}
+        <div
+          title="Clip speed — edit in the Clip panel"
+          class="pointer-events-none absolute left-1 top-1 z-7 flex h-4 items-center gap-0.5 rounded bg-primary/90 px-1 font-mono text-[9px] font-bold text-primary-foreground"
+        >
+          <Gauge class="size-2.5" />
+          {formatSpeed(speed)}
         </div>
       {/if}
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditorStore, ZoomRegion } from "$lib/stores/editor-store.svelte";
-  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
   import { X } from "@lucide/svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -76,9 +76,9 @@
   // Output (post-cut) axis so regions sit on the same gapless line as clips;
   // a region overlapping a cut renders narrower (correct NLE behaviour).
   const xOf = (t: number) =>
-    originalToOutput(store.effectiveCuts, t) * pixelsPerSecond;
+    originalToOutput(store.timeMap, t) * pixelsPerSecond;
   const tOf = (xPx: number) =>
-    outputToOriginal(store.effectiveCuts, xPx / pixelsPerSecond);
+    outputToOriginal(store.timeMap, xPx / pixelsPerSecond);
   const left = $derived(xOf(region.start));
   // 32px floor keeps even sub-frame regions clickable.
   const width = $derived(Math.max(xOf(region.end) - xOf(region.start), 32));

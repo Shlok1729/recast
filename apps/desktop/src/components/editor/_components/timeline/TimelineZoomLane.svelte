@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import { originalToOutput } from "$lib/timeline/cuts";
+  import { originalToOutput } from "$lib/timeline/time-map";
   import type { TimeMode } from "./timeline-helpers";
   import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import ZoomLayerCard from "./ZoomLayerCard.svelte";
@@ -33,7 +33,7 @@
   // Snap targets are original times; place the guide on the output axis.
   const snapX = $derived(
     activeSnap
-      ? originalToOutput(store.effectiveCuts, activeSnap.time) * pixelsPerSecond
+      ? originalToOutput(store.timeMap, activeSnap.time) * pixelsPerSecond
       : 0,
   );
 

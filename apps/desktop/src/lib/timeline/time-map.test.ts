@@ -1,0 +1,190 @@
+import { describe, expect, it } from "vitest";
+import {
+	originalToOutput as cutOriginalToOutput,
+	normalizeCuts,
+	type TimelineCut,
+} from "./cuts";
+import { deriveSegments } from "./segments";
+import {
+	buildTimeMap,
+	displayTimeMap,
+	originalToOutput,
+	outputToOriginal,
+	spanAtOriginal,
+	timeMapFromSegments,
+} from "./time-map";
+import parityFixtures from "./__fixtures__/cut-parity.json";
+
+function cut(start: number, end: number, id = `${start}-${end}`): TimelineCut {
+	return { id, start, end, source: "manual" };
+}
+
+function span(origStart: number, origEnd: number, speed = 1) {
+	return { origStart, origEnd, speed };
+}
+
+describe("buildTimeMap", () => {
+	it("lays kept spans end-to-end on the output axis", () => {
+		const map = buildTimeMap([span(0, 2), span(5, 6)]);
+		expect(map.spans.map((s) => [s.outStart, s.outEnd])).toEqual([
+			[0, 2],
+			[2, 3],
+		]);
+		expect(map.outputDuration).toBeCloseTo(3);
+	});
+
+	it("sorts spans by original start", () => {
+		const map = buildTimeMap([span(5, 6), span(0, 2)]);
+		expect(map.spans.map((s) => s.origStart)).toEqual([0, 5]);
+	});
+
+	it("drops zero-length spans", () => {
+		expect(buildTimeMap([span(2, 2)]).spans).toHaveLength(0);
+	});
+
+	it("a 2x span occupies half the output width", () => {
+		const map = buildTimeMap([span(0, 4, 2)]);
+		expect(map.outputDuration).toBeCloseTo(2);
+	});
+
+	it("falls back to 1x for a non-positive or non-finite speed", () => {
+		expect(buildTimeMap([span(0, 4, 0)]).outputDuration).toBeCloseTo(4);
+		expect(
+			buildTimeMap([span(0, 4, Number.POSITIVE_INFINITY)]).outputDuration,
+		).toBeCloseTo(4);
+	});
+});
+
+describe("originalToOutput / outputToOriginal (general map)", () => {
+	const map = buildTimeMap([span(0, 4, 2), span(6, 10, 1)]); // out: [0,2] then [2,6]
+
+	it("applies per-span slope", () => {
+		expect(originalToOutput(map, 2)).toBeCloseTo(1); // half-way through 2x span
+		expect(originalToOutput(map, 8)).toBeCloseTo(4); // half-way through 1x span
+	});
+
+	it("collapses a removed-gap time onto the next seam", () => {
+		// The [4,6] gap has no output image; both edges map to the seam at out=2.
+		expect(originalToOutput(map, 5)).toBeCloseTo(2);
+	});
+
+	it("round-trips kept times", () => {
+		for (const t of [0, 1, 3, 6, 7, 9, 10]) {
+			expect(outputToOriginal(map, originalToOutput(map, t))).toBeCloseTo(t);
+		}
+	});
+
+	it("right-biases an exact internal seam", () => {
+		// out=2 is both the 2x span's end and the 1x span's start → next span wins.
+		expect(outputToOriginal(map, 2)).toBeCloseTo(6);
+	});
+
+	it("clamps output outside the kept range", () => {
+		expect(outputToOriginal(map, -1)).toBeCloseTo(0);
+		expect(outputToOriginal(map, 99)).toBeCloseTo(10);
+	});
+
+	it("is monotonic non-decreasing in original time", () => {
+		let prev = -Infinity;
+		for (let t = 0; t <= 10; t += 0.1) {
+			const o = originalToOutput(map, t);
+			expect(o).toBeGreaterThanOrEqual(prev - 1e-9);
+			prev = o;
+		}
+	});
+});
+
+describe("spanAtOriginal", () => {
+	const map = buildTimeMap([span(0, 4, 2), span(6, 10)]);
+	it("finds the covering span", () => {
+		expect(spanAtOriginal(map, 1)?.origStart).toBe(0);
+		expect(spanAtOriginal(map, 7)?.origStart).toBe(6);
+	});
+	it("returns null inside a removed gap", () => {
+		expect(spanAtOriginal(map, 5)).toBeNull();
+	});
+});
+
+describe("speed=1 reduces exactly to the cut translation map", () => {
+	// Same shared fixtures the Rust export and cuts.test.ts assert against: at
+	// speed 1 the general map's output duration must equal the kept duration, and
+	// its mapping must match cuts.originalToOutput up to the trim-start offset.
+	for (const c of parityFixtures.cases) {
+		it(`matches fixture: ${c.name}`, () => {
+			const cuts = c.cuts.map(([s, e], i) => cut(s, e, `fx-${i}`));
+			const segments = deriveSegments({
+				trimStart: c.trimStart,
+				trimEnd: c.trimEnd,
+				cuts,
+				splitPoints: [],
+			});
+			const map = timeMapFromSegments(segments);
+
+			expect(map.outputDuration).toBeCloseTo(c.expectedKeptDuration, 6);
+
+			// The general map's output axis starts at trimStart; the cut map's starts
+			// at original 0. They must agree once that constant offset is removed.
+			const offset = cutOriginalToOutput(cuts, c.trimStart);
+			const normalized = normalizeCuts(cuts);
+			for (const seg of segments) {
+				for (const t of [seg.start, (seg.start + seg.end) / 2, seg.end]) {
+					expect(originalToOutput(map, t)).toBeCloseTo(
+						cutOriginalToOutput(normalized, t) - offset,
+						6,
+					);
+				}
+			}
+		});
+	}
+});
+
+describe("displayTimeMap (trim-drag axis) reduces to the full-duration cut map at 1x", () => {
+	// While trimming the timeline swaps onto this full-recording axis; at 1x it
+	// must match the cut translation map over [0, duration] so the layout matches.
+	const DURATION = 12;
+	for (const c of parityFixtures.cases) {
+		if (c.trimEnd > DURATION) continue;
+		it(`matches fixture: ${c.name}`, () => {
+			const cuts = c.cuts.map(([s, e], i) => cut(s, e, `fx-${i}`));
+			const segments = deriveSegments({
+				trimStart: c.trimStart,
+				trimEnd: c.trimEnd,
+				cuts,
+				splitPoints: [],
+			});
+			const map = displayTimeMap({
+				trimStart: c.trimStart,
+				trimEnd: c.trimEnd,
+				durationSec: DURATION,
+				segments,
+				cuts,
+			});
+			expect(map.outputDuration).toBeCloseTo(
+				cutOriginalToOutput(cuts, DURATION),
+				6,
+			);
+			for (let t = 0; t <= DURATION; t += 0.37) {
+				expect(originalToOutput(map, t)).toBeCloseTo(
+					cutOriginalToOutput(cuts, t),
+					6,
+				);
+			}
+		});
+	}
+});
+
+describe("timeMapFromSegments warps a sped-up segment (kept axis)", () => {
+	it("narrows a 2x segment and shortens the output", () => {
+		const segments = deriveSegments({
+			trimStart: 0,
+			trimEnd: 10,
+			cuts: [],
+			splitPoints: [4],
+		});
+		// Kept axis: output 0 == first segment start; [0,4]@1x=4 then [4,10]@2x=3.
+		const map = timeMapFromSegments(segments, (i) => (i === 1 ? 2 : 1));
+		expect(map.outputDuration).toBeCloseTo(7);
+		expect(originalToOutput(map, 4)).toBeCloseTo(4);
+		expect(originalToOutput(map, 10)).toBeCloseTo(7);
+	});
+});

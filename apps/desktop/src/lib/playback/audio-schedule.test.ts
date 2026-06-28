@@ -47,8 +47,8 @@ describe("planAudioSchedule", () => {
 	it("schedules every region from the start of playback", () => {
 		const plan = planAudioSchedule(regions, 0);
 		expect(plan).toEqual([
-			{ whenDelay: 0, bufferOffset: 0, duration: 3, outStart: 0, outEnd: 3 },
-			{ whenDelay: 3, bufferOffset: 5, duration: 5, outStart: 3, outEnd: 8 },
+			{ whenDelay: 0, bufferOffset: 0, duration: 3, rate: 1, outStart: 0, outEnd: 3 },
+			{ whenDelay: 3, bufferOffset: 5, duration: 5, rate: 1, outStart: 3, outEnd: 8 },
 		]);
 	});
 
@@ -56,7 +56,7 @@ describe("planAudioSchedule", () => {
 		// Output time 4 is 1s into the second region (orig 5..10) → buffer offset 6.
 		const plan = planAudioSchedule(regions, 4);
 		expect(plan).toEqual([
-			{ whenDelay: 0, bufferOffset: 6, duration: 4, outStart: 3, outEnd: 8 },
+			{ whenDelay: 0, bufferOffset: 6, duration: 4, rate: 1, outStart: 3, outEnd: 8 },
 		]);
 	});
 
@@ -74,5 +74,43 @@ describe("planAudioSchedule", () => {
 
 	it("returns nothing once playback is past the end", () => {
 		expect(planAudioSchedule(regions, 8)).toEqual([]);
+	});
+});
+
+describe("planAudioSchedule with per-segment speed", () => {
+	it("a 2x region occupies half the output and plays at rate 2", () => {
+		// [0,4] source at 2x → output 0–2; whole 4s of source plays at rate 2.
+		const plan = planAudioSchedule([{ start: 0, end: 4, speed: 2 }], 0);
+		expect(plan).toEqual([
+			{ whenDelay: 0, bufferOffset: 0, duration: 4, rate: 2, outStart: 0, outEnd: 2 },
+		]);
+	});
+
+	it("warps later regions' output positions by upstream speeds", () => {
+		// [0,4]@1 (output 0–4) then [4,8]@2 (output 4–6).
+		const plan = planAudioSchedule(
+			[
+				{ start: 0, end: 4, speed: 1 },
+				{ start: 4, end: 8, speed: 2 },
+			],
+			0,
+		);
+		expect(plan).toEqual([
+			{ whenDelay: 0, bufferOffset: 0, duration: 4, rate: 1, outStart: 0, outEnd: 4 },
+			{ whenDelay: 4, bufferOffset: 4, duration: 4, rate: 2, outStart: 4, outEnd: 6 },
+		]);
+	});
+
+	it("starts mid sped-up region at the speed-scaled buffer offset", () => {
+		// [0,4]@2 → output 0–2. From output 1 (half-way) → 2s of source consumed.
+		const plan = planAudioSchedule([{ start: 0, end: 4, speed: 2 }], 1);
+		expect(plan).toEqual([
+			{ whenDelay: 0, bufferOffset: 2, duration: 2, rate: 2, outStart: 0, outEnd: 2 },
+		]);
+	});
+
+	it("treats absent/zero speed as 1x", () => {
+		expect(planAudioSchedule([{ start: 0, end: 2, speed: 0 }], 0)[0].rate).toBe(1);
+		expect(planAudioSchedule([{ start: 0, end: 2 }], 0)[0].rate).toBe(1);
 	});
 });

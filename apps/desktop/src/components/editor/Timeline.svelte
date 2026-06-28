@@ -15,13 +15,15 @@
   import TimelineZoomLane from "./_components/timeline/TimelineZoomLane.svelte";
   import {
     effectiveFps as effFps,
+    formatTimeByMode,
     frameStep as frameStepOf,
     greatestCommonDivisor,
     minClipDuration as minClipDurOf,
     quantizeToFrame as quantizeToFrameOf,
     type TimeMode,
   } from "./_components/timeline/timeline-helpers";
-  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
+  import type { TileProvider } from "$lib/timeline/filmstrip-source";
 
   // Orchestrator: owns the scroll container, sizing, transport (JKL/speed),
   // keyboard routing, and the click-to-seek scrubber. Subviews live under `_components/timeline/`.
@@ -29,13 +31,25 @@
   interface Props {
     store: EditorStore;
     videoEl?: HTMLVideoElement | null;
+    tileProvider?: TileProvider | null;
+    filmstripVersion?: number;
   }
 
-  let { store, videoEl = null }: Props = $props();
+  let {
+    store,
+    videoEl = null,
+    tileProvider = null,
+    filmstripVersion = 0,
+  }: Props = $props();
 
   let timelineEl: HTMLDivElement | undefined = $state();
   let isDraggingPlayhead = $state(false);
   let timelineWidth = $state(900);
+  // Horizontal scroll offset, tracked so the clip bar can virtualize its tiles.
+  let scrollLeft = $state(0);
+  // Left padding (px-2) between the scroller and the lane content the clip bar
+  // positions against — subtracted so the viewport lands in clip-bar coords.
+  const LANE_PAD = 8;
 
   const SPEEDS = [0.25, 0.5, 1.0, 1.5, 2.0] as const;
   let playbackSpeed = $state(1.0);
@@ -136,18 +150,21 @@
       const center = (region.start + region.end) * 0.5;
       timelineEl.scrollLeft = Math.max(
         0,
-        originalToOutput(cuts, center) * nextPps - timelineEl.clientWidth * 0.5,
+        originalToOutput(store.timeMap, center) * nextPps - timelineEl.clientWidth * 0.5,
       );
     });
   }
 
-  function clientXToTime(clientX: number): number {
-    if (!timelineEl || duration <= 0) return 0;
+  // Output seconds under the pointer, BEFORE the time-map. Trim drags map this
+  // through a map FROZEN at drag-start, so the collapsed clip's left edge (which
+  // sits at output 0) isn't a degenerate input.
+  function clientXToOutput(clientX: number): number {
+    if (!timelineEl || pixelsPerSecond <= 0) return 0;
     const rect = timelineEl.getBoundingClientRect();
-    const scrollLeft = timelineEl.scrollLeft;
-    const x = clientX - rect.left + scrollLeft;
-    // OUTPUT px → original time so the scrubber lands on kept content, skipping collapsed cuts.
-    return Math.max(0, Math.min(duration, tOf(x)));
+    return Math.max(
+      0,
+      (clientX - rect.left + timelineEl.scrollLeft) / pixelsPerSecond,
+    );
   }
 
   // For the global Alt+[ / Alt+] shortcuts (trim handles have their own arrows in TimelineClipBar).
@@ -173,10 +190,10 @@
   }
 
   const duration = $derived(store.metadata?.duration ?? 0);
-  // The axis is OUTPUT (post-cut) time: `originalToOutput` collapses cuts to zero
-  // width so later content slides left (NLE ripple). Trim isn't a cut, so head/tail handles remain.
-  const cuts = $derived(store.effectiveCuts);
-  const outputDuration = $derived(originalToOutput(cuts, duration));
+  // The axis is OUTPUT time via `store.timeMap`: cuts collapse to zero width (NLE
+  // ripple) and each kept segment is warped by its per-segment speed. Trimmed
+  // head/tail stay as 1x context, so the in/out handles still bracket the clip.
+  const outputDuration = $derived(store.timeMap.outputDuration);
   const pixelsPerSecond = $derived(
     outputDuration > 0 ? (timelineWidth * store.timelineZoom) / outputDuration : 100,
   );
@@ -184,8 +201,8 @@
     Math.max(outputDuration * pixelsPerSecond, timelineWidth),
   );
   // Canonical axis transforms — every lane positions with `xOf` and resolves pointers with `tOf`.
-  const xOf = (t: number) => originalToOutput(cuts, t) * pixelsPerSecond;
-  const tOf = (x: number) => outputToOriginal(cuts, x / pixelsPerSecond);
+  const xOf = (t: number) => originalToOutput(store.timeMap, t) * pixelsPerSecond;
+  const tOf = (x: number) => outputToOriginal(store.timeMap, x / pixelsPerSecond);
   const clipLeft = $derived(xOf(store.inPoint));
   const clipRight = $derived(xOf(store.outPoint));
   const clipWidth = $derived(Math.max(clipRight - clipLeft, 0));
@@ -229,12 +246,50 @@
   }
 
   function handleTimelinePointerMove(event: PointerEvent) {
+    updateHover(event.clientX);
     if (!isDraggingPlayhead) return;
     seekToPosition(event.clientX);
   }
 
   function handleTimelinePointerUp() {
     isDraggingPlayhead = false;
+  }
+
+  // Hover-scrub: a frame thumbnail (decoded by the filmstrip provider) follows
+  // the cursor over the timeline, with the output timecode under it.
+  let hover = $state<{
+    clientX: number;
+    top: number;
+    outputSec: number;
+    originalSec: number;
+  } | null>(null);
+  const hoverUrl = $derived.by(() => {
+    void filmstripVersion;
+    if (!hover || !tileProvider) return undefined;
+    return tileProvider.previewAt(hover.originalSec);
+  });
+
+  function updateHover(clientX: number) {
+    if (!timelineEl || isDraggingPlayhead || duration <= 0) {
+      hover = null;
+      return;
+    }
+    const rect = timelineEl.getBoundingClientRect();
+    const xInViewport = clientX - rect.left;
+    if (xInViewport < 0 || xInViewport > rect.width) {
+      hover = null;
+      return;
+    }
+    const outputSec = clientXToOutput(clientX);
+    hover = {
+      clientX,
+      top: rect.top,
+      outputSec,
+      originalSec: outputToOriginal(store.timeMap, outputSec),
+    };
+  }
+  function clearHover() {
+    hover = null;
   }
 
   function handleTimelineKeydown(event: KeyboardEvent) {
@@ -379,6 +434,10 @@
   function handleResize() {
     if (!timelineEl) return;
     timelineWidth = timelineEl.clientWidth;
+  }
+
+  function handleScroll() {
+    if (timelineEl) scrollLeft = timelineEl.scrollLeft;
   }
 
   function handleTimelineWheel(event: WheelEvent) {
@@ -654,6 +713,8 @@
       onpointerup={handleTimelinePointerUp}
       onpointercancel={handleTimelinePointerUp}
       onwheel={handleTimelineWheel}
+      onscroll={handleScroll}
+      onpointerleave={clearHover}
       onkeydown={handleTimelineKeydown}
     >
       <div
@@ -673,7 +734,11 @@
           {clipWidth}
           {thumbnailWidth}
           {timeMode}
-          {clientXToTime}
+          {clientXToOutput}
+          {tileProvider}
+          {filmstripVersion}
+          viewportLeftPx={Math.max(0, scrollLeft - LANE_PAD)}
+          viewportWidthPx={timelineWidth}
         />
 
         <TimelineZoomLane
@@ -712,6 +777,35 @@
     </div>
   </div>
 </div>
+
+<!-- Hover-scrub preview: fixed so it floats above the timeline without being
+     clipped by the scroller's overflow. Only with the WebCodecs filmstrip. -->
+{#if hover && tileProvider && !isDraggingPlayhead}
+  <div
+    class="pointer-events-none fixed z-50 flex -translate-x-1/2 -translate-y-full flex-col items-center gap-1"
+    style="left: {hover.clientX}px; top: {hover.top - 8}px;"
+  >
+    <div
+      class="overflow-hidden rounded-md border border-border/70 bg-card shadow-lg"
+    >
+      {#if hoverUrl}
+        <img
+          src={hoverUrl}
+          alt=""
+          class="block h-16 w-auto object-cover"
+          draggable="false"
+        />
+      {:else}
+        <div class="h-16 w-28 animate-pulse bg-muted/60"></div>
+      {/if}
+    </div>
+    <span
+      class="rounded bg-popover px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-foreground shadow-sm"
+    >
+      {formatTimeByMode(hover.outputSec, timeMode, effectiveFps())}
+    </span>
+  </div>
+{/if}
 
 <style>
   .custom-scrollbar::-webkit-scrollbar {

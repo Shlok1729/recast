@@ -29,7 +29,7 @@
 	import { buildGradientUniforms } from "./gradient.logic";
 	import { WebCodecsVideoSource } from "$lib/playback/webcodecs-source";
 	import { PlaybackClock } from "$lib/playback/clock";
-	import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
+	import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
 	import AnnotationOverlay from "./_components/AnnotationOverlay.svelte";
 	import AnnotationStatusRail from "./_components/AnnotationStatusRail.svelte";
 	import CameraOverlay from "./_components/CameraOverlay.svelte";
@@ -983,13 +983,13 @@ void main() {
 			// values WE wrote.)
 			if (Math.abs(store.currentTime - lastPublishedTime) > 0.05) {
 				picClock.seek(
-					originalToOutput(store.effectiveCuts, store.currentTime),
+					originalToOutput(store.timeMap, store.currentTime),
 				);
 				lastPublishedTime = store.currentTime;
 				endHandled = false;
 			}
 			// Playing: the gapless output clock is the master.
-			playbackTime = outputToOriginal(store.effectiveCuts, picClock.time);
+			playbackTime = outputToOriginal(store.timeMap, picClock.time);
 			// Reached the end of the edited timeline → stop cleanly. The clock
 			// clamps at its duration, so without this the picture would freeze on
 			// the last frame while still "playing" (and the decoder would sit idle).
@@ -1106,7 +1106,7 @@ void main() {
 			activeCuts.length > 0
 		) {
 			const lookaheadOrig = outputToOriginal(
-				store.effectiveCuts,
+				store.timeMap,
 				picClock.time + WC_PREFETCH_LOOKAHEAD,
 			);
 			const upcoming = activeCuts.find(
@@ -1592,10 +1592,10 @@ void main() {
 				// the WebCodecs path (which may happen mid-playback, once demux
 				// finishes) doesn't jump.
 				picClock.setDuration(
-					originalToOutput(store.effectiveCuts, store.outPoint),
+					originalToOutput(store.timeMap, store.outPoint),
 				);
 				picClock.seek(
-					originalToOutput(store.effectiveCuts, videoEl?.currentTime ?? 0),
+					originalToOutput(store.timeMap, videoEl?.currentTime ?? 0),
 				);
 				if (store.isPlaying) picClock.play();
 				requestRedraw();
@@ -1665,7 +1665,7 @@ void main() {
 				// Duration = output (post-cut) length of the kept region, so the
 				// clock clamps at the true end of the edited timeline.
 				picClock.setDuration(
-					originalToOutput(store.effectiveCuts, store.outPoint),
+					originalToOutput(store.timeMap, store.outPoint),
 				);
 				// Restart from the top if we'd just finished; otherwise resume from
 				// the current transport position. (Seeding blindly from the <video>
@@ -1673,7 +1673,7 @@ void main() {
 				picClock.seek(
 					wasAtEnd
 						? 0
-						: originalToOutput(store.effectiveCuts, videoEl?.currentTime ?? 0),
+						: originalToOutput(store.timeMap, videoEl?.currentTime ?? 0),
 				);
 				picClock.play();
 				endHandled = false;
@@ -1692,7 +1692,7 @@ void main() {
 		// picture clock to it. During play the clock is the master, so ignore the
 		// `seeked` events our own drift-correction triggers.
 		if (experimentalStore.webcodecsPreview && !store.isPlaying && videoEl) {
-			picClock.seek(originalToOutput(store.effectiveCuts, videoEl.currentTime));
+			picClock.seek(originalToOutput(store.timeMap, videoEl.currentTime));
 		}
 		requestRedraw();
 		onSeeked?.();

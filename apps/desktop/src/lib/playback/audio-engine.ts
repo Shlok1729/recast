@@ -106,12 +106,15 @@ export class AudioTimelineEngine {
 			const bufDur = t.buffer.duration;
 			for (const c of chunks) {
 				// A track may be shorter than the timeline (e.g. mic stopped early);
-				// clamp the slice to the available buffer.
+				// clamp the slice to the available buffer (in SOURCE seconds).
 				if (c.bufferOffset >= bufDur) continue;
 				const playDur = Math.min(c.duration, bufDur - c.bufferOffset);
 				if (playDur <= 0) continue;
 				const node = this.#ctx.createBufferSource();
 				node.buffer = t.buffer;
+				// Per-segment speed: play the slice faster/slower (pitch shifts —
+				// matches the sped-up video; pitch-preserved stretch is a follow-up).
+				node.playbackRate.value = c.rate;
 				node.connect(t.gain);
 				node.onended = () => {
 					const i = this.#active.indexOf(node);

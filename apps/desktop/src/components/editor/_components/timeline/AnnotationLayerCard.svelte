@@ -4,7 +4,7 @@
     Annotation,
     EditorStore,
   } from "$lib/stores/editor-store.svelte";
-  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
   import { X } from "@lucide/svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
@@ -62,9 +62,9 @@
   const isSelected = $derived(annotation.id === store.selectedAnnotationId);
   // Output (post-cut) axis — see ZoomLayerCard for the rationale.
   const xOf = (t: number) =>
-    originalToOutput(store.effectiveCuts, t) * pixelsPerSecond;
+    originalToOutput(store.timeMap, t) * pixelsPerSecond;
   const tOf = (xPx: number) =>
-    outputToOriginal(store.effectiveCuts, xPx / pixelsPerSecond);
+    outputToOriginal(store.timeMap, xPx / pixelsPerSecond);
   const left = $derived(xOf(annotation.start));
   // 28px keeps a one-frame annotation grabbable.
   const width = $derived(
