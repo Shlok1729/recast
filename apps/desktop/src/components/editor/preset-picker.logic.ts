@@ -76,3 +76,114 @@ export function aspectClass(aspect: string): string {
 			return "aspect-video";
 	}
 }
+
+// ── Keyboard-grid navigation model ──────────────────────────────────────────
+// The picker is a search box over a grid grouped by category. The pure pieces
+// below build the layout model and compute cursor moves; the component keeps the
+// reactive state (query/selectedIndex), the DOM refs, and focus/scroll effects.
+// Generic over `T extends PresetLike` so callers pass their own `Preset` type
+// without this module importing it.
+
+export interface Cell<T> {
+	preset: T;
+	index: number;
+}
+
+export interface PresetModel<T> {
+	groups: { category: string; rows: Cell<T>[][] }[];
+	flat: T[];
+	rows: Cell<T>[][];
+}
+
+/** Presets matching `query`, best-first; all presets (in input order) if empty. */
+export function filterPresets<T extends PresetLike>(
+	presets: T[],
+	query: string,
+): T[] {
+	return presets
+		.map((p) => ({ p, s: score(p, query) }))
+		.filter((x) => x.s > 0)
+		.sort((a, b) => b.s - a.s)
+		.map((x) => x.p);
+}
+
+/**
+ * Group filtered presets by category (a single "Results" group while searching),
+ * pinning the currently-applied preset to a "Current" group on top.
+ */
+export function groupPresets<T extends PresetLike>(
+	filtered: T[],
+	query: string,
+	current: T | null,
+): [string, T[]][] {
+	if (query.trim()) return [["Results", filtered]];
+	const map = new Map<string, T[]>();
+	for (const p of filtered) {
+		if (!map.has(p.category)) map.set(p.category, []);
+		map.get(p.category)!.push(p);
+	}
+	const entries = [...map.entries()];
+	// Pin the currently-applied preset to the top for instant re-apply.
+	if (current) entries.unshift(["Current", [current]]);
+	return entries;
+}
+
+/**
+ * Chunk grouped presets into rows of `cols`, assigning each cell a unique running
+ * `index`. Indices stay unique even though the pinned "Current" preset also
+ * appears in its own category, so navigation never relies on `indexOf`.
+ */
+export function buildModel<T>(
+	grouped: [string, T[]][],
+	cols: number,
+): PresetModel<T> {
+	const groups: PresetModel<T>["groups"] = [];
+	const flat: T[] = [];
+	const rows: Cell<T>[][] = [];
+	let counter = 0;
+	for (const [category, items] of grouped) {
+		const groupRows: Cell<T>[][] = [];
+		for (let i = 0; i < items.length; i += cols) {
+			const cells: Cell<T>[] = [];
+			for (let j = i; j < Math.min(i + cols, items.length); j++) {
+				const cell = { preset: items[j], index: counter++ };
+				cells.push(cell);
+				flat.push(items[j]);
+			}
+			groupRows.push(cells);
+			rows.push(cells);
+		}
+		groups.push({ category, rows: groupRows });
+	}
+	return { groups, flat, rows };
+}
+
+/** [rowPos, col] of `index` within the global row list; [0,0] if not found. */
+export function locateCell<T>(rows: Cell<T>[][], index: number): [number, number] {
+	for (let r = 0; r < rows.length; r++) {
+		const c = rows[r].findIndex((cell) => cell.index === index);
+		if (c !== -1) return [r, c];
+	}
+	return [0, 0];
+}
+
+/**
+ * New cursor index after a vertical move (jump a whole row, preserving the
+ * column, clamped when the target row is shorter), or null if there's no row in
+ * that direction.
+ */
+export function rowMoveIndex<T>(
+	model: PresetModel<T>,
+	index: number,
+	dir: 1 | -1,
+): number | null {
+	const [row, col] = locateCell(model.rows, index);
+	const target = model.rows[row + dir];
+	if (!target) return null;
+	return target[Math.min(col, target.length - 1)].index;
+}
+
+/** Clamp an index into [0, len-1] (len 0 → 0). */
+export function clampIndex(index: number, len: number): number {
+	return Math.max(0, Math.min(len - 1, index));
+}

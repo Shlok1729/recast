@@ -24,8 +24,7 @@
   type Status = "idle" | "loading" | "ready" | "error" | "empty";
   let status = $state<Status>("idle");
   let errorMsg = $state<string | null>(null);
-  // Suggestions the user hasn't yet accepted or dismissed. Each refresh
-  // discards the previous set so we don't keep stale suggestions around.
+  // Suggestions not yet accepted or dismissed; each refresh replaces the set.
   let pending = $state<ZoomSuggestion[]>([]);
 
   $effect(() => {
@@ -82,9 +81,7 @@
     return { start: store.trimStart, end: store.trimEnd || duration };
   }
 
-  // Derive per-suggestion placement (or null) so blocked rows can be greyed
-  // out before the user tries to accept them. Re-plans whenever zoom regions
-  // or trim change.
+  // Per-suggestion placement (null = blocked) so blocked rows can be greyed out.
   const placements = $derived.by(() => {
     const bounds = clipBounds();
     if (!bounds) return new Map<string, Interval | null>();
@@ -132,9 +129,7 @@
   function acceptAll() {
     const bounds = clipBounds();
     if (!bounds) return;
-    // Re-plan after each placement so two adjacent suggestions don't both claim
-    // the same slot — a click + settle 400 ms apart would otherwise produce
-    // overlapping windows. We sort by timestamp so earlier triggers win.
+    // Re-plan after each placement (sorted by timestamp) so adjacent suggestions don't claim the same slot.
     const occupied = currentOccupied();
     const sorted = [...pending].sort((a, b) => a.timestampUs - b.timestampUs);
     const skipped: ZoomSuggestion[] = [];

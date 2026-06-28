@@ -7,16 +7,9 @@
   } from "$lib/stores/editor-store.svelte";
   import { onDestroy, onMount } from "svelte";
 
-  // HTML layer for blur annotations. Sits between the WebGL composite and
-  // the 2D AnnotationOverlay canvas so the canvas can still draw selection
-  // handles ON TOP of the blur, while the blur itself runs as native
-  // `backdrop-filter: blur(Npx)` against the live video pixels underneath.
-  //
-  // The 2D canvas can't backdrop-blur its own pixels (and Canvas2D's `filter`
-  // only blurs what you draw, not what's behind it), so we delegate the
-  // visual to compositor-accelerated CSS. At export time, FFmpeg's `boxblur`
-  // filter (see `commands/ffmpeg.rs::build_annotation_blur_complex`) does
-  // the equivalent in a deterministic offline pass.
+  // Blur via native `backdrop-filter` against the video underneath — Canvas2D can't
+  // blur what's behind it, so this layer sits below the 2D overlay (which draws handles on top).
+  // PARITY: export side uses FFmpeg boxblur (commands/ffmpeg.rs::build_annotation_blur_complex).
 
   interface Props {
     store: EditorStore;
@@ -31,8 +24,7 @@
   let layerSize = $state({ w: 0, h: 0 });
   let resizeObserver: ResizeObserver | null = null;
   let rafHandle: number | null = null;
-  // rAF tick so positions track playback (the store doesn't dispatch on every
-  // video frame). Same pattern as TextAnnotationLayer.
+  // rAF tick so positions track playback (store doesn't dispatch per video frame).
   let _frame = $state(0);
 
   function videoRectCss() {
@@ -75,13 +67,7 @@
     resizeObserver?.disconnect();
   });
 
-  /**
-   * Build the per-annotation positioning + tint style. Strength 0..1 maps to
-   * 0..32 px of `backdrop-filter: blur(Npx)`, which mirrors the export-side
-   * boxblur radius cap of 5% of the shorter canvas edge — the two pipelines
-   * stay close enough that what users see in preview matches what they get
-   * in the exported file.
-   */
+  // Per-annotation positioning + tint style; blur radius tuned to match export-side boxblur.
   function styleFor(a: Annotation): string {
     if (a.kind.kind !== "blur") return "display: none;";
     void _frame;
@@ -99,10 +85,7 @@
     const h = Math.abs(br.y - tl.y);
     if (w < 1 || h < 1) return "display: none;";
 
-    // 0..1 → 0..96 px (CSS), with an ease-in curve so the bottom of the
-    // slider stays subtle while the top reaches redaction-grade. CSS
-    // backdrop-filter is roughly Gaussian, so 96px ≈ σ40 — comparable to
-    // FFmpeg boxblur(127, power=3) used at export.
+    // 0..1 → 0..96px, ease-in. 96px ≈ σ40, comparable to export's FFmpeg boxblur(127, power=3).
     const t01 = Math.max(0, Math.min(1, k.strength));
     const blurPx = Math.pow(t01, 0.7) * 96;
     const radiusPx = Math.max(
@@ -110,19 +93,14 @@
       k.radius * Math.min(layerSize.w, layerSize.h),
     );
 
-    // Variant tint scales with strength so the slider doubles as a
-    // legibility cut: at strength=0 the tint disappears, at strength=1 it
-    // covers ~95% (effectively a redaction box). Browsers also clamp very
-    // large backdrop-filter radii internally, so the rising tint is what
-    // actually guarantees redaction at the high end of the slider.
+    // Tint scales with strength: browsers clamp huge backdrop-filter radii, so the
+    // rising tint is what actually guarantees redaction at the top of the slider.
     const tintAlpha = 0.15 + 0.80 * t01;
     let tint = "transparent";
     if (k.variant === "white") tint = `rgba(255,255,255,${tintAlpha.toFixed(3)})`;
     else if (k.variant === "black") tint = `rgba(0,0,0,${tintAlpha.toFixed(3)})`;
     else if (k.variant === "color") tint = hexToRgba(k.tintColor, tintAlpha);
-    // glass = blur only. Add a faint mid-grey wash that grows past
-    // strength=0.6 so the glass variant also redacts when pushed hard,
-    // while staying invisible at low strengths.
+    // glass = blur only, plus a faint grey wash past strength 0.6 so it still redacts when pushed hard.
     else if (k.variant === "glass" && t01 > 0.6) {
       tint = `rgba(128,128,128,${((t01 - 0.6) * 0.6).toFixed(3)})`;
     }

@@ -22,8 +22,7 @@
 
   let { store }: Props = $props();
 
-  // Reverse so the topmost (highest z) renders at the top of the panel —
-  // matches the convention in Photoshop / Figma / After Effects.
+  // Topmost (highest z) at the top of the panel, like Photoshop/Figma.
   const ordered = $derived([...store.annotationsByZ].reverse());
 
   let renamingId = $state<string | null>(null);
@@ -64,8 +63,6 @@
     store.hoveredAnnotationId = id;
   }
 
-  // Pointer-driven drag reorder. We commit by passing the new id list to
-  // `setAnnotationZOrder` so the store updates z values in one shot.
   function handleDragStart(e: DragEvent, a: Annotation) {
     if (a.locked) {
       e.preventDefault();
@@ -95,8 +92,6 @@
     }
     e.preventDefault();
 
-    // Build the new visual order, then translate it back to the store's
-    // bottom-up z order before committing.
     const visual = ordered.map((a) => a.id);
     const fromIdx = visual.indexOf(dragId);
     const toIdx = visual.indexOf(target.id);

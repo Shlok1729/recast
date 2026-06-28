@@ -987,10 +987,8 @@
   }
 </script>
 
-<!-- Outer wrapper: fills the (oversized) Tauri window. Padding gives the
-     inner panel's drop-shadow room to render without being clipped at the
-     window edge. The window itself is transparent so this padding shows
-     the desktop through. -->
+<!-- Padding gives the panel's drop-shadow room; the window is transparent so
+     it shows the desktop through. -->
 <div
   class="flex h-dvh w-dvw items-center justify-center px-4 py-3"
   data-tauri-drag-region
@@ -1000,26 +998,22 @@
   style="width: {barWidth.current}px"
   data-tauri-drag-region
 >
-  <!-- Content declares its own natural width (`w-fit`); the bar's width is a
-       Tween that follows it via ResizeObserver, so collapse/expand is one
-       smooth motion. The bar centers this content, so it morphs symmetrically. -->
+  <!-- Content is `w-fit`; the bar tweens to follow it, centered, so collapse
+       and expand are one symmetric motion. -->
   <div
     bind:this={barContentEl}
     class="relative flex w-fit shrink-0 items-center justify-center gap-1 p-2"
     data-tauri-drag-region
   >
   {#if phase === "countdown"}
-    <!-- Countdown phase: a depleting progress ring with the ticking second
-         inside (click to start now), a two-line status, and Cancel. Crossfades
-         with the other phases; the bar Tween follows its natural width. -->
+    <!-- Depleting ring with the ticking second (click to start now), status, Cancel. -->
     <div
       class="flex w-fit items-center gap-2.5 pl-1"
       data-tauri-drag-region
       in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
       out:phaseOut
     >
-      <!-- Ring + number. The whole disc is a "start now" affordance: clicking
-           skips the remaining pre-roll and begins capture immediately. -->
+      <!-- The whole disc is a "start now" affordance. -->
       <button
         type="button"
         onclick={startNow}
@@ -1055,8 +1049,7 @@
             stroke-dashoffset={RING_C * (1 - countdownProgress)}
           />
         </svg>
-        <!-- The second pops on each tick; on hover it yields to a play glyph so
-             the skip affordance is discoverable. -->
+        <!-- On hover the second yields to a play glyph to reveal the skip affordance. -->
         {#key countdownValue}
           <span
             in:scale={{
@@ -1102,8 +1095,7 @@
       </Button>
     </div>
   {:else if phase === "recording"}
-    <!-- Recording phase: compact transport — soft-red Stop+timer, Pause,
-         Close — crossfaded in and centered by the bar. -->
+    <!-- Compact transport: Stop+timer, Pause, Close. -->
     <div
       class="flex w-fit items-center gap-1"
       in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
@@ -1158,14 +1150,13 @@
       </Button>
     </div>
   {:else}
-    <!-- Idle phase: full control set. Crossfades with the others. -->
+    <!-- Idle phase: full control set. -->
     <div
       class="flex w-fit items-center gap-1"
       in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
       out:phaseOut
     >
-      <!-- Drag handle: explicit affordance for moving the panel. The whole
-           bar is a Tauri drag region, but the grip makes that discoverable. -->
+      <!-- The whole bar is a drag region; the grip makes that discoverable. -->
       <div
         data-tauri-drag-region
         class="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:bg-muted/40 hover:text-muted-foreground active:cursor-grabbing"
@@ -1174,8 +1165,7 @@
       >
         <GripVertical size={12} strokeWidth={2} class="pointer-events-none" />
       </div>
-      <!-- Record. The big primary action; clicking it begins the countdown
-           (or starts capture immediately when countdown is off). -->
+      <!-- Begins the countdown, or captures immediately when countdown is off. -->
       <Button
         onclick={toggleRecording}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
@@ -1186,10 +1176,8 @@
         <Circle size={14} strokeWidth={0} fill="currentColor" />
       </Button>
 
-  <!-- Source. Hidden once recording starts — the source is locked in, so the
-       selector just takes space; dropping it is part of the collapse. The
-       fade lives on a wrapping div because Svelte transitions can't bind to a
-       component directly. -->
+  <!-- Hidden once recording starts (source is locked in). Fade is on a wrapping
+       div since Svelte transitions can't bind to a component. -->
   {#if !isRecording}
   <div class="inline-flex" out:fade={{ duration: 120 }}>
   <Button
@@ -1235,20 +1223,15 @@
   </div>
   {/if}
 
-  <!-- Right cluster. While recording, the profile switcher and device toggles
-       are hidden and `ml-auto` is dropped so the remaining Close button packs
-       in tight next to the transport — the panel collapses to just the
-       essentials. -->
+  <!-- While recording, drop `ml-auto` so Close packs tight next to the transport. -->
   <div
     class="shrink-0 px-1 inline-flex items-center gap-1"
     class:ml-auto={!isRecording}
   >
     {#if !isRecording}
     <div class="inline-flex items-center gap-1" out:fade={{ duration: 120 }}>
-    <!-- Profile switcher button. Opens a separate Tauri window (like the
-         device-pickers) instead of a popover — the panel window is too
-         short to host an in-place dropdown without changing its height,
-         and resizing the panel mid-flow looks wrong. -->
+    <!-- Opens a separate window, not a popover — the panel is too short to host
+         an in-place dropdown without resizing. -->
     {#if profilesStore.enabled && profilesStore.profiles.length > 0}
       <Button
         size="icon-sm"
@@ -1283,9 +1266,7 @@
         {/if}
       </Button>
 
-      <!-- Mic. `micWarning` is set by `applyProfile` when a saved mic was
-           missing or got swapped — surfaced in the tooltip rather than a
-           toast so the panel stays minimal. -->
+      <!-- micWarning (from applyProfile) surfaces in the tooltip, not a toast. -->
       <Button
         variant={micOn
           ? micWarning
@@ -1311,9 +1292,8 @@
         {/if}
       </Button>
 
-      <!-- Camera. `cameraWarning` (from profile apply) and `cameraValidation`
-           (from device probe) both surface in the tooltip; whichever is
-           present wins the destructive_soft tint. -->
+      <!-- cameraWarning (profile apply) and cameraValidation (device probe) both
+           surface in the tooltip; either wins the destructive_soft tint. -->
       <Button
         disabled={isRecording}
         onclick={toggleCamera}

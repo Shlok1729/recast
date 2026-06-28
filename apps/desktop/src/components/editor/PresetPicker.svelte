@@ -256,8 +256,12 @@
   import {
     aspectClass,
     bgPreviewStyle,
+    buildModel,
+    clampIndex,
+    filterPresets,
     frameInsetPct,
-    score,
+    groupPresets,
+    rowMoveIndex,
     wallpaperId,
   } from "./preset-picker.logic";
   import {
@@ -300,54 +304,9 @@
     currentId ? (PRESETS.find((p) => p.id === currentId) ?? null) : null,
   );
 
-  const filtered = $derived(
-    PRESETS.map((p) => ({ p, s: score(p, query) }))
-      .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .map((x) => x.p),
-  );
-
-  const grouped = $derived.by<[string, Preset[]][]>(() => {
-    if (query.trim()) return [["Results", filtered]];
-    const map = new Map<string, Preset[]>();
-    for (const p of filtered) {
-      if (!map.has(p.category)) map.set(p.category, []);
-      map.get(p.category)!.push(p);
-    }
-    const entries = [...map.entries()];
-    // Pin the currently-applied preset to the top for instant re-apply.
-    if (currentPreset) entries.unshift(["Current", [currentPreset]]);
-    return entries;
-  });
-
-  type Cell = { preset: Preset; index: number };
-  type Group = { category: string; rows: Cell[][] };
-
-  // Layout model: each category chunked into rows of COLS, with an explicit
-  // running `index` per cell. Indices are unique even though the pinned
-  // "Current" preset also appears in its own category — so we never rely on
-  // indexOf (which would collide on the duplicate).
-  const model = $derived.by(() => {
-    const groups: Group[] = [];
-    const flat: Preset[] = [];
-    const rows: Cell[][] = [];
-    let counter = 0;
-    for (const [category, items] of grouped) {
-      const groupRows: Cell[][] = [];
-      for (let i = 0; i < items.length; i += COLS) {
-        const cells: Cell[] = [];
-        for (let j = i; j < Math.min(i + COLS, items.length); j++) {
-          const cell = { preset: items[j], index: counter++ };
-          cells.push(cell);
-          flat.push(items[j]);
-        }
-        groupRows.push(cells);
-        rows.push(cells);
-      }
-      groups.push({ category, rows: groupRows });
-    }
-    return { groups, flat, rows };
-  });
+  const filtered = $derived(filterPresets(PRESETS, query));
+  const grouped = $derived(groupPresets(filtered, query, currentPreset));
+  const model = $derived(buildModel(grouped, COLS));
 
   $effect(() => {
     if (open) {
@@ -373,31 +332,17 @@
     close();
   }
 
-  // Find the [rowPos, col] of the current cursor within the global row list.
-  function locate(index: number): [number, number] {
-    for (let r = 0; r < model.rows.length; r++) {
-      const c = model.rows[r].findIndex((cell) => cell.index === index);
-      if (c !== -1) return [r, c];
-    }
-    return [0, 0];
-  }
-
   // Vertical move: jump a whole row, preserving the column (clamped when the
-  // target row is shorter). This is the fix for the old behaviour where Down
-  // walked DOM order and slid sideways.
+  // target row is shorter) — see `rowMoveIndex`. No-op at the top/bottom edge.
   function moveRow(dir: 1 | -1) {
-    const [row, col] = locate(selectedIndex);
-    const target = model.rows[row + dir];
-    if (!target) return;
-    selectedIndex = target[Math.min(col, target.length - 1)].index;
+    const next = rowMoveIndex(model, selectedIndex, dir);
+    if (next === null) return;
+    selectedIndex = next;
     scrollSelectedIntoView();
   }
 
   function moveCol(delta: 1 | -1) {
-    selectedIndex = Math.max(
-      0,
-      Math.min(model.flat.length - 1, selectedIndex + delta),
-    );
+    selectedIndex = clampIndex(selectedIndex + delta, model.flat.length);
     scrollSelectedIntoView();
   }
 

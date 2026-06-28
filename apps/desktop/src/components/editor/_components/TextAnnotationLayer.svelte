@@ -8,16 +8,10 @@
   } from "$lib/stores/editor-store.svelte";
   import { onDestroy, onMount, tick } from "svelte";
 
-  // HTML layer for text annotations only. Lives as a sibling to
-  // AnnotationOverlay (the 2D canvas) so that:
-  //   - text uses the WebView's full glyph rendering (kerning, ligatures)
-  //   - inline editing via `contenteditable` is trivial
-  //   - inert canvas-side draw code stays simple (just a `kind === "text"`
-  //     skip)
-  //
-  // At export time, `lib/export/rasterize-text.ts` walks every text annotation
-  // and rasterizes it to a PNG that's then fed to the Rust pipeline as an
-  // image-kind annotation. Rust never sees fonts.
+  // HTML layer (sibling to the 2D AnnotationOverlay) so text gets the WebView's
+  // full glyph rendering and contenteditable inline editing.
+  // PARITY: export rasterizes each text annotation to a PNG (lib/export/rasterize-text.ts);
+  // Rust never sees fonts.
 
   interface Props {
     store: EditorStore;
@@ -33,13 +27,10 @@
   let editingId = $state<string | null>(null);
   let resizeObserver: ResizeObserver | null = null;
   let rafHandle: number | null = null;
-  // Track time/zoom changes via rAF; the store doesn't fire on every video
-  // tick so the cheapest correct path is to rebuild positions per frame.
+  // rAF tick to rebuild positions per frame (store doesn't fire on every video tick).
   let _frame = $state(0);
 
-  // Drag state for text annotations. Text is a sibling HTML element so we
-  // can't piggyback on AnnotationOverlay's pointer flow — we run our own
-  // here, using the same UV math + snap engine so behavior matches.
+  // Own pointer flow (text is a sibling HTML element), using the same UV math + snap engine as the canvas.
   type TextDrag = {
     id: string;
     startX: number; // UV
@@ -48,8 +39,7 @@
     moved: boolean; // true once we cross the click vs drag threshold
   } | null;
   let drag: TextDrag = $state(null);
-  // Click-vs-drag threshold in CSS px. Below this the gesture is treated as a
-  // click (select); above it, the gesture commits a move.
+  // Below this (CSS px) the gesture is a click (select); above it, a move.
   const CLICK_DRAG_THRESHOLD_PX = 3;
 
   function videoRectCss() {
@@ -109,9 +99,7 @@
     resizeObserver?.disconnect();
   });
 
-  // Per-annotation reactive style derived from the box, the playhead, and
-  // the layer dims. The `_frame` dependency forces re-derive on rAF ticks
-  // so the position tracks playback / zoom animations.
+  // `_frame` dependency forces re-derive on rAF ticks so position tracks playback/zoom.
   function styleFor(a: Annotation): string {
     if (a.kind.kind !== "text") return "";
     void _frame;
@@ -184,9 +172,7 @@
     }
   }
 
-  /** Build snap anchors from frame edges + every other annotation's box.
-   *  Mirrors the anchor set used by AnnotationOverlay for canvas-rendered
-   *  shapes so dragging text feels identical to dragging a rectangle. */
+  // Frame edges + every other annotation's box; mirrors AnnotationOverlay's anchor set.
   function buildSnapAnchors(excludeId: string | null): SnapAnchor[] {
     const anchors: SnapAnchor[] = [...FRAME_ANCHORS];
     for (const a of store.annotations) {
@@ -225,9 +211,7 @@
     if (editingId === a.id) return; // let contenteditable take the gesture
     if (a.locked || a.kind.kind !== "text") return;
     if (e.button !== 0) return;
-    // Don't fight the WebGL canvas / focus overlay — text dragging is only
-    // available on the Annotations tab (matches the rest of the editor's
-    // pointer gating).
+    // Text dragging only on the Annotations tab so it doesn't fight the canvas/focus overlay.
     if (store.activePanel !== "annotations") return;
 
     e.stopPropagation();
@@ -340,9 +324,7 @@
         onclick={(e) => {
           if (!interactive) return;
           if (isEditing) return;
-          // Suppress the click that tails a successful drag — otherwise the
-          // selection would be reasserted but the gesture would also re-emit
-          // a stray select. The drag is already over by `click` time.
+          // Suppress the click that tails a successful drag.
           if (drag?.id === a.id && drag?.moved) {
             e.stopPropagation();
             return;

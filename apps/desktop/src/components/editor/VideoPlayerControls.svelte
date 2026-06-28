@@ -22,16 +22,9 @@
 		videoEl?: HTMLVideoElement | null;
 		/** Element to request fullscreen on (usually the preview container). */
 		fullscreenTargetEl?: HTMLElement | null;
-		/** Returns a PNG blob of the current preview composite (provided by
-		 *  VideoPreview via its `bind:captureFrame`). When undefined the
-		 *  Copy-frame button is disabled — typically the preview hasn't
-		 *  initialized its WebGL2 context yet. */
+		/** PNG blob of the current preview composite; undefined disables Copy-frame (WebGL2 not ready). */
 		captureFrame?: (() => Promise<Blob | null>) | undefined;
-		/** Bidirectional loop toggle. Lives in the editor page (not here)
-		 *  because the actual seek-and-replay has to coordinate with audio
-		 *  elements + the `ended` handler — both are out of scope for this
-		 *  controls component. Toggling here just flips the flag; the page
-		 *  reads it on `ended`/`timeupdate`. */
+		/** Loop toggle. Just flips the flag here; the editor page does the seek-and-replay (needs audio + `ended`). */
 		loopEnabled?: boolean;
 	}
 
@@ -45,16 +38,8 @@
 
 	let capturing = $state(false);
 
-	/**
-	 * Capture the current frame and write it to the system clipboard as
-	 * a PNG. The WebView's `navigator.clipboard.write` works on Tauri
-	 * because the WebView treats `tauri://localhost` as a secure context
-	 * — no Tauri plugin needed for image clipboard.
-	 *
-	 * Pauses playback first so the captured pixels match what the user
-	 * sees in the click moment; otherwise a frame drift of one rVFC tick
-	 * could change which pixel they actually got.
-	 */
+	// Copy the current frame to the clipboard as PNG. `navigator.clipboard.write`
+	// works on Tauri (tauri://localhost is a secure context). Pause first so the captured pixels match.
 	async function copyFrameToClipboard() {
 		if (capturing || !captureFrame) return;
 		capturing = true;
@@ -108,12 +93,8 @@
 		return `${mins}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
 	}
 
-	// OUTPUT (post-cut) time — the same gapless axis the timeline uses. Cuts
-	// collapse out of the transport, so the duration readout, the scrubber range,
-	// and the played-region width all reflect the EDITED length, and the scrubber
-	// can't land inside a removed region. `store.currentTime` stays the single
-	// source of truth (original time); we only map to output for presentation +
-	// seek here. With no cuts these are identities, so this is the old behaviour.
+	// OUTPUT (post-cut) time: readout/scrubber reflect the edited length and can't land
+	// in a removed region. `store.currentTime` stays the source of truth (original time); we map to output only for display + seek.
 	const cuts = $derived(store.effectiveCuts);
 	const fullDuration = $derived(store.metadata?.duration ?? 0);
 	const outputDuration = $derived(originalToOutput(cuts, fullDuration));
@@ -163,7 +144,6 @@
 </script>
 
 <div class="flex h-10 w-full items-center gap-2 px-2">
-	<!-- Transport pill: play / step -->
 	<div
 		class="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-inset ring-border/40"
 	>
@@ -226,7 +206,6 @@
 		</Tooltip.Root>
 	</div>
 
-	<!-- Time readout -->
 	<div
 		class="flex items-center gap-1 font-mono tabular-nums text-[11px] font-semibold min-w-32"
 	>
@@ -235,7 +214,6 @@
 		<span class="text-muted-foreground">{durationFormatted}</span>
 	</div>
 
-	<!-- Scrubber: custom thin track with played overlay -->
 	<div class="relative flex h-7 flex-1 items-center">
 		<div
 			class="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-muted/80 ring-1 ring-inset ring-border/40"
@@ -258,7 +236,6 @@
 		/>
 	</div>
 
-	<!-- Right: capture frame + loop + fullscreen -->
 	<div
 		class="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-inset ring-border/40"
 	>

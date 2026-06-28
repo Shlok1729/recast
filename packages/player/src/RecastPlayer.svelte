@@ -110,11 +110,9 @@
 	let activeTooltipId = $state<string | null>(null);
 
 	const isHls = $derived(/\.m3u8(\?|#|$)/i.test(src));
-	// A negative `autohide` means "never hide the controls". media-chrome's
-	// `autohide` attribute only suppresses the inactivity *timer* — the
-	// controller still starts in `user-inactive` on connect, so an autoplaying
-	// clip hides its bar until the first pointer move. Pinning the control bar
-	// with `noautohide` is what actually keeps it visible from frame one.
+	// media-chrome's `autohide` only suppresses the inactivity timer; the bar
+	// still starts hidden on an autoplaying clip. `noautohide` on the control bar
+	// is what keeps it visible from frame one (negative autohide = never hide).
 	const pinControls = $derived(typeof autohide === "number" && autohide < 0);
 	const mergedControls = $derived({ ...DEFAULT_CONTROLS, ...controls });
 	const mergedFeatures = $derived({ ...DEFAULT_FEATURES, ...features });
@@ -161,12 +159,8 @@
 	});
 	const playerStyle = $derived.by(() => {
 		const vars = [
-			// Before metadata loads we don't know the true ratio, but `auto`
-			// collapses a slotted <video> to its 300×150 default — so the hero
-			// renders short, then jumps to the real ratio once dimensions
-			// arrive (a visible layout shift). Reserve 16/9 (the overwhelmingly
-			// common screen-recording ratio) as the placeholder: zero shift for
-			// 16:9, and a single small adjust for the rare portrait clip.
+			// Reserve 16/9 before metadata loads; `auto` would collapse the
+			// slotted <video> to 300×150 and cause a layout shift on the common case.
 			resolvedAspectRatio
 				? `--recast-player-aspect-ratio: ${resolvedAspectRatio};`
 				: "--recast-player-aspect-ratio: 16 / 9;",

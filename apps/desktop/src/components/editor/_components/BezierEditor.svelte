@@ -30,9 +30,8 @@
     disabled = false,
   }: Props = $props();
 
-  // The SVG viewBox is the unit square `0..1`, with `overshoot` units of
-  // padding on each side so handles whose y exits [0,1] (bounce / spring)
-  // remain grabbable. We flip y at render time because SVG y grows down.
+  // viewBox is the unit square plus OVERSHOOT padding so bounce/spring handles
+  // (y outside [0,1]) stay grabbable. y is flipped at render time (SVG y grows down).
   const OVERSHOOT = 0.6;
   const VB_MIN = -OVERSHOOT;
   const VB_SPAN = 1 + OVERSHOOT * 2;
@@ -140,12 +139,7 @@
     )}
     style:padding="6px"
   >
-    <!--
-      The SVG surface receives pointermove/up to continue a drag started on a
-      handle (standard drag UX). It has no role of its own — the semantics
-      live on the two handle circles below, which expose slider roles so AT
-      users can identify and value-read each control point.
-    -->
+    <!-- Surface only receives pointermove/up to continue a drag; the slider roles live on the handle circles. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <svg
       bind:this={svgEl}
