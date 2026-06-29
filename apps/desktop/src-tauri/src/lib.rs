@@ -15,6 +15,7 @@ mod recording;
 mod render;
 mod silence;
 mod telemetry;
+mod transcription;
 mod tray;
 mod window_aspect;
 
@@ -338,6 +339,10 @@ pub fn run() {
             commands::suggest_zoom_regions,
             silence::detect_silence,
             silence::extract_waveform,
+            transcription::list_caption_models,
+            transcription::download_caption_model,
+            transcription::delete_caption_model,
+            transcription::transcribe_project,
             commands::ensure_assets_installed,
             commands::get_cached_asset_path,
             commands::hydrate_cached_assets,

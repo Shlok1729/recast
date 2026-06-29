@@ -606,6 +606,75 @@ export function extractWaveform(
 	});
 }
 
+// Captions / transcription commands (offline ASR — M1 foundation)
+
+export type CaptionEngine = "parakeet" | "whisper";
+
+export interface CaptionModelInfo {
+	id: string;
+	displayName: string;
+	engine: CaptionEngine;
+	languages: string[];
+	approxSizeBytes: number | null;
+	isDefault: boolean;
+	installed: boolean;
+	/** False until the model's files are defined (Parakeet V3 is pending). */
+	downloadable: boolean;
+}
+
+export interface TranscriptWord {
+	start: number;
+	end: number;
+	text: string;
+}
+
+export interface TranscriptSegment {
+	id: string;
+	start: number;
+	end: number;
+	text: string;
+	words: TranscriptWord[];
+}
+
+export interface Transcript {
+	engine: string;
+	modelId: string;
+	language: string | null;
+	segments: TranscriptSegment[];
+}
+
+/** Catalog of caption models with per-model install state. */
+export function listCaptionModels(): Promise<CaptionModelInfo[]> {
+	return invoke<CaptionModelInfo[]>("list_caption_models");
+}
+
+/** Download a model's files. Emits `captions:download-progress` events. */
+export function downloadCaptionModel(id: string): Promise<void> {
+	return invoke("download_caption_model", { id });
+}
+
+export function deleteCaptionModel(id: string): Promise<void> {
+	return invoke("delete_caption_model", { id });
+}
+
+/**
+ * Transcribe a recording's audio with the chosen model. Emits
+ * `captions:transcribe-progress` ("extracting" | "transcribing" | "done").
+ */
+export function transcribeProject(args: {
+	audioPath?: string | null;
+	microphonePath?: string | null;
+	modelId: string;
+	language?: string | null;
+}): Promise<Transcript> {
+	return invoke<Transcript>("transcribe_project", {
+		audioPath: args.audioPath ?? null,
+		microphonePath: args.microphonePath ?? null,
+		modelId: args.modelId,
+		language: args.language ?? null,
+	});
+}
+
 // Autosave / Recovery commands
 
 export function autosaveProject(projectPath: string, editsJson: string): Promise<void> {

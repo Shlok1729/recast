@@ -159,6 +159,15 @@ screencapturekit = { version = "6.0", default-features = false, features = ["mac
 
 [features]
 default = []
+# Offline captions / transcription engine. Will gate the `transcribe-rs`
+# (Parakeet) + `whisper-rs` deps. BLOCKED for now: `transcribe-rs` pins
+# `ort = "=2.0.0-rc.12"` while `voice_activity_detector` (silence detection)
+# pins `ort = "=2.0.0-rc.10"` — `ort-sys` uses `links`, so they can't coexist.
+# Align the ort versions (bump/patch the VAD crate to rc.12, or fork one)
+# before adding the engine deps. The download/audio/command plumbing compiles
+# without the feature; flipping it on currently just changes the engine seam's
+# error message. See docs/captions-transcription-plan.md §7.
+captions = []
 # Enables the native ScreenCaptureKit audio loopback path on macOS.
 # See `audio/platform/macos_sckit.rs` for the runtime smoke-test
 # checklist before flipping this on for a release build.
