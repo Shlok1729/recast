@@ -9,6 +9,7 @@ mod commands;
 mod cursor;
 mod encoder;
 pub mod ffmpeg;
+mod fonts;
 mod permissions;
 mod project;
 mod recording;
@@ -345,6 +346,7 @@ pub fn run() {
             transcription::delete_caption_model,
             transcription::transcribe_project,
             transcription::export_captions,
+            fonts::ensure_google_font,
             commands::ensure_assets_installed,
             commands::get_cached_asset_path,
             commands::hydrate_cached_assets,

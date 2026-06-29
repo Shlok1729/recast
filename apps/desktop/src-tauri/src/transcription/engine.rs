@@ -57,18 +57,6 @@ pub fn transcribe(
                 .map_err(|e| format!("load Cohere model: {e}"))?;
             run_speech_model(m, model, samples)
         }
-        Engine::Moonshine => {
-            use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineVariant};
-            // Variant is picked by id; files are FP32 (no quantized variants).
-            let variant = if model.id.contains("tiny") {
-                MoonshineVariant::Tiny
-            } else {
-                MoonshineVariant::Base
-            };
-            let m = MoonshineModel::load(model_dir, variant, &Quantization::FP32)
-                .map_err(|e| format!("load Moonshine model: {e}"))?;
-            run_speech_model(m, model, samples)
-        }
         Engine::Whisper => Err("Whisper (whisper.cpp) isn't enabled in this build yet — \
              use a Parakeet or Canary model. See docs/captions-transcription-plan.md."
             .into()),
@@ -155,7 +143,6 @@ fn build_transcript(
         Engine::Canary => "canary",
         Engine::GigaAM => "gigaam",
         Engine::Cohere => "cohere",
-        Engine::Moonshine => "moonshine",
         Engine::Whisper => "whisper",
     };
 

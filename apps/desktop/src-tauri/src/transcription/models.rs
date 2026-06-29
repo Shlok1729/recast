@@ -27,7 +27,6 @@ pub enum Engine {
     Parakeet,
     Canary,
     GigaAM,
-    Moonshine,
     Cohere,
     Whisper,
 }
@@ -126,39 +125,6 @@ const COHERE_FILES: [&str; 3] = [
     "cohere-decoder.int4.onnx",
     "tokens.txt",
 ];
-
-/// Moonshine entry. Its ONNX files live under an `onnx/` subdir on HuggingFace
-/// (FP32) but transcribe-rs loads them flat from the model dir, so the download
-/// URL and on-disk path differ. English-only; no per-segment timestamps.
-fn moonshine(id: &str, name: &str, hf_repo: &str, size: u64) -> CaptionModel {
-    let base = format!("https://huggingface.co/{hf_repo}/resolve/main");
-    let file = |rel: &str, url_path: &str| ModelFile {
-        rel_path: rel.into(),
-        url: format!("{base}/{url_path}"),
-        sha256: None,
-    };
-    CaptionModel {
-        id: id.into(),
-        display_name: name.into(),
-        engine: Engine::Moonshine,
-        family: "Moonshine".into(),
-        languages: vec!["en".into()],
-        approx_size_bytes: Some(size),
-        is_default: false,
-        files: vec![
-            file("encoder_model.onnx", "onnx/encoder_model.onnx"),
-            file(
-                "decoder_model_merged.onnx",
-                "onnx/decoder_model_merged.onnx",
-            ),
-            file("tokenizer.json", "tokenizer.json"),
-        ],
-        requires_gpu: false,
-        prefers_gpu: false,
-        min_ram_bytes: Some(1_000_000_000),
-    }
-}
-
 /// Generic ONNX model entry (Canary / GigaAM / …) downloaded from a HuggingFace
 /// repo. `files` are stored flat in the model dir, where transcribe-rs loads them.
 #[allow(clippy::too_many_arguments)]
@@ -261,19 +227,6 @@ pub fn registry() -> Vec<CaptionModel> {
             &COHERE_FILES,
             vec!["multi".into()],
             1_700_000_000,
-        ),
-        // ---- Moonshine (ultra-fast, English; no segment timestamps) ----
-        moonshine(
-            "moonshine-tiny",
-            "Moonshine Tiny",
-            "onnx-community/moonshine-tiny-ONNX",
-            31_000_000,
-        ),
-        moonshine(
-            "moonshine-base",
-            "Moonshine Base",
-            "onnx-community/moonshine-base-ONNX",
-            55_000_000,
         ),
     ]
 }

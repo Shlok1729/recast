@@ -26,12 +26,12 @@
     Zap,
   } from "@lucide/svelte";
   import { getRecentColors, pushRecentColor } from "$lib/annotations/recent-colors";
+  import FontPicker from "./FontPicker.svelte";
   import { Button } from "@recast/ui/button";
   import { ColorPicker } from "@recast/ui/color-picker";
   import * as Command from "@recast/ui/command";
   import * as Popover from "@recast/ui/popover";
   import { Segmented, SegmentedToggle } from "@recast/ui/segmented";
-  import * as Select from "@recast/ui/select";
   import { SliderControl } from "@recast/ui/slider-control";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
@@ -197,23 +197,12 @@
     { value: "box", label: "Box" },
   ];
 
-  // Web-safe / system fonts for now. The on-demand Google Fonts registry
-  // (shared with annotations) is the planned next step.
-  const FONT_OPTIONS = [
-    { label: "Sans", value: "system-ui, sans-serif" },
-    { label: "Inter", value: "Inter, system-ui, sans-serif" },
-    { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
-    { label: "Mono", value: "'Courier New', monospace" },
-    { label: "Impact", value: "Impact, 'Arial Narrow Bold', sans-serif" },
-    { label: "Rounded", value: "'Trebuchet MS', system-ui, sans-serif" },
-  ];
   const weightOptions = [
     { value: "400", label: "Regular" },
     { value: "600", label: "Semibold" },
     { value: "800", label: "Bold" },
   ];
   const CAPTION_SWATCHES = ["#ffffff", "#000000", "#facc15", "#22d3ee", "#f472b6"];
-  const fontLabel = (v: string) => FONT_OPTIONS.find((f) => f.value === v)?.label ?? "Custom";
 
   let recents = $state<string[]>(getRecentColors());
   function rememberColor(c: string) {
@@ -481,24 +470,11 @@
           <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Font
           </span>
-          <Select.Root
-            type="single"
+          <FontPicker
             value={cs.fontFamily}
-            onValueChange={(v) => v && store.updateCaptionStyle({ fontFamily: v })}
-          >
-            <Select.Trigger size="sm" class="h-7 w-36 text-[11px]" aria-label="Caption font">
-              <span data-slot="select-value" style="font-family: {cs.fontFamily}">
-                {fontLabel(cs.fontFamily)}
-              </span>
-            </Select.Trigger>
-            <Select.Content align="end" class="w-36">
-              {#each FONT_OPTIONS as f (f.value)}
-                <Select.Item value={f.value} label={f.label} class="text-[11.5px]">
-                  <span style="font-family: {f.value}">{f.label}</span>
-                </Select.Item>
-              {/each}
-            </Select.Content>
-          </Select.Root>
+            weight={cs.fontWeight}
+            onChange={(v) => store.updateCaptionStyle({ fontFamily: v })}
+          />
         </div>
 
         <div>

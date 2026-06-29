@@ -650,6 +650,11 @@ export function captionCapabilities(): Promise<DeviceCapabilities> {
 	return invoke<DeviceCapabilities>("caption_capabilities");
 }
 
+/** Download (once) + cache a Google Font's woff2 on device; returns its path. */
+export function ensureGoogleFont(family: string, weight: number): Promise<string> {
+	return invoke<string>("ensure_google_font", { family, weight });
+}
+
 /** Write a transcript to a subtitle sidecar at `destPath`. */
 export function exportCaptions(
 	transcript: Transcript,

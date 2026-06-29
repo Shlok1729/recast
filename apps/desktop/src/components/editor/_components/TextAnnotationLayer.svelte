@@ -1,5 +1,6 @@
 <script lang="ts">
   import { evalOpacity, evalZoom } from "$lib/annotations/eval";
+  import { ensureFontLoaded } from "$lib/fonts/font-options";
   import { canvasToUV, uvToCanvas, videoRectPx } from "$lib/annotations/uv";
   import { FRAME_ANCHORS, snap, type SnapAnchor } from "$lib/annotations/snap";
   import type {
@@ -21,6 +22,14 @@
   }
 
   let { store, videoEl, targetEl }: Props = $props();
+
+  // Fetch + register any Google fonts used by text annotations so they render
+  // in preview (and are available before export rasterizes the text).
+  $effect(() => {
+    for (const a of store.annotations) {
+      if (a.kind.kind === "text") ensureFontLoaded(a.kind.fontFamily, a.kind.fontWeight);
+    }
+  });
 
   let layerEl: HTMLDivElement | undefined = $state();
   let layerSize = $state({ w: 0, h: 0 });

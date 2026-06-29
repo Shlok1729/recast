@@ -3,8 +3,15 @@
   // style from the store and renders the segment active at `currentTime`.
   // Sits inside `previewRectEl`, so `cqh` font sizing tracks the preview size.
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
+  import { ensureFontLoaded } from "$lib/fonts/font-options";
 
   let { store }: { store: EditorStore } = $props();
+
+  // Fetch + register the selected Google font (idempotent) so the preview
+  // renders it — covers picker changes and reloading a saved project.
+  $effect(() => {
+    ensureFontLoaded(store.captionStyle.fontFamily, store.captionStyle.fontWeight);
+  });
 
   const active = $derived.by(() => {
     const t = store.transcript;
