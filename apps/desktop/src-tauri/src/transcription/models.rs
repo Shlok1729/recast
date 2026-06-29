@@ -47,6 +47,8 @@ pub struct CaptionModel {
     pub id: String,
     pub display_name: String,
     pub engine: Engine,
+    /// Display group for the picker, e.g. "Parakeet" / "Whisper".
+    pub family: String,
     /// BCP-47-ish language hints; `["multi"]` for multilingual.
     pub languages: Vec<String>,
     pub approx_size_bytes: Option<u64>,
@@ -78,6 +80,7 @@ fn whisper(
         id: id.into(),
         display_name: name.into(),
         engine: Engine::Whisper,
+        family: "Whisper".into(),
         languages: vec!["multi".into()],
         approx_size_bytes: Some(size),
         is_default: false,
@@ -92,26 +95,51 @@ fn whisper(
     }
 }
 
-/// The model catalog. Parakeet V3 is the default; the Whisper tiers match the
-/// set Handy ships (small / medium / turbo / large), all multilingual.
+/// Parakeet (NVIDIA, ONNX via `transcribe-rs`). Files are TBD until the exact
+/// ONNX set `transcribe-rs` loads is confirmed, so these aren't downloadable
+/// yet (the UI shows "Soon").
+fn parakeet(id: &str, name: &str, multilingual: bool, is_default: bool) -> CaptionModel {
+    CaptionModel {
+        id: id.into(),
+        display_name: name.into(),
+        engine: Engine::Parakeet,
+        family: "Parakeet".into(),
+        languages: vec![if multilingual { "multi" } else { "en" }.into()],
+        approx_size_bytes: Some(2_400_000_000),
+        is_default,
+        files: vec![],       // TODO: confirm transcribe-rs Parakeet file set + HF repo
+        requires_gpu: false, // Parakeet is CPU-optimized
+        prefers_gpu: false,
+        min_ram_bytes: Some(2_000_000_000),
+    }
+}
+
+/// The model catalog — ~10 models in two families (Parakeet + Whisper), all
+/// multilingual except Parakeet V2 (English). Inspired by Handy's set, expanded
+/// across the whisper.cpp GGML tiers (incl. quantized turbo/large). Parakeet V3
+/// is the default. `(id, name, file, size, min RAM, prefers GPU)` for Whisper.
 pub fn registry() -> Vec<CaptionModel> {
     vec![
-        CaptionModel {
-            id: "parakeet-v3".into(),
-            display_name: "Parakeet V3 (0.6B)".into(),
-            engine: Engine::Parakeet,
-            languages: vec!["multi".into()],
-            approx_size_bytes: None,
-            is_default: true,
-            // TODO: confirm the exact ONNX file set + HF repo `transcribe-rs`
-            // loads for Parakeet V3, then populate (rel_path/url/sha256).
-            files: vec![],
-            // Parakeet V3 is CPU-optimized — runs fine without a GPU.
-            requires_gpu: false,
-            prefers_gpu: false,
-            min_ram_bytes: Some(2_000_000_000),
-        },
-        // (size, min RAM, prefers GPU). The larger models are slow on CPU.
+        // ---- Parakeet ----
+        parakeet("parakeet-v3", "Parakeet V3 (0.6B)", true, true),
+        parakeet("parakeet-v2", "Parakeet V2 (0.6B, English)", false, false),
+        // ---- Whisper (whisper.cpp GGML) ----
+        whisper(
+            "whisper-tiny",
+            "Whisper Tiny",
+            "ggml-tiny.bin",
+            75_000_000,
+            1_000_000_000,
+            false,
+        ),
+        whisper(
+            "whisper-base",
+            "Whisper Base",
+            "ggml-base.bin",
+            142_000_000,
+            1_000_000_000,
+            false,
+        ),
         whisper(
             "whisper-small",
             "Whisper Small",
@@ -137,11 +165,27 @@ pub fn registry() -> Vec<CaptionModel> {
             false,
         ),
         whisper(
+            "whisper-large-v3-turbo-q5",
+            "Whisper Turbo (large-v3, Q5)",
+            "ggml-large-v3-turbo-q5_0.bin",
+            574_000_000,
+            2_000_000_000,
+            false,
+        ),
+        whisper(
             "whisper-large-v3",
             "Whisper Large v3",
             "ggml-large-v3.bin",
             3_100_000_000,
             6_000_000_000,
+            true,
+        ),
+        whisper(
+            "whisper-large-v3-q5",
+            "Whisper Large v3 (Q5)",
+            "ggml-large-v3-q5_0.bin",
+            1_100_000_000,
+            4_000_000_000,
             true,
         ),
     ]

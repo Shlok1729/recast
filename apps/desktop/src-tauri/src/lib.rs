@@ -344,6 +344,7 @@ pub fn run() {
             transcription::download_caption_model,
             transcription::delete_caption_model,
             transcription::transcribe_project,
+            transcription::export_captions,
             commands::ensure_assets_installed,
             commands::get_cached_asset_path,
             commands::hydrate_cached_assets,

@@ -614,6 +614,8 @@ export interface CaptionModelInfo {
 	id: string;
 	displayName: string;
 	engine: CaptionEngine;
+	/** Display group for the picker, e.g. "Parakeet" / "Whisper". */
+	family: string;
 	languages: string[];
 	approxSizeBytes: number | null;
 	isDefault: boolean;
@@ -646,6 +648,15 @@ export interface DeviceCapabilities {
 /** OS / arch / RAM / GPU probe used to gate which caption models are offered. */
 export function captionCapabilities(): Promise<DeviceCapabilities> {
 	return invoke<DeviceCapabilities>("caption_capabilities");
+}
+
+/** Write a transcript to a subtitle sidecar at `destPath`. */
+export function exportCaptions(
+	transcript: Transcript,
+	format: "srt" | "vtt",
+	destPath: string,
+): Promise<void> {
+	return invoke("export_captions", { transcript, format, destPath });
 }
 
 export interface TranscriptWord {

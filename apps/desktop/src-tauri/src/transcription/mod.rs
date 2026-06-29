@@ -14,8 +14,9 @@ mod audio;
 mod capabilities;
 mod engine;
 mod models;
+mod subtitles;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tokio::fs;
 
@@ -24,7 +25,7 @@ use models::{CaptionModel, Engine as ModelEngine};
 
 // ---- Transcript data model (mirrors the planned project-format `transcript` section) ----
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptWord {
     pub start: f64,
@@ -32,7 +33,7 @@ pub struct TranscriptWord {
     pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptSegment {
     pub id: String,
@@ -42,7 +43,7 @@ pub struct TranscriptSegment {
     pub words: Vec<TranscriptWord>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transcript {
     pub engine: String,
@@ -58,6 +59,7 @@ pub struct CaptionModelInfo {
     pub id: String,
     pub display_name: String,
     pub engine: ModelEngine,
+    pub family: String,
     pub languages: Vec<String>,
     pub approx_size_bytes: Option<u64>,
     pub is_default: bool,
@@ -134,6 +136,7 @@ pub async fn list_caption_models(app: AppHandle) -> Result<Vec<CaptionModelInfo>
                 id: m.id,
                 display_name: m.display_name,
                 engine: m.engine,
+                family: m.family,
                 languages: m.languages,
                 approx_size_bytes: m.approx_size_bytes,
                 is_default: m.is_default,
@@ -273,4 +276,22 @@ pub async fn transcribe_project(
         },
     );
     Ok(transcript)
+}
+
+/// Serialize a transcript to a subtitle sidecar (`srt` | `vtt`) and write it to
+/// `dest_path` (chosen by the caller via the save dialog).
+#[tauri::command]
+pub async fn export_captions(
+    transcript: Transcript,
+    format: String,
+    dest_path: String,
+) -> Result<(), String> {
+    let body = match format.as_str() {
+        "srt" => subtitles::to_srt(&transcript),
+        "vtt" => subtitles::to_vtt(&transcript),
+        other => return Err(format!("unsupported subtitle format: {other}")),
+    };
+    fs::write(&dest_path, body)
+        .await
+        .map_err(|e| format!("write subtitles: {e}"))
 }
