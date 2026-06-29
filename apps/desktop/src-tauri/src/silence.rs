@@ -269,7 +269,12 @@ fn opts_key(opts: &SilenceOptions) -> u64 {
 /// run at `threshold` and only closes it once the score falls below
 /// `threshold - RELEASE_MARGIN`. Without the gap, one quiet frame inside a
 /// word would carve a real utterance into spurious micro-silences.
-fn silence_runs(probs: &[f32], frame_dur: f64, threshold: f32, min_dur: f64) -> Vec<(usize, usize)> {
+fn silence_runs(
+    probs: &[f32],
+    frame_dur: f64,
+    threshold: f32,
+    min_dur: f64,
+) -> Vec<(usize, usize)> {
     let release = (threshold - RELEASE_MARGIN).max(0.0);
     let min_frames = (min_dur / frame_dur).ceil() as usize;
 
@@ -549,6 +554,9 @@ mod tests {
             .expect("build Silero VAD");
         let p = vad.predict(vec![0i16; super::CHUNK]);
         assert!((0.0..=1.0).contains(&p), "probability in range, got {p}");
-        assert!(p < 0.5, "digital silence should read as non-speech, got {p}");
+        assert!(
+            p < 0.5,
+            "digital silence should read as non-speech, got {p}"
+        );
     }
 }
