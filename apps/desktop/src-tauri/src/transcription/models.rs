@@ -52,11 +52,28 @@ pub struct CaptionModel {
     pub approx_size_bytes: Option<u64>,
     pub is_default: bool,
     pub files: Vec<ModelFile>,
+    // ---- device requirements (drive UI gating; see capabilities.rs) ----
+    /// Hard requirement: no supported GPU → model is disabled.
+    #[serde(default)]
+    pub requires_gpu: bool,
+    /// Soft: runs on CPU but is slow without a GPU → warning, not a block.
+    #[serde(default)]
+    pub prefers_gpu: bool,
+    /// Soft: warn when the device has less than this much RAM.
+    #[serde(default)]
+    pub min_ram_bytes: Option<u64>,
 }
 
 const WHISPER_BASE: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
-fn whisper(id: &str, name: &str, file: &str, size: u64) -> CaptionModel {
+fn whisper(
+    id: &str,
+    name: &str,
+    file: &str,
+    size: u64,
+    min_ram_bytes: u64,
+    prefers_gpu: bool,
+) -> CaptionModel {
     CaptionModel {
         id: id.into(),
         display_name: name.into(),
@@ -69,6 +86,9 @@ fn whisper(id: &str, name: &str, file: &str, size: u64) -> CaptionModel {
             url: format!("{WHISPER_BASE}/{file}"),
             sha256: None, // TODO: pin once we lock a revision
         }],
+        requires_gpu: false,
+        prefers_gpu,
+        min_ram_bytes: Some(min_ram_bytes),
     }
 }
 
@@ -86,30 +106,43 @@ pub fn registry() -> Vec<CaptionModel> {
             // TODO: confirm the exact ONNX file set + HF repo `transcribe-rs`
             // loads for Parakeet V3, then populate (rel_path/url/sha256).
             files: vec![],
+            // Parakeet V3 is CPU-optimized — runs fine without a GPU.
+            requires_gpu: false,
+            prefers_gpu: false,
+            min_ram_bytes: Some(2_000_000_000),
         },
+        // (size, min RAM, prefers GPU). The larger models are slow on CPU.
         whisper(
             "whisper-small",
             "Whisper Small",
             "ggml-small.bin",
             488_000_000,
+            2_000_000_000,
+            false,
         ),
         whisper(
             "whisper-medium",
             "Whisper Medium",
             "ggml-medium.bin",
             1_530_000_000,
+            4_000_000_000,
+            true,
         ),
         whisper(
             "whisper-large-v3-turbo",
             "Whisper Turbo (large-v3)",
             "ggml-large-v3-turbo.bin",
             1_620_000_000,
+            4_000_000_000,
+            false,
         ),
         whisper(
             "whisper-large-v3",
             "Whisper Large v3",
             "ggml-large-v3.bin",
             3_100_000_000,
+            6_000_000_000,
+            true,
         ),
     ]
 }

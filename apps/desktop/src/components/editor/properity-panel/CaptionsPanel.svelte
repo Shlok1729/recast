@@ -2,21 +2,26 @@
   import { clock } from "$lib/format/time";
   import { formatSize } from "$lib/format/files";
   import {
+    captionCapabilities,
     deleteCaptionModel,
     downloadCaptionModel,
     listCaptionModels,
     transcribeProject,
     type CaptionModelInfo,
+    type DeviceCapabilities,
     type Transcript,
   } from "$lib/ipc";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
     AlertTriangle,
     Check,
+    Cpu,
     Download,
     Loader2,
+    Lock,
     Sparkles,
     Trash2,
+    Zap,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import { toast } from "@recast/ui/sonner";
@@ -33,6 +38,7 @@
   let { store }: Props = $props();
 
   let models = $state<CaptionModelInfo[]>([]);
+  let caps = $state<DeviceCapabilities | null>(null);
   let selectedModelId = $state<string | null>(null);
   let downloadingId = $state<string | null>(null);
   let downloadPct = $state(0);
@@ -41,16 +47,23 @@
   let transcript = $state<Transcript | null>(null);
   let error = $state<string | null>(null);
 
-  const installed = $derived(models.filter((m) => m.installed));
+  // Selectable = installed AND able to run on this device.
+  const usable = $derived(models.filter((m) => m.installed && m.runnable));
   const hasAudio = $derived(!!(store.audioPath || store.microphonePath));
+
+  const gpuLabel = $derived.by(() => {
+    if (!caps) return "";
+    if (caps.gpu.available) return caps.gpu.backend?.toUpperCase() ?? "GPU";
+    return "CPU only";
+  });
 
   async function refresh() {
     try {
       models = await listCaptionModels();
-      // Default the selection to the installed default, else any installed.
-      if (!selectedModelId || !models.some((m) => m.id === selectedModelId && m.installed)) {
+      // Default the selection to a usable installed model (default first).
+      if (!selectedModelId || !usable.some((m) => m.id === selectedModelId)) {
         selectedModelId =
-          installed.find((m) => m.isDefault)?.id ?? installed[0]?.id ?? null;
+          usable.find((m) => m.isDefault)?.id ?? usable[0]?.id ?? null;
       }
     } catch (e) {
       toast.error(`Could not load caption models: ${e}`);
@@ -59,6 +72,9 @@
 
   onMount(() => {
     void refresh();
+    captionCapabilities()
+      .then((c) => (caps = c))
+      .catch(() => {});
     const unDownload = listen<{
       modelId: string;
       file: string;
@@ -132,34 +148,54 @@
     hint="Transcription runs entirely on your device — no upload, no account. Pick a model, download it once, then generate captions."
     flush
   >
+    {#snippet action()}
+      {#if caps}
+        <span
+          class="inline-flex items-center gap-1 rounded-full border border-border/50 bg-card/60 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
+          title={caps.gpu.name ?? gpuLabel}
+        >
+          {#if caps.gpu.available}
+            <Zap size={9} class="text-primary" />
+          {:else}
+            <Cpu size={9} />
+          {/if}
+          {gpuLabel}
+        </span>
+      {/if}
+    {/snippet}
+
     <div class="flex flex-col gap-1.5">
       {#each models as model (model.id)}
         {@const isSelected = selectedModelId === model.id}
         {@const isDownloading = downloadingId === model.id}
+        {@const selectable = model.installed && model.runnable}
         <div
           class={cn(
             "flex items-center gap-2.5 rounded-lg border px-2.5 py-2 transition-colors",
-            model.installed && isSelected
+            selectable && isSelected
               ? "border-primary/50 bg-primary/5"
               : "border-border/60 bg-card/40",
+            !model.runnable && "opacity-60",
           )}
         >
           <button
             type="button"
             class="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-            disabled={!model.installed}
+            disabled={!selectable}
             onclick={() => (selectedModelId = model.id)}
-            title={model.installed ? "Use this model" : undefined}
+            title={selectable ? "Use this model" : undefined}
           >
             <span
               class={cn(
                 "grid size-7 shrink-0 place-items-center rounded-md",
-                model.installed && isSelected
+                selectable && isSelected
                   ? "bg-primary/15 text-primary"
                   : "bg-muted/60 text-muted-foreground",
               )}
             >
-              {#if model.installed && isSelected}
+              {#if !model.runnable}
+                <Lock size={12} />
+              {:else if selectable && isSelected}
                 <Check size={13} />
               {:else}
                 <Sparkles size={13} />
@@ -183,10 +219,27 @@
                 {#if model.approxSizeBytes}· {formatSize(model.approxSizeBytes)}{/if}
                 {#if model.installed}· Installed{/if}
               </p>
+              {#if model.warning}
+                <p
+                  class={cn(
+                    "mt-0.5 flex items-start gap-1 text-[9.5px] leading-tight",
+                    model.runnable ? "text-warning" : "text-muted-foreground",
+                  )}
+                >
+                  <AlertTriangle size={9} class="mt-px shrink-0" />
+                  <span>{model.warning}</span>
+                </p>
+              {/if}
             </div>
           </button>
 
-          {#if isDownloading}
+          {#if !model.runnable}
+            <span
+              class="shrink-0 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/70"
+            >
+              GPU
+            </span>
+          {:else if isDownloading}
             <div class="flex w-16 shrink-0 items-center gap-1.5">
               <div class="relative h-1 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
@@ -251,9 +304,9 @@
       <p class="mt-2 text-[10.5px] text-muted-foreground">
         This recording has no audio track to transcribe.
       </p>
-    {:else if installed.length === 0}
+    {:else if usable.length === 0}
       <p class="mt-2 text-[10.5px] text-muted-foreground">
-        Download a model above to enable captioning.
+        Download a model your device can run to enable captioning.
       </p>
     {/if}
 

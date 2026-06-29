@@ -8,13 +8,11 @@
     Info,
     MousePointer,
     Pencil,
-    SquareSplitHorizontal,
     Target,
     Video,
-    Volume2,
+    Volume2
   } from "@lucide/svelte";
   import * as Tabs from "@recast/ui/tabs";
-  import * as Tooltip from "@recast/ui/tooltip";
   import { cn } from "@recast/ui/utils";
   import AnnotationsPanel from "./AnnotationsPanel.svelte";
   import AudioPanel from "./AudioPanel.svelte";
@@ -106,12 +104,12 @@
         {#each tabs as tab}
           {@const Icon = tab.icon}
           {@const active = store.activePanel === tab.id}
-          <Tooltip.Root>
-            <Tooltip.Trigger>
               <Tabs.Trigger
                 value={tab.id}
+                title={tab.label}
+                aria-label={tab.label}
                 class={cn(
-                  "cursor-pointer flex size-6 items-center justify-center rounded-md transition-all duration-150",
+                  "after:hidden cursor-pointer flex size-6 items-center justify-center rounded-md transition-all duration-150",
                   active
                     ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
                     : "text-muted-foreground hover:text-foreground",
@@ -120,9 +118,6 @@
                 <Icon class="size-3.5" />
                 <span class="sr-only">{tab.label}</span>
               </Tabs.Trigger>
-            </Tooltip.Trigger>
-            <Tooltip.Content side="bottom">{tab.label}</Tooltip.Content>
-          </Tooltip.Root>
         {/each}
       </Tabs.List>
       <span

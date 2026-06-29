@@ -340,6 +340,7 @@ pub fn run() {
             silence::detect_silence,
             silence::extract_waveform,
             transcription::list_caption_models,
+            transcription::caption_capabilities,
             transcription::download_caption_model,
             transcription::delete_caption_model,
             transcription::transcribe_project,

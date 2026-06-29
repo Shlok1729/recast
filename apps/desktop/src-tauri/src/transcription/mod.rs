@@ -11,6 +11,7 @@
 //! Full design: `apps/desktop/docs/captions-transcription-plan.md`.
 
 mod audio;
+mod capabilities;
 mod engine;
 mod models;
 
@@ -18,7 +19,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::fs;
 
-use models::Engine as ModelEngine;
+use capabilities::DeviceCapabilities;
+use models::{CaptionModel, Engine as ModelEngine};
 
 // ---- Transcript data model (mirrors the planned project-format `transcript` section) ----
 
@@ -62,6 +64,38 @@ pub struct CaptionModelInfo {
     pub installed: bool,
     /// False until the model's files are defined (Parakeet V3 is pending).
     pub downloadable: bool,
+    pub requires_gpu: bool,
+    pub prefers_gpu: bool,
+    pub min_ram_bytes: Option<u64>,
+    /// Can this device run the model at all? (false → hard-disabled in the UI).
+    pub runnable: bool,
+    /// Non-blocking caveat for this device (slow on CPU, low RAM, …).
+    pub warning: Option<String>,
+}
+
+/// Decide whether a model can run on this device and what to warn about.
+/// Hard requirement (GPU) disables; soft factors (CPU-slow, low RAM) warn.
+fn evaluate(model: &CaptionModel, caps: &DeviceCapabilities) -> (bool, Option<String>) {
+    if model.requires_gpu && !caps.gpu.available {
+        return (
+            false,
+            Some("Requires a supported GPU on this device.".into()),
+        );
+    }
+    let mut notes: Vec<String> = Vec::new();
+    if model.prefers_gpu && !caps.gpu.available {
+        notes.push("Runs on CPU here — expect slower transcription.".into());
+    }
+    if let (Some(min), Some(ram)) = (model.min_ram_bytes, caps.total_ram_bytes) {
+        if ram < min {
+            notes.push(format!(
+                "Recommended {:.0} GB RAM; this device has {:.1} GB.",
+                min as f64 / 1e9,
+                ram as f64 / 1e9
+            ));
+        }
+    }
+    (true, (!notes.is_empty()).then(|| notes.join(" ")))
 }
 
 // ---- Event payloads ----
@@ -89,10 +123,13 @@ struct TranscribeProgress {
 /// no-sync-commands rule.
 #[tauri::command]
 pub async fn list_caption_models(app: AppHandle) -> Result<Vec<CaptionModelInfo>, String> {
+    let caps = capabilities::detect();
     let infos = models::registry()
         .into_iter()
         .map(|m| {
             let installed = models::is_installed(&app, &m).unwrap_or(false);
+            let downloadable = !m.files.is_empty();
+            let (runnable, warning) = evaluate(&m, &caps);
             CaptionModelInfo {
                 id: m.id,
                 display_name: m.display_name,
@@ -101,11 +138,23 @@ pub async fn list_caption_models(app: AppHandle) -> Result<Vec<CaptionModelInfo>
                 approx_size_bytes: m.approx_size_bytes,
                 is_default: m.is_default,
                 installed,
-                downloadable: !m.files.is_empty(),
+                downloadable,
+                requires_gpu: m.requires_gpu,
+                prefers_gpu: m.prefers_gpu,
+                min_ram_bytes: m.min_ram_bytes,
+                runnable,
+                warning,
             }
         })
         .collect();
     Ok(infos)
+}
+
+/// Report this device's OS / arch / RAM / GPU so the UI can explain why a model
+/// is disabled or warned.
+#[tauri::command]
+pub async fn caption_capabilities() -> Result<DeviceCapabilities, String> {
+    Ok(capabilities::detect())
 }
 
 /// Download every file for a model, emitting `captions:download-progress`.
@@ -186,6 +235,10 @@ pub async fn transcribe_project(
 ) -> Result<Transcript, String> {
     let model =
         models::find(&model_id).ok_or_else(|| format!("unknown caption model: {model_id}"))?;
+    let (runnable, _) = evaluate(&model, &capabilities::detect());
+    if !runnable {
+        return Err(format!("model '{model_id}' can't run on this device"));
+    }
     if !models::is_installed(&app, &model)? {
         return Err(format!("model '{model_id}' is not downloaded"));
     }

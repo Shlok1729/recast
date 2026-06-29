@@ -620,6 +620,32 @@ export interface CaptionModelInfo {
 	installed: boolean;
 	/** False until the model's files are defined (Parakeet V3 is pending). */
 	downloadable: boolean;
+	requiresGpu: boolean;
+	prefersGpu: boolean;
+	minRamBytes: number | null;
+	/** False → this device can't run the model (hard-disabled in the UI). */
+	runnable: boolean;
+	/** Non-blocking caveat for this device (slow on CPU, low RAM, …). */
+	warning: string | null;
+}
+
+export interface GpuInfo {
+	available: boolean;
+	/** "metal" | "cuda" | null (CPU mode). */
+	backend: string | null;
+	name: string | null;
+}
+
+export interface DeviceCapabilities {
+	os: string;
+	arch: string;
+	totalRamBytes: number | null;
+	gpu: GpuInfo;
+}
+
+/** OS / arch / RAM / GPU probe used to gate which caption models are offered. */
+export function captionCapabilities(): Promise<DeviceCapabilities> {
+	return invoke<DeviceCapabilities>("caption_capabilities");
 }
 
 export interface TranscriptWord {
