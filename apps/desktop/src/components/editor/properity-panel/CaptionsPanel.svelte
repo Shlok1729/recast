@@ -10,7 +10,6 @@
     transcribeProject,
     type CaptionModelInfo,
     type DeviceCapabilities,
-    type Transcript,
   } from "$lib/ipc";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
@@ -29,6 +28,8 @@
   import { Button } from "@recast/ui/button";
   import * as Command from "@recast/ui/command";
   import * as Popover from "@recast/ui/popover";
+  import { Segmented, SegmentedToggle } from "@recast/ui/segmented";
+  import { SliderControl } from "@recast/ui/slider-control";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
   import { listen } from "@tauri-apps/api/event";
@@ -50,7 +51,6 @@
   let downloadPct = $state(0);
   let transcribing = $state(false);
   let phase = $state<string>("");
-  let transcript = $state<Transcript | null>(null);
   let error = $state<string | null>(null);
 
   const selected = $derived(models.find((m) => m.id === selectedModelId) ?? null);
@@ -152,14 +152,14 @@
     phase = "extracting";
     error = null;
     try {
-      transcript = await transcribeProject({
+      store.transcript = await transcribeProject({
         audioPath: store.audioPath,
         microphonePath: store.microphonePath,
         modelId: selected.id,
       });
     } catch (e) {
       error = `${e}`;
-      transcript = null;
+      store.transcript = null;
     } finally {
       transcribing = false;
       phase = "";
@@ -167,7 +167,8 @@
   }
 
   async function exportSubs(format: "srt" | "vtt") {
-    if (!transcript) return;
+    const t = store.transcript;
+    if (!t) return;
     try {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const dest = await save({
@@ -175,12 +176,23 @@
         filters: [{ name: format.toUpperCase(), extensions: [format] }],
       });
       if (!dest) return;
-      await exportCaptions(transcript, format, dest);
+      await exportCaptions(t, format, dest);
       toast.success(`Exported ${format.toUpperCase()}`);
     } catch (e) {
       toast.error(`Export failed: ${e}`);
     }
   }
+
+  const positionOptions = [
+    { value: "top", label: "Top" },
+    { value: "center", label: "Center" },
+    { value: "bottom", label: "Bottom" },
+  ];
+  const backgroundOptions = [
+    { value: "none", label: "None" },
+    { value: "soft", label: "Shadow" },
+    { value: "box", label: "Box" },
+  ];
 
   const langLabel = (m: CaptionModelInfo) =>
     m.languages.includes("multi") ? "Multilingual" : m.languages.join(", ").toUpperCase();
@@ -425,7 +437,73 @@
     {/if}
   </PanelSection>
 
-  {#if transcript && transcript.segments.length > 0}
+  {#if store.transcript && store.transcript.segments.length > 0}
+    {@const cs = store.captionStyle}
+    <PanelSection title="Style" hint="How captions look over the preview and in burned-in exports." flush>
+      {#snippet action()}
+        <SegmentedToggle
+          checked={cs.enabled}
+          offLabel="Hidden"
+          onLabel="Shown"
+          size="xs"
+          aria-label="Show captions in preview"
+          onCheckedChange={(next) => store.updateCaptionStyle({ enabled: next })}
+        />
+      {/snippet}
+
+      <div class="flex flex-col gap-3" class:opacity-50={!cs.enabled}>
+        <div>
+          <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Position
+          </p>
+          <Segmented
+            size="xs"
+            aria-label="Caption position"
+            value={cs.position}
+            options={positionOptions}
+            onValueChange={(v) =>
+              store.updateCaptionStyle({ position: v as "top" | "center" | "bottom" })}
+          />
+        </div>
+
+        <div>
+          <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Background
+          </p>
+          <Segmented
+            size="xs"
+            aria-label="Caption background"
+            value={cs.background}
+            options={backgroundOptions}
+            onValueChange={(v) =>
+              store.updateCaptionStyle({ background: v as "none" | "soft" | "box" })}
+          />
+        </div>
+
+        <SliderControl
+          label="Font size"
+          value={cs.fontSizePct}
+          min={2}
+          max={10}
+          step={0.5}
+          unit="%"
+          onchange={(next) => store.updateCaptionStyle({ fontSizePct: next })}
+          formatValue={(v) => `${v}%`}
+        />
+
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-medium text-foreground">Text color</span>
+          <input
+            type="color"
+            value={cs.color}
+            aria-label="Caption text color"
+            class="size-7 cursor-pointer rounded-md border border-border/60 bg-transparent"
+            oninput={(e) => store.updateCaptionStyle({ color: e.currentTarget.value })}
+          />
+        </div>
+      </div>
+    </PanelSection>
+
     <PanelSection title="Transcript" hint="Click a line to jump the playhead there." flush>
       {#snippet action()}
         <div class="flex items-center gap-1">
@@ -439,7 +517,7 @@
       {/snippet}
 
       <div class="flex flex-col gap-0.5">
-        {#each transcript.segments as seg (seg.id)}
+        {#each store.transcript.segments as seg (seg.id)}
           <button
             type="button"
             class="group flex items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted/60"

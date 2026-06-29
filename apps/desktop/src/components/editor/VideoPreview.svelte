@@ -33,6 +33,7 @@
 	import AnnotationOverlay from "./_components/AnnotationOverlay.svelte";
 	import AnnotationStatusRail from "./_components/AnnotationStatusRail.svelte";
 	import CameraOverlay from "./_components/CameraOverlay.svelte";
+	import CaptionOverlay from "./_components/CaptionOverlay.svelte";
 	import FocusOverlay from "./_components/FocusOverlay.svelte";
 	import TextAnnotationLayer from "./_components/TextAnnotationLayer.svelte";
 
@@ -1810,6 +1811,7 @@ void main() {
 			targetEl={previewRectEl}
 		/>
 		{/if}
+		<CaptionOverlay {store} />
 	</div>
 
 	{#if videoSrc}

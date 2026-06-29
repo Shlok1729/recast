@@ -3,6 +3,7 @@
  * Uses Svelte 5 runes ($state) for granular reactivity.
  */
 
+import type { Transcript } from '../ipc';
 import type { CursorSampleLike } from '../cursor/smoothing';
 import { EASE, type Easing } from '../easing/cubic-bezier';
 import { log } from '../logger';
@@ -716,6 +717,29 @@ function generateId(): string {
  * Creates an editor store instance.
  * Call once per editor page mount, or use a singleton.
  */
+/** How generated captions render over the preview / export. */
+export interface CaptionStyle {
+	enabled: boolean;
+	/** Font size as a percent of the preview/video height. */
+	fontSizePct: number;
+	position: 'bottom' | 'center' | 'top';
+	/** Text colour (hex). */
+	color: string;
+	/** Backing behind the text: none, soft shadow, or a solid box. */
+	background: 'none' | 'soft' | 'box';
+	/** Max lines shown at once before clamping. */
+	maxLines: number;
+}
+
+export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
+	enabled: true,
+	fontSizePct: 5,
+	position: 'bottom',
+	color: '#ffffff',
+	background: 'soft',
+	maxLines: 2,
+};
+
 export function createEditorStore() {
 	// Video source
 	let videoPath = $state('');
@@ -725,6 +749,10 @@ export function createEditorStore() {
 	let recordingPath = $state<string | null>(null);
 	let audioPath = $state<string | null>(null);
 	let microphonePath = $state<string | null>(null);
+	// Captions: the generated transcript (session-only for now; project-format
+	// persistence is deferred) + how it renders over the preview.
+	let transcript = $state.raw<Transcript | null>(null);
+	let captionStyle = $state<CaptionStyle>({ ...DEFAULT_CAPTION_STYLE });
 	let metadata = $state<VideoMetadata | null>(null);
 	// `$state.raw` for large replace-only arrays: swapped wholesale, never
 	// mutated element-wise, so deep-proxying thousands of entries is pure
@@ -2094,6 +2122,14 @@ export function createEditorStore() {
 
 		get audioSettings() { return audioSettings; },
 		set audioSettings(v: AudioSettings) { audioSettings = v; },
+
+		get transcript() { return transcript; },
+		set transcript(v: Transcript | null) { transcript = v; },
+		get captionStyle() { return captionStyle; },
+		set captionStyle(v: CaptionStyle) { captionStyle = v; },
+		updateCaptionStyle(updates: Partial<CaptionStyle>) {
+			captionStyle = { ...captionStyle, ...updates };
+		},
 
 		get watermarkSettings() { return watermarkSettings; },
 		set watermarkSettings(v: WatermarkSettings) { watermarkSettings = v; },
