@@ -113,7 +113,9 @@ pub async fn list_caption_models(app: AppHandle) -> Result<Vec<CaptionModelInfo>
 pub async fn download_caption_model(app: AppHandle, id: String) -> Result<(), String> {
     let model = models::find(&id).ok_or_else(|| format!("unknown caption model: {id}"))?;
     if model.files.is_empty() {
-        return Err(format!("model '{id}' has no downloadable files defined yet"));
+        return Err(format!(
+            "model '{id}' has no downloadable files defined yet"
+        ));
     }
     let dir = models::model_dir(&app, &id)?;
     fs::create_dir_all(&dir)
@@ -128,17 +130,23 @@ pub async fn download_caption_model(app: AppHandle, id: String) -> Result<(), St
     for f in &model.files {
         let dest = dir.join(&f.rel_path);
         let rel = f.rel_path.clone();
-        models::download_file(&client, &f.url, f.sha256.as_deref(), &dest, |downloaded, total| {
-            let _ = app.emit(
-                "captions:download-progress",
-                DownloadProgress {
-                    model_id: id.clone(),
-                    file: rel.clone(),
-                    downloaded,
-                    total,
-                },
-            );
-        })
+        models::download_file(
+            &client,
+            &f.url,
+            f.sha256.as_deref(),
+            &dest,
+            |downloaded, total| {
+                let _ = app.emit(
+                    "captions:download-progress",
+                    DownloadProgress {
+                        model_id: id.clone(),
+                        file: rel.clone(),
+                        downloaded,
+                        total,
+                    },
+                );
+            },
+        )
         .await?;
     }
 
@@ -176,17 +184,23 @@ pub async fn transcribe_project(
     model_id: String,
     language: Option<String>,
 ) -> Result<Transcript, String> {
-    let model = models::find(&model_id).ok_or_else(|| format!("unknown caption model: {model_id}"))?;
+    let model =
+        models::find(&model_id).ok_or_else(|| format!("unknown caption model: {model_id}"))?;
     if !models::is_installed(&app, &model)? {
         return Err(format!("model '{model_id}' is not downloaded"));
     }
 
     let _ = app.emit(
         "captions:transcribe-progress",
-        TranscribeProgress { phase: "extracting".into() },
+        TranscribeProgress {
+            phase: "extracting".into(),
+        },
     );
 
-    let sources: Vec<String> = [audio_path, microphone_path].into_iter().flatten().collect();
+    let sources: Vec<String> = [audio_path, microphone_path]
+        .into_iter()
+        .flatten()
+        .collect();
     let lang = language.clone();
     let transcript = tokio::task::spawn_blocking(move || {
         let refs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
@@ -201,7 +215,9 @@ pub async fn transcribe_project(
 
     let _ = app.emit(
         "captions:transcribe-progress",
-        TranscribeProgress { phase: "done".into() },
+        TranscribeProgress {
+            phase: "done".into(),
+        },
     );
     Ok(transcript)
 }

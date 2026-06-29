@@ -3,6 +3,7 @@
   import type { EditorStore, PanelTab } from "$lib/stores/editor-store.svelte";
   import {
     Blocks,
+    Captions,
     ImageIcon,
     Info,
     MousePointer,
@@ -19,6 +20,7 @@
   import AudioPanel from "./AudioPanel.svelte";
   import BackgroundPicker from "./BackgroundPicker.svelte";
   import CameraPanel from "./CameraPanel.svelte";
+  import CaptionsPanel from "./CaptionsPanel.svelte";
   import ClipPanel from "./ClipPanel.svelte";
   import CursorPanel from "./CursorPanel.svelte";
   import ExtensionsPanel from "./ExtensionsPanel.svelte";
@@ -48,6 +50,7 @@
       ? [{ id: "camera" as PanelTab, label: "Camera", icon: Video }]
       : []),
     { id: "audio", label: "Audio", icon: Volume2 },
+    { id: "captions", label: "Captions", icon: Captions },
     { id: "extensions", label: "Extensions", icon: Blocks },
     { id: "info", label: "Info", icon: Info },
   ];
@@ -157,6 +160,10 @@
 
     <Tabs.Content value="audio" class={tabContentClass}>
       <AudioPanel {store} />
+    </Tabs.Content>
+
+    <Tabs.Content value="captions" class={tabContentClass}>
+      <CaptionsPanel {store} />
     </Tabs.Content>
 
     <Tabs.Content value="extensions" class={tabContentClass}>

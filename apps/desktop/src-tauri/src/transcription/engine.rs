@@ -37,7 +37,9 @@ pub fn transcribe(
     // ort rc.10/rc.12 conflict is resolved. Inputs are ready: `samples` is mono
     // 16 kHz f32, `model` carries the on-disk file paths.
     let _ = (model, samples, language);
-    Err("transcription engine not yet integrated — blocked on ort rc.10/rc.12 \
+    Err(
+        "transcription engine not yet integrated — blocked on ort rc.10/rc.12 \
          alignment (see docs/captions-transcription-plan.md §7)"
-        .into())
+            .into(),
+    )
 }

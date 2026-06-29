@@ -593,7 +593,7 @@ export function aspectRatio(a: OutputAspect): number | null {
 
 export type EditorWindowBehavior = 'navigate' | 'new-window';
 
-export type PanelTab = 'clip' | 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'extensions' | 'info';
+export type PanelTab = 'clip' | 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'captions' | 'extensions' | 'info';
 
 // Wallpapers 19–23 were moved into the installable "Waves" extension pack
 // (extensions/packs/waves-wallpapers) — keep the built-in default set at 18 so

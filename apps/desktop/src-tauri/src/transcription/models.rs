@@ -87,15 +87,30 @@ pub fn registry() -> Vec<CaptionModel> {
             // loads for Parakeet V3, then populate (rel_path/url/sha256).
             files: vec![],
         },
-        whisper("whisper-small", "Whisper Small", "ggml-small.bin", 488_000_000),
-        whisper("whisper-medium", "Whisper Medium", "ggml-medium.bin", 1_530_000_000),
+        whisper(
+            "whisper-small",
+            "Whisper Small",
+            "ggml-small.bin",
+            488_000_000,
+        ),
+        whisper(
+            "whisper-medium",
+            "Whisper Medium",
+            "ggml-medium.bin",
+            1_530_000_000,
+        ),
         whisper(
             "whisper-large-v3-turbo",
             "Whisper Turbo (large-v3)",
             "ggml-large-v3-turbo.bin",
             1_620_000_000,
         ),
-        whisper("whisper-large-v3", "Whisper Large v3", "ggml-large-v3.bin", 3_100_000_000),
+        whisper(
+            "whisper-large-v3",
+            "Whisper Large v3",
+            "ggml-large-v3.bin",
+            3_100_000_000,
+        ),
     ]
 }
 
@@ -202,7 +217,10 @@ pub async fn download_file(
             return Err(format!("sha256 mismatch (expected {expected}, got {got})"));
         }
     } else {
-        log::warn!("caption model file {} downloaded without sha256 verification", url);
+        log::warn!(
+            "caption model file {} downloaded without sha256 verification",
+            url
+        );
     }
 
     if dest.exists() {
