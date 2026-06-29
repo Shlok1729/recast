@@ -66,35 +66,6 @@ pub struct CaptionModel {
     pub min_ram_bytes: Option<u64>,
 }
 
-const WHISPER_BASE: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
-
-fn whisper(
-    id: &str,
-    name: &str,
-    file: &str,
-    size: u64,
-    min_ram_bytes: u64,
-    prefers_gpu: bool,
-) -> CaptionModel {
-    CaptionModel {
-        id: id.into(),
-        display_name: name.into(),
-        engine: Engine::Whisper,
-        family: "Whisper".into(),
-        languages: vec!["multi".into()],
-        approx_size_bytes: Some(size),
-        is_default: false,
-        files: vec![ModelFile {
-            rel_path: file.into(),
-            url: format!("{WHISPER_BASE}/{file}"),
-            sha256: None, // TODO: pin once we lock a revision
-        }],
-        requires_gpu: false,
-        prefers_gpu,
-        min_ram_bytes: Some(min_ram_bytes),
-    }
-}
-
 /// The int8 ONNX file set `transcribe-rs`'s `ParakeetModel::load(dir, Int8)`
 /// expects in the model directory.
 const PARAKEET_FILES: [&str; 4] = [
@@ -137,13 +108,14 @@ fn parakeet(
     }
 }
 
-/// The model catalog — ~10 models in two families (Parakeet + Whisper), all
-/// multilingual except Parakeet V2 (English). Inspired by Handy's set, expanded
-/// across the whisper.cpp GGML tiers (incl. quantized turbo/large). Parakeet V3
-/// is the default. `(id, name, file, size, min RAM, prefers GPU)` for Whisper.
+/// The model catalog. Currently the Parakeet ONNX models (run via the
+/// `transcribe-rs` `onnx` engine — no extra toolchain). Parakeet V3 is the
+/// default. The broader Handy-style ONNX catalog (Moonshine / Canary /
+/// SenseVoice / GigaAM / Cohere) is the next addition — each needs its own HF
+/// repo + file set wired here and an engine arm in `engine.rs`. Whisper models
+/// wait on the `whisper-cpp` build (LLVM + CMake).
 pub fn registry() -> Vec<CaptionModel> {
     vec![
-        // ---- Parakeet (primary) ----
         parakeet(
             "parakeet-v3",
             "Parakeet V3 (0.6B)",
@@ -158,71 +130,6 @@ pub fn registry() -> Vec<CaptionModel> {
             "istupakov/parakeet-tdt-0.6b-v2-onnx",
             false,
             false,
-        ),
-        // ---- Whisper (whisper.cpp GGML) ----
-        whisper(
-            "whisper-tiny",
-            "Whisper Tiny",
-            "ggml-tiny.bin",
-            75_000_000,
-            1_000_000_000,
-            false,
-        ),
-        whisper(
-            "whisper-base",
-            "Whisper Base",
-            "ggml-base.bin",
-            142_000_000,
-            1_000_000_000,
-            false,
-        ),
-        whisper(
-            "whisper-small",
-            "Whisper Small",
-            "ggml-small.bin",
-            488_000_000,
-            2_000_000_000,
-            false,
-        ),
-        whisper(
-            "whisper-medium",
-            "Whisper Medium",
-            "ggml-medium.bin",
-            1_530_000_000,
-            4_000_000_000,
-            true,
-        ),
-        whisper(
-            "whisper-large-v3-turbo",
-            "Whisper Turbo (large-v3)",
-            "ggml-large-v3-turbo.bin",
-            1_620_000_000,
-            4_000_000_000,
-            false,
-        ),
-        whisper(
-            "whisper-large-v3-turbo-q5",
-            "Whisper Turbo (large-v3, Q5)",
-            "ggml-large-v3-turbo-q5_0.bin",
-            574_000_000,
-            2_000_000_000,
-            false,
-        ),
-        whisper(
-            "whisper-large-v3",
-            "Whisper Large v3",
-            "ggml-large-v3.bin",
-            3_100_000_000,
-            6_000_000_000,
-            true,
-        ),
-        whisper(
-            "whisper-large-v3-q5",
-            "Whisper Large v3 (Q5)",
-            "ggml-large-v3-q5_0.bin",
-            1_100_000_000,
-            4_000_000_000,
-            true,
         ),
     ]
 }

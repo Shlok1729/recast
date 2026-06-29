@@ -25,10 +25,13 @@
     Trash2,
     Zap,
   } from "@lucide/svelte";
+  import { getRecentColors, pushRecentColor } from "$lib/annotations/recent-colors";
   import { Button } from "@recast/ui/button";
+  import { ColorPicker } from "@recast/ui/color-picker";
   import * as Command from "@recast/ui/command";
   import * as Popover from "@recast/ui/popover";
   import { Segmented, SegmentedToggle } from "@recast/ui/segmented";
+  import * as Select from "@recast/ui/select";
   import { SliderControl } from "@recast/ui/slider-control";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
@@ -194,6 +197,29 @@
     { value: "box", label: "Box" },
   ];
 
+  // Web-safe / system fonts for now. The on-demand Google Fonts registry
+  // (shared with annotations) is the planned next step.
+  const FONT_OPTIONS = [
+    { label: "Sans", value: "system-ui, sans-serif" },
+    { label: "Inter", value: "Inter, system-ui, sans-serif" },
+    { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
+    { label: "Mono", value: "'Courier New', monospace" },
+    { label: "Impact", value: "Impact, 'Arial Narrow Bold', sans-serif" },
+    { label: "Rounded", value: "'Trebuchet MS', system-ui, sans-serif" },
+  ];
+  const weightOptions = [
+    { value: "400", label: "Regular" },
+    { value: "600", label: "Semibold" },
+    { value: "800", label: "Bold" },
+  ];
+  const CAPTION_SWATCHES = ["#ffffff", "#000000", "#facc15", "#22d3ee", "#f472b6"];
+  const fontLabel = (v: string) => FONT_OPTIONS.find((f) => f.value === v)?.label ?? "Custom";
+
+  let recents = $state<string[]>(getRecentColors());
+  function rememberColor(c: string) {
+    recents = pushRecentColor(c);
+  }
+
   const langLabel = (m: CaptionModelInfo) =>
     m.languages.includes("multi") ? "Multilingual" : m.languages.join(", ").toUpperCase();
 </script>
@@ -203,9 +229,11 @@
   in:fly={{ y: 8, duration: 260, delay: 40, easing: cubicOut }}
 >
   <PanelSection
-    title="Model"
+    title="Generate captions"
     hint="Transcription runs entirely on your device — no upload, no account."
     flush
+    collapsible
+    defaultOpen={!store.transcript}
   >
     {#snippet action()}
       {#if caps}
@@ -394,47 +422,44 @@
         </div>
       </div>
     {/if}
-  </PanelSection>
 
-  <PanelSection
-    title="Generate"
-    hint="Captions are auto-detected for language and produced locally."
-    flush
-  >
-    <Button
-      variant="default"
-      size="sm"
-      class="w-full gap-1.5"
-      disabled={!selected?.installed || !selected?.runnable || !hasAudio || transcribing}
-      onclick={generate}
-    >
-      {#if transcribing}
-        <Loader2 size={14} class="animate-spin" />
-        {phase === "extracting" ? "Reading audio…" : "Transcribing…"}
-      {:else}
-        <Sparkles size={14} />
-        Generate captions
-      {/if}
-    </Button>
-
-    {#if !hasAudio}
-      <p class="mt-2 text-[10.5px] text-muted-foreground">
-        This recording has no audio track to transcribe.
-      </p>
-    {:else if usable.length === 0}
-      <p class="mt-2 text-[10.5px] text-muted-foreground">
-        Download a model your device can run to enable captioning.
-      </p>
-    {/if}
-
-    {#if error}
-      <div
-        class="mt-2 flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-[10.5px] text-warning"
+    <!-- Generate lives in the same section as the model picker. -->
+    <div class="mt-3 border-t border-border/50 pt-3">
+      <Button
+        variant="default"
+        size="sm"
+        class="w-full gap-1.5"
+        disabled={!selected?.installed || !selected?.runnable || !hasAudio || transcribing}
+        onclick={generate}
       >
-        <AlertTriangle size={12} class="mt-px shrink-0" />
-        <span class="min-w-0">{error}</span>
-      </div>
-    {/if}
+        {#if transcribing}
+          <Loader2 size={14} class="animate-spin" />
+          {phase === "extracting" ? "Reading audio…" : "Transcribing…"}
+        {:else}
+          <Sparkles size={14} />
+          {store.transcript ? "Regenerate captions" : "Generate captions"}
+        {/if}
+      </Button>
+
+      {#if !hasAudio}
+        <p class="mt-2 text-[10.5px] text-muted-foreground">
+          This recording has no audio track to transcribe.
+        </p>
+      {:else if usable.length === 0}
+        <p class="mt-2 text-[10.5px] text-muted-foreground">
+          Download a model your device can run to enable captioning.
+        </p>
+      {/if}
+
+      {#if error}
+        <div
+          class="mt-2 flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-[10.5px] text-warning"
+        >
+          <AlertTriangle size={12} class="mt-px shrink-0" />
+          <span class="min-w-0">{error}</span>
+        </div>
+      {/if}
+    </div>
   </PanelSection>
 
   {#if store.transcript && store.transcript.segments.length > 0}
@@ -452,6 +477,43 @@
       {/snippet}
 
       <div class="flex flex-col gap-3" class:opacity-50={!cs.enabled}>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Font
+          </span>
+          <Select.Root
+            type="single"
+            value={cs.fontFamily}
+            onValueChange={(v) => v && store.updateCaptionStyle({ fontFamily: v })}
+          >
+            <Select.Trigger size="sm" class="h-7 w-36 text-[11px]" aria-label="Caption font">
+              <span data-slot="select-value" style="font-family: {cs.fontFamily}">
+                {fontLabel(cs.fontFamily)}
+              </span>
+            </Select.Trigger>
+            <Select.Content align="end" class="w-36">
+              {#each FONT_OPTIONS as f (f.value)}
+                <Select.Item value={f.value} label={f.label} class="text-[11.5px]">
+                  <span style="font-family: {f.value}">{f.label}</span>
+                </Select.Item>
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </div>
+
+        <div>
+          <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Weight
+          </p>
+          <Segmented
+            size="xs"
+            aria-label="Caption font weight"
+            value={String(cs.fontWeight)}
+            options={weightOptions}
+            onValueChange={(v) => store.updateCaptionStyle({ fontWeight: parseInt(v, 10) })}
+          />
+        </div>
+
         <div>
           <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Position
@@ -491,15 +553,61 @@
           formatValue={(v) => `${v}%`}
         />
 
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] font-medium text-foreground">Text color</span>
-          <input
-            type="color"
-            value={cs.color}
-            aria-label="Caption text color"
-            class="size-7 cursor-pointer rounded-md border border-border/60 bg-transparent"
-            oninput={(e) => store.updateCaptionStyle({ color: e.currentTarget.value })}
-          />
+        <SliderControl
+          label="Max lines"
+          value={cs.maxLines}
+          min={1}
+          max={4}
+          step={1}
+          unit=""
+          onchange={(next) => store.updateCaptionStyle({ maxLines: next })}
+          formatValue={(v) => `${v}`}
+        />
+
+        <div class="space-y-1.5">
+          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Text color
+          </span>
+          <div class="flex flex-wrap items-center gap-1">
+            {#each CAPTION_SWATCHES as swatch (swatch)}
+              {@const isActive = cs.color.toLowerCase() === swatch}
+              <button
+                type="button"
+                aria-label={`Color ${swatch}`}
+                aria-pressed={isActive}
+                onclick={() => store.updateCaptionStyle({ color: swatch })}
+                class={cn(
+                  "size-5 rounded-full border-2 transition",
+                  isActive ? "border-foreground shadow-sm" : "border-border/40 hover:border-border",
+                )}
+                style:background={swatch}
+              ></button>
+            {/each}
+            <Popover.Root>
+              <Popover.Trigger>
+                {#snippet child({ props })}
+                  <button
+                    type="button"
+                    {...props}
+                    aria-label="Custom caption color"
+                    class="grid size-5 place-items-center rounded-full border-2 border-dashed border-border/60 text-[11px] leading-none text-muted-foreground transition hover:border-border hover:text-foreground"
+                  >
+                    +
+                  </button>
+                {/snippet}
+              </Popover.Trigger>
+              <Popover.Content align="start" class="w-auto p-0">
+                <ColorPicker
+                  value={cs.color}
+                  {recents}
+                  oncommit={(c: string) => {
+                    store.updateCaptionStyle({ color: c });
+                    rememberColor(c);
+                  }}
+                />
+              </Popover.Content>
+            </Popover.Root>
+          </div>
         </div>
       </div>
     </PanelSection>

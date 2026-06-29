@@ -23,10 +23,11 @@
     class:items-start={s.position === "top"}
   >
     <span
-      class="caption-text text-center font-semibold leading-tight"
+      class="caption-text text-center leading-tight"
       class:cap-soft={s.background === "soft"}
       class:cap-box={s.background === "box"}
       style="color: {s.color}; font-size: {s.fontSizePct}cqh;
+        font-family: {s.fontFamily}; font-weight: {s.fontWeight};
         margin-top: {s.position === 'top' ? '6%' : '0'};
         margin-bottom: {s.position === 'bottom' ? '6%' : '0'};
         --lines: {s.maxLines};"

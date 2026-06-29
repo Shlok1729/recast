@@ -453,6 +453,10 @@ export interface EditorRenderState {
 	/** Frame padding as percent of the shorter source edge (0..20). */
 	padding: number;
 	borderRadius: number;
+	/** Generated captions (transcript) + how they render. Optional — projects
+	 *  saved before captions landed simply omit these. */
+	transcript?: Transcript | null;
+	captionStyle?: CaptionStyle;
 	cursorEnabled: boolean;
 	cursorSize: number;
 	/**
@@ -720,6 +724,10 @@ function generateId(): string {
 /** How generated captions render over the preview / export. */
 export interface CaptionStyle {
 	enabled: boolean;
+	/** CSS font-family stack. */
+	fontFamily: string;
+	/** Font weight (400–800). */
+	fontWeight: number;
 	/** Font size as a percent of the preview/video height. */
 	fontSizePct: number;
 	position: 'bottom' | 'center' | 'top';
@@ -733,6 +741,8 @@ export interface CaptionStyle {
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
 	enabled: true,
+	fontFamily: 'system-ui, sans-serif',
+	fontWeight: 700,
 	fontSizePct: 5,
 	position: 'bottom',
 	color: '#ffffff',
@@ -1817,6 +1827,8 @@ export function createEditorStore() {
 			annotations: annotations.map((annotation) => ({ ...annotation })),
 			shadow: { ...shadow },
 			audioSettings: { ...audioSettings },
+			transcript,
+			captionStyle: { ...captionStyle },
 			watermarkSettings: { ...watermarkSettings },
 			cameraOverlay: {
 				...cameraOverlay,
@@ -1904,6 +1916,10 @@ export function createEditorStore() {
 		}
 		shadow = state.shadow ?? shadow;
 		audioSettings = state.audioSettings ?? audioSettings;
+		transcript = state.transcript ?? null;
+		captionStyle = state.captionStyle
+			? { ...DEFAULT_CAPTION_STYLE, ...state.captionStyle }
+			: { ...DEFAULT_CAPTION_STYLE };
 		watermarkSettings = state.watermarkSettings ?? watermarkSettings;
 		// Camera overlay defaults match the Phase 1 spec: bottom-right at
 		// 16% size. Older projects stored top-right at 22%; the explicit
@@ -2124,11 +2140,12 @@ export function createEditorStore() {
 		set audioSettings(v: AudioSettings) { audioSettings = v; },
 
 		get transcript() { return transcript; },
-		set transcript(v: Transcript | null) { transcript = v; },
+		set transcript(v: Transcript | null) { transcript = v; isDirty = true; },
 		get captionStyle() { return captionStyle; },
-		set captionStyle(v: CaptionStyle) { captionStyle = v; },
+		set captionStyle(v: CaptionStyle) { captionStyle = v; isDirty = true; },
 		updateCaptionStyle(updates: Partial<CaptionStyle>) {
 			captionStyle = { ...captionStyle, ...updates };
+			isDirty = true;
 		},
 
 		get watermarkSettings() { return watermarkSettings; },
