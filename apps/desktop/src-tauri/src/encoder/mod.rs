@@ -154,6 +154,34 @@ fn recording_codec_args(encoder: &str, quality: RecordingQuality) -> Vec<String>
     let v = |args: &[&str]| args.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     use RecordingQuality::*;
     match (encoder, quality) {
+        ("h264_videotoolbox", Balanced) => v(&[
+            "-c:v",
+            "h264_videotoolbox",
+            "-realtime",
+            "1",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        ("h264_videotoolbox", High) => v(&[
+            "-c:v",
+            "h264_videotoolbox",
+            "-realtime",
+            "1",
+            "-q:v",
+            "65", // 1-100 quality scale
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        ("h264_videotoolbox", Pristine) => v(&[
+            "-c:v",
+            "h264_videotoolbox",
+            "-realtime",
+            "1",
+            "-q:v",
+            "80", // Pristine quality
+            "-pix_fmt",
+            "yuv420p",
+        ]),
         // NVIDIA NVENC — `cq` is constant-quality (lower = better, 0..51).
         ("h264_nvenc", Balanced) => v(&[
             "-c:v",
@@ -653,7 +681,13 @@ mod tests {
 
     #[test]
     fn higher_tiers_stay_420_and_add_quality_rate_control() {
-        for enc in ["h264_nvenc", "h264_amf", "h264_qsv", "libx264"] {
+        for enc in [
+            "h264_videotoolbox",
+            "h264_nvenc",
+            "h264_amf",
+            "h264_qsv",
+            "libx264",
+        ] {
             for q in [RecordingQuality::High, RecordingQuality::Pristine] {
                 let args = recording_codec_args(enc, q);
                 // Never emit a 4:4:4 pixel format — the editor preview can't
@@ -667,7 +701,7 @@ mod tests {
                 assert!(
                     args.iter().any(|a| matches!(
                         a.as_str(),
-                        "-cq" | "-qp_i" | "-global_quality" | "-crf"
+                        "-cq" | "-qp_i" | "-global_quality" | "-crf" | "-q:v"
                     )),
                     "{enc}/{q:?} must set an explicit quality target, got {args:?}"
                 );

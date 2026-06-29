@@ -332,13 +332,30 @@ fn resolve_region_target(rect: RegionRect) -> Result<CaptureTarget> {
     let monitor = Monitor::all()?
         .into_iter()
         .find(|monitor| {
+            // The frontend Region Picker passes coordinates in PHYSICAL pixels,
+            // but xcap's Monitor bounds are in LOGICAL pixels.
+            // We must un-scale the physical center point to find the matching monitor.
+            let scale = display_scale_factor(monitor) as f32;
+            let cx = (center_x as f32 / scale).round() as i32;
+            let cy = (center_y as f32 / scale).round() as i32;
+
             let x = monitor.x().unwrap_or_default();
             let y = monitor.y().unwrap_or_default();
             let width = monitor.width().unwrap_or_default() as i32;
             let height = monitor.height().unwrap_or_default() as i32;
-            center_x >= x && center_x < x + width && center_y >= y && center_y < y + height
+            cx >= x && cx < x + width && cy >= y && cy < y + height
         })
         .context("unable to locate the display containing the selected region")?;
+
+    let scale = display_scale_factor(&monitor);
+    let scale_f32 = scale as f32;
+
+    // Convert the physical rect back to logical pixels so it shares the same
+    // coordinate space as the monitor for clamping.
+    let logical_x = (rect.x as f32 / scale_f32).round() as i32;
+    let logical_y = (rect.y as f32 / scale_f32).round() as i32;
+    let logical_w = (rect.width as f32 / scale_f32).round() as u32;
+    let logical_h = (rect.height as f32 / scale_f32).round() as u32;
 
     let monitor_id = monitor.id().unwrap_or_default();
     let mon_x = monitor.x().unwrap_or_default();
@@ -353,15 +370,15 @@ fn resolve_region_target(rect: RegionRect) -> Result<CaptureTarget> {
         height: mon_h,
     };
 
-    // Clamp the requested region to the source monitor's bounds so that the
-    // encoder crop is never outside the captured frame.
-    let clamped_x = rect.x.max(mon_x).min(mon_x + mon_w as i32);
-    let clamped_y = rect.y.max(mon_y).min(mon_y + mon_h as i32);
+    // Clamp the requested logical region to the source monitor's bounds
+    let clamped_x = logical_x.max(mon_x).min(mon_x + mon_w as i32);
+    let clamped_y = logical_y.max(mon_y).min(mon_y + mon_h as i32);
     let max_w = (mon_x + mon_w as i32 - clamped_x).max(0) as u32;
     let max_h = (mon_y + mon_h as i32 - clamped_y).max(0) as u32;
+
     // Encoder libx264 requires even dimensions.
-    let crop_w = (rect.width.min(max_w)) & !1u32;
-    let crop_h = (rect.height.min(max_h)) & !1u32;
+    let crop_w = (logical_w.min(max_w)) & !1u32;
+    let crop_h = (logical_h.min(max_h)) & !1u32;
     if crop_w == 0 || crop_h == 0 {
         return Err(anyhow!("region collapsed to zero after clamping"));
     }
@@ -377,15 +394,17 @@ fn resolve_region_target(rect: RegionRect) -> Result<CaptureTarget> {
         kind: CaptureKind::Region,
         id: monitor_id,
         display_id: monitor_id,
-        label: format!("Area {crop_w}×{crop_h}"),
+        // Use the original physical dimensions for the display label, ensuring they are even
+        label: format!("Area {}×{}", rect.width & !1u32, rect.height & !1u32),
         source,
         crop,
         scale_factor: 1.0,
     };
-    apply_device_scale(&mut target, display_scale_factor(&monitor));
+
+    // This scales both source and crop back up to physical pixels for the encoder!
+    apply_device_scale(&mut target, scale);
     Ok(target)
 }
-
 //  Recording stats and artifacts
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1070,6 +1089,14 @@ fn trim_video_pause_intervals(path: &Path, intervals: &[(u64, u64)]) -> Result<(
     // the same reason — quality is fine for a 720p camera bubble.
     let mut command = std::process::Command::new(crate::ffmpeg::ffmpeg_path());
     let codec_args: &[&str] = match crate::ffmpeg::preferred_h264_encoder() {
+        "h264_videotoolbox" => &[
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            "60", // Good quality for a 720p camera bubble
+            "-pix_fmt",
+            "yuv420p",
+        ],
         "h264_nvenc" => &[
             "-c:v",
             "h264_nvenc",

@@ -1551,7 +1551,16 @@ pub async fn diagnose_ffmpeg() -> Result<FfmpegDiagnostics, String> {
             // Hardware encoders are informational, not required. Listing
             // every vendor-specific codec the bundled FFmpeg supports so
             // the diagnostics page reflects what's actually selectable.
-            for hw in ["h264_nvenc", "h264_amf", "h264_qsv"] {
+            for hw in [
+                "h264_videotoolbox",
+                "h264_nvenc",
+                "h264_amf",
+                "h264_qsv",
+                "hevc_videotoolbox",
+                "hevc_nvenc",
+                "hevc_amf",
+                "hevc_qsv",
+            ] {
                 if table.contains(hw) {
                     present.push(hw.to_string());
                 }

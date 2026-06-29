@@ -357,8 +357,13 @@ pub fn preferred_h264_encoder() -> &'static str {
     static CACHED: OnceLock<&'static str> = OnceLock::new();
     CACHED.get_or_init(|| {
         for (name, extra_args) in [
+            // Apple Silicon / macOS Hardware Encoder
+            ("h264_videotoolbox", &["-realtime", "1"][..]),
+            // NVIDIA
             ("h264_nvenc", &["-preset", "p1"][..]),
+            // AMD
             ("h264_amf", &["-quality", "speed"][..]),
+            // Intel
             ("h264_qsv", &["-preset", "veryfast"][..]),
         ] {
             if probe_encoder(name, extra_args) {
@@ -413,7 +418,15 @@ pub struct EncoderAvailability {
 pub fn probe_recordable_encoders() -> Vec<EncoderAvailability> {
     // (name, label, vendor, family, hardware, extra_args). H.264 first so
     // the `active` lookup below lands on the codec the recorder uses.
-    let candidates: [(&str, &str, &str, &str, bool, &[&str]); 8] = [
+    let candidates: [(&str, &str, &str, &str, bool, &[&str]); 10] = [
+        (
+            "h264_videotoolbox",
+            "Apple VideoToolbox",
+            "Apple",
+            "H.264",
+            true,
+            &["-realtime", "1"],
+        ),
         (
             "h264_nvenc",
             "NVIDIA NVENC",
@@ -439,6 +452,14 @@ pub fn probe_recordable_encoders() -> Vec<EncoderAvailability> {
             &["-preset", "veryfast"],
         ),
         ("libx264", "x264 (CPU)", "Software", "H.264", false, &[]),
+        (
+            "hevc_videotoolbox",
+            "Apple VideoToolbox",
+            "Apple",
+            "HEVC",
+            true,
+            &["-realtime", "1"],
+        ),
         (
             "hevc_nvenc",
             "NVIDIA NVENC",

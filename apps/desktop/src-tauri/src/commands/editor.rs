@@ -1923,6 +1923,19 @@ pub async fn export_video(
             // isn't bound by real-time pacing — slower presets = smaller
             // files at the same quality.
             match crate::ffmpeg::preferred_h264_encoder() {
+                "h264_videotoolbox" => {
+                    args.extend([
+                        "-c:v".to_string(),
+                        "h264_videotoolbox".to_string(),
+                        "-profile:v".to_string(),
+                        "high".to_string(),
+                        "-pix_fmt".to_string(),
+                        "yuv420p".to_string(),
+                        // VideoToolbox uses -q:v (1-100, higher is better) for VBR
+                        "-q:v".to_string(),
+                        "65".to_string(),
+                    ]);
+                }
                 "h264_nvenc" => {
                     args.extend([
                         "-c:v".to_string(),
