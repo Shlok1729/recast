@@ -4,7 +4,7 @@
     ZoomRegion,
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
-  import { Eye, EyeOff, Film, Pencil, Scissors, Target } from "@lucide/svelte";
+  import { Film, Pencil, Scissors, Target } from "@lucide/svelte";
   import { onMount } from "svelte";
   import TimelineAnnotationLane from "./_components/timeline/TimelineAnnotationLane.svelte";
   import TimelineClipBar from "./_components/timeline/TimelineClipBar.svelte";
@@ -69,6 +69,7 @@
     clipContent: ClipContent;
     zoom: boolean;
     markup: boolean;
+    silence: boolean;
   } {
     if (typeof localStorage !== "undefined") {
       try {
@@ -79,18 +80,25 @@
             clipContent: v.clipContent === "waveform" ? "waveform" : "thumbnails",
             zoom: v.zoom !== false,
             markup: v.markup !== false,
+            silence: v.silence !== false,
           };
         }
       } catch {
         /* fall through to defaults */
       }
     }
-    return { clipContent: "thumbnails", zoom: true, markup: true };
+    return { clipContent: "thumbnails", zoom: true, markup: true, silence: true };
   }
   const _view = loadView();
   let clipContent = $state<ClipContent>(_view.clipContent);
   let showZoomLane = $state(_view.zoom);
   let showMarkupLane = $state(_view.markup);
+  let showSilenceLane = $state(_view.silence);
+  // The Silence lane only exists when the experimental flag is on; this gates
+  // both the rail header and the lane so the two never disagree.
+  const silenceLaneVisible = $derived(
+    experimentalStore.silenceDetection && showSilenceLane,
+  );
   $effect(() => {
     if (typeof localStorage === "undefined") return;
     try {
@@ -100,6 +108,7 @@
           clipContent,
           zoom: showZoomLane,
           markup: showMarkupLane,
+          silence: showSilenceLane,
         }),
       );
     } catch {
@@ -783,23 +792,6 @@
   </span>
 {/snippet}
 
-{#snippet railEye(visible: boolean, toggle: () => void, title: string)}
-  <button
-    type="button"
-    onclick={toggle}
-    {title}
-    aria-label={title}
-    aria-pressed={!visible}
-    class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-  >
-    {#if visible}
-      <Eye class="size-2.5" />
-    {:else}
-      <EyeOff class="size-2.5" />
-    {/if}
-  </button>
-{/snippet}
-
 <div
   class="shrink-0 select-none border-t border-border/60 bg-card/30 px-2 pt-1.5 pb-2"
 >
@@ -817,6 +809,7 @@
     clipContent={clipContent}
     {showZoomLane}
     {showMarkupLane}
+    {showSilenceLane}
     onSetTrim={setTrimPoint}
     onSplit={splitAtPlayhead}
     onToggleRazor={toggleRazor}
@@ -830,6 +823,7 @@
     onSetClipContent={(c) => (clipContent = c)}
     onToggleZoomLane={() => (showZoomLane = !showZoomLane)}
     onToggleMarkupLane={() => (showMarkupLane = !showMarkupLane)}
+    onToggleSilenceLane={() => (showSilenceLane = !showSilenceLane)}
   />
 
   <!-- Rail lives OUTSIDE the scroller so lane names never overlap a card at t≈0.
@@ -857,17 +851,9 @@
             {@render railLabel(Pencil, "Markup", "bg-warning/15 text-warning")}
           </div>
         {/if}
-        {#if experimentalStore.silenceDetection}
-          <!-- Cuts -->
-          <div class="mt-1.5 flex min-h-9 items-center justify-between gap-1">
+        {#if silenceLaneVisible}
+          <div class="mt-1.5 flex min-h-9 items-center justify-center">
             {@render railLabel(Scissors, "Silence", "bg-destructive/15 text-destructive")}
-            {@render railEye(
-              store.cutsEnabled,
-              () => (store.cutsEnabled = !store.cutsEnabled),
-              store.cutsEnabled
-                ? "Disable silence cuts (cuts stay; playback & export ignore them)"
-                : "Enable silence cuts",
-            )}
           </div>
         {/if}
       </div>
@@ -940,7 +926,7 @@
           />
         {/if}
 
-        {#if experimentalStore.silenceDetection}
+        {#if silenceLaneVisible}
           <TimelineCutLane {store} {pixelsPerSecond} {duration} />
         {/if}
       </div>

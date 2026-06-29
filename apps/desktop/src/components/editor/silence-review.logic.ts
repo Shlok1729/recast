@@ -18,16 +18,17 @@ export const CUT_PADDING = 0.12;
 export const BULK_MIN_CONFIDENCE = 0.5;
 
 /** "Balanced" uses the Rust-side defaults; the others trade recall vs false
- *  positives. */
+ *  positives. A lower `threshold` is stricter (a frame counts as speech more
+ *  readily, so less is called silence); a higher one is more aggressive. */
 export const SENSITIVITY_PRESETS: Record<Sensitivity, SilenceDetectOptions> = {
 	relaxed: {
-		flatnessDb: 3,
+		threshold: 0.35,
 		minAudioSilence: 1,
 		minSegment: 1.5,
 	},
 	balanced: {},
 	aggressive: {
-		flatnessDb: 8,
+		threshold: 0.6,
 		minAudioSilence: 0.4,
 		minSegment: 0.6,
 	},
