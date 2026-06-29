@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Annotation, EditorStore } from "$lib/stores/editor-store.svelte";
-  import { originalToOutput } from "$lib/timeline/cuts";
+  import { originalToOutput } from "$lib/timeline/time-map";
   import type { TimeMode } from "./timeline-helpers";
   import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import AnnotationLayerCard from "./AnnotationLayerCard.svelte";
@@ -28,7 +28,7 @@
   let activeSnap = $state<SnapTarget | null>(null);
   const snapX = $derived(
     activeSnap
-      ? originalToOutput(store.effectiveCuts, activeSnap.time) * pixelsPerSecond
+      ? originalToOutput(store.timeMap, activeSnap.time) * pixelsPerSecond
       : 0,
   );
 
@@ -56,11 +56,10 @@
       Annotations you draw on the preview appear here as draggable layers
     </div>
   {:else}
-    {#each store.annotations as annotation, index (annotation.id)}
+    {#each store.annotations as annotation (annotation.id)}
       <AnnotationLayerCard
         {store}
         {annotation}
-        {index}
         {pixelsPerSecond}
         {fps}
         {duration}

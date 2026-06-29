@@ -1,13 +1,12 @@
 <script lang="ts">
   import type { EditorStore, ZoomRegion } from "$lib/stores/editor-store.svelte";
-  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
-  import { X } from "@lucide/svelte";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
+  import { Search, X } from "@lucide/svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
   import {
     formatTimeByMode,
     frameStep,
-    zoomSparklinePath,
     type TimeMode,
   } from "./timeline-helpers";
   import { snapTime, type SnapResult, type SnapTarget } from "./timeline-snap";
@@ -19,7 +18,6 @@
   interface Props {
     store: EditorStore;
     region: ZoomRegion;
-    index: number;
     pixelsPerSecond: number;
     fps: number;
     duration: number;
@@ -33,7 +31,6 @@
   let {
     store,
     region,
-    index,
     pixelsPerSecond,
     fps,
     duration,
@@ -43,17 +40,6 @@
     onCopy,
     onDuplicate,
   }: Props = $props();
-
-  // Reuse the clip bar's thumbnail strip (already loaded) for the frame nearest this region's start.
-  const cardThumb = $derived.by(() => {
-    const strip = store.thumbnailStrip;
-    if (!strip.length || duration <= 0) return null;
-    const idx = Math.min(
-      strip.length - 1,
-      Math.max(0, Math.floor((region.start / duration) * strip.length)),
-    );
-    return strip[idx] ?? null;
-  });
 
   // Floor so a card can't collapse to zero width (0.1s ≈ 6 frames at 60fps).
   const MIN_DURATION = 0.1;
@@ -76,14 +62,13 @@
   // Output (post-cut) axis so regions sit on the same gapless line as clips;
   // a region overlapping a cut renders narrower (correct NLE behaviour).
   const xOf = (t: number) =>
-    originalToOutput(store.effectiveCuts, t) * pixelsPerSecond;
+    originalToOutput(store.timeMap, t) * pixelsPerSecond;
   const tOf = (xPx: number) =>
-    outputToOriginal(store.effectiveCuts, xPx / pixelsPerSecond);
+    outputToOriginal(store.timeMap, xPx / pixelsPerSecond);
   const left = $derived(xOf(region.start));
   // 32px floor keeps even sub-frame regions clickable.
   const width = $derived(Math.max(xOf(region.end) - xOf(region.start), 32));
-  const showThumb = $derived(width >= 110);
-  const showSubtitle = $derived(width >= 130);
+  const showSubtitle = $derived(width >= 110);
 
   function beginDrag(mode: DragMode, event: PointerEvent) {
     if (duration <= 0) return;
@@ -254,7 +239,8 @@
   style="
     left: {left}px;
     width: {width}px;
-    top: {2 + index * 2}px;
+    top: 50%;
+    margin-top: -15px;
     height: 30px;
   "
 >
@@ -271,44 +257,30 @@
       if (e.button !== 0) return;
       beginDrag("move", e);
     }}
-    class="absolute inset-0 overflow-hidden rounded border bg-card/85 text-left backdrop-blur-sm transition-all duration-150 hover:bg-card hover:shadow-craft-sm focus:outline-none focus:ring-1 focus:ring-ring {isSelected
+    class="absolute inset-0 overflow-hidden rounded-md border bg-primary/10 text-left backdrop-blur-sm transition-all duration-150 hover:bg-primary/20 hover:shadow-craft-sm focus:outline-none focus:ring-1 focus:ring-ring {isSelected
       ? 'border-primary cursor-grabbing shadow-[inset_3px_0_0_0_var(--color-primary)] hover:shadow-[inset_3px_0_0_0_var(--color-primary)]'
-      : 'border-border hover:border-primary/50 cursor-grab'} {drag?.mode === 'move'
+      : 'border-primary/30 hover:border-primary/60 cursor-grab'} {drag?.mode === 'move'
       ? 'cursor-grabbing shadow-craft-floating'
       : ''}"
   >
-    <svg
-      viewBox="0 0 100 18"
-      preserveAspectRatio="none"
-      class="pointer-events-none absolute inset-x-0 bottom-0 h-3 w-full text-primary/60"
-    >
-      <path
-        d={zoomSparklinePath(region)}
-        stroke="currentColor"
-        stroke-width="1.2"
-        fill="none"
-      />
-    </svg>
     <div
       class="relative flex h-full items-center gap-1.5 px-1.5"
       id={`zoom-region-${region.id}`}
       aria-label={`Focus region from ${formatTimeByMode(region.start, timeMode, fps)} to ${formatTimeByMode(region.end, timeMode, fps)}, scale ${region.scale.toFixed(1)}x. Click to select; drag to move; drag the edges to resize.`}
     >
-      {#if showThumb && cardThumb}
-        <img
-          src={cardThumb}
-          alt=""
-          aria-hidden="true"
-          draggable="false"
-          class="pointer-events-none h-6 w-9 shrink-0 rounded-sm border border-border/50 object-cover"
-        />
-      {/if}
+      <span
+        class="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary/20 text-primary"
+      >
+        <Search class="size-3" />
+      </span>
       <div class="min-w-0 flex-1 pointer-events-none">
         <p class="truncate text-[10px] font-semibold leading-tight text-foreground">
-          {region.scale.toFixed(1)}× Focus
+          Zoom <span class="text-primary">{region.scale.toFixed(1)}×</span>
         </p>
         {#if showSubtitle}
-          <p class="truncate text-[9px] leading-tight text-muted-foreground">
+          <p
+            class="truncate text-[9px] leading-tight tabular-nums text-muted-foreground"
+          >
             {formatTimeByMode(region.start, timeMode, fps)}
           </p>
         {/if}

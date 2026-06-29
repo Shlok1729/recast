@@ -1,0 +1,150 @@
+<script lang="ts">
+  import { clockCentis } from "$lib/format/time";
+  import type { EditorStore } from "$lib/stores/editor-store.svelte";
+  import {
+    MAX_SEGMENT_SPEED,
+    MIN_SEGMENT_SPEED,
+  } from "$lib/timeline/segment-speed";
+  import { Gauge, RotateCcw, SquareSplitHorizontal, Trash2 } from "@lucide/svelte";
+  import { Button } from "@recast/ui/button";
+  import { Kbd } from "@recast/ui/kbd";
+  import { SliderControl } from "@recast/ui/slider-control";
+  import { cn } from "@recast/ui/utils";
+  import PanelSection from "./PanelSection.svelte";
+
+  // Contextual controls for the clip/segment selected on the timeline. Auto-opened
+  // by PropertiesPanel when `selectedClipStart` is set (mirrors the Focus tab for
+  // zoom regions). Speed writes go through `store.setSegmentSpeed` (coalesced undo).
+
+  interface Props {
+    store: EditorStore;
+  }
+  let { store }: Props = $props();
+
+  const SPEED_PRESETS = [0.5, 1, 1.5, 2];
+  const fmtSpeed = (s: number) => `${s}×`;
+
+  // The selected kept segment, matched by its original start anchor.
+  const selected = $derived.by(() => {
+    const start = store.selectedClipStart;
+    if (start === null) return null;
+    return store.segments.find((s) => Math.abs(s.start - start) < 1e-4) ?? null;
+  });
+  const speed = $derived(selected ? store.segmentSpeedAt(selected.start) : 1);
+  const isSped = $derived(Math.abs(speed - 1) > 1e-4);
+
+  function setSpeed(v: number) {
+    if (selected) store.setSegmentSpeed(selected.start, v);
+  }
+  function splitHere() {
+    store.splitAt(store.currentTime);
+  }
+  function deleteClip() {
+    if (!selected) return;
+    const joinAt = store.deleteSegmentAt((selected.start + selected.end) / 2);
+    if (joinAt !== null) store.currentTime = joinAt;
+  }
+</script>
+
+{#if !selected}
+  <div class="flex flex-col items-center justify-center gap-2 px-3 py-12 text-center">
+    <SquareSplitHorizontal class="size-6 text-muted-foreground/50" />
+    <p class="text-[11px] leading-snug text-muted-foreground">
+      Select a clip on the timeline to change its speed, split it, or remove it.
+    </p>
+  </div>
+{:else}
+  {@const duration = selected.end - selected.start}
+  <div class="space-y-3">
+    <div class="rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+      <div class="flex items-baseline justify-between">
+        <span class="text-[11px] text-muted-foreground">Clip duration</span>
+        <span class="font-mono text-[12px] tabular-nums text-foreground">
+          {clockCentis(duration)}
+        </span>
+      </div>
+      {#if isSped}
+        <div class="mt-0.5 flex items-baseline justify-between text-[10px] text-muted-foreground">
+          <span>Plays in</span>
+          <span class="font-mono tabular-nums text-primary">
+            {clockCentis(duration / speed)} at {fmtSpeed(speed)}
+          </span>
+        </div>
+      {/if}
+    </div>
+
+    <PanelSection
+      title="Clip speed"
+      hint="Changes how fast this clip plays — in the preview AND the export. 1× is normal."
+    >
+      {#snippet action()}
+        {#if isSped}
+          <button
+            type="button"
+            onclick={() => setSpeed(1)}
+            class="flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <RotateCcw class="size-2.5" />
+            Reset
+          </button>
+        {/if}
+      {/snippet}
+      <div class="grid grid-cols-4 gap-1">
+        {#each SPEED_PRESETS as preset (preset)}
+          {@const active = Math.abs(speed - preset) < 1e-4}
+          <button
+            type="button"
+            onclick={() => setSpeed(preset)}
+            aria-pressed={active}
+            class={cn(
+              "rounded-md border px-1.5 py-1 font-mono text-[11px] font-semibold tabular-nums transition-colors",
+              active
+                ? "border-primary/60 bg-primary/10 text-primary"
+                : "border-border/60 bg-card/40 text-muted-foreground hover:border-border hover:text-foreground",
+            )}
+          >
+            {fmtSpeed(preset)}
+          </button>
+        {/each}
+      </div>
+      <SliderControl
+        label="Fine"
+        value={speed}
+        min={MIN_SEGMENT_SPEED}
+        max={MAX_SEGMENT_SPEED}
+        step={0.05}
+        unit="×"
+        formatValue={(v) => `${v.toFixed(2)}×`}
+        onchange={(v) => setSpeed(v)}
+      >
+        {#snippet icon()}
+          <Gauge class="size-3" />
+        {/snippet}
+      </SliderControl>
+    </PanelSection>
+
+    <div class="space-y-1.5">
+      <Button
+        variant="outline"
+        size="sm"
+        class="w-full justify-start gap-2"
+        onclick={splitHere}
+      >
+        <SquareSplitHorizontal class="size-3.5" />
+        Split at playhead
+        <Kbd class="ml-auto">S</Kbd>
+      </Button>
+      {#if store.segments.length > 1}
+        <Button
+          variant="outline"
+          size="sm"
+          class="w-full justify-start gap-2 text-destructive hover:text-destructive"
+          onclick={deleteClip}
+        >
+          <Trash2 class="size-3.5" />
+          Delete clip
+        </Button>
+      {/if}
+    </div>
+  </div>
+{/if}

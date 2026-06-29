@@ -44,6 +44,10 @@
       "svelte": "./src/components/ui/command/index.ts",
       "default": "./src/components/ui/command/index.ts"
     },
+    "./context-menu": {
+      "svelte": "./src/components/ui/context-menu/index.ts",
+      "default": "./src/components/ui/context-menu/index.ts"
+    },
     "./cutout": {
       "svelte": "./src/components/ui/cutout/index.ts",
       "default": "./src/components/ui/cutout/index.ts"

@@ -17,13 +17,13 @@
   import { SegmentedToggle } from "@recast/ui/segmented";
   import { SliderControl } from "@recast/ui/slider-control";
   import { cn } from "@recast/ui/utils";
+  import { Image } from "@unpic/svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly, scale } from "svelte/transition";
   import BezierEditor from "../_components/BezierEditor.svelte";
   import CursorTrajectoryMap from "../_components/CursorTrajectoryMap.svelte";
   import InspectorHint from "../InspectorHint.svelte";
   import PanelSection from "./PanelSection.svelte";
-
   const highlightColors = [
     "#3b82f6",
     "#ef4444",
@@ -108,7 +108,12 @@
         {#each registry.list("cursor") as style, i (style.id)}
           {@const isActive = store.cursorSettings.style === style.id}
           <button
-            in:fly={{ y: 6, duration: 240, delay: 60 + i * 35, easing: cubicOut }}
+            in:fly={{
+              y: 6,
+              duration: 240,
+              delay: 60 + i * 35,
+              easing: cubicOut,
+            }}
             type="button"
             aria-pressed={isActive}
             aria-label={`${style.label} cursor`}
@@ -116,31 +121,26 @@
               store.pushUndoState();
               store.updateCursorSettings({ style: style.id });
             }}
-            title={style.description ? `${style.label} — ${style.description}` : style.label}
+            title={style.description
+              ? `${style.label} — ${style.description}`
+              : style.label}
             class={cn(
-              "group relative aspect-square overflow-hidden rounded-md border transition-all duration-150",
+              "inline-flex items-center justify-center group relative aspect-square overflow-hidden rounded-md border transition-all duration-150",
               "focus:outline-none focus:ring-2 focus:ring-ring/40",
               isActive
                 ? "border-primary/60 bg-primary/8 text-foreground"
                 : "border-transparent bg-background/40 text-foreground/80 hover:border-border hover:bg-background/80 hover:text-foreground",
             )}
           >
-            <span
-              class={cn(
-                "absolute inset-0 flex items-center justify-center transition-transform duration-150",
-                isActive
-                  ? "scale-100"
-                  : "scale-90 opacity-85 group-hover:scale-100 group-hover:opacity-100",
-              )}
+            <Image
+              src={svgSwatchUrl(style.value.svg)}
+              alt={style.label}
+              draggable="false"
+              class="size-10"
+              layout="constrained"
               aria-hidden="true"
-            >
-              <img
-                src={svgSwatchUrl(style.value.svg)}
-                alt=""
-                draggable="false"
-                class="h-[60%] w-[60%]"
-              />
-            </span>
+            />
+          
             {#if isActive}
               <span
                 aria-hidden="true"
@@ -215,7 +215,12 @@
               store.cursorSettings.snapWindowMs === preset.value.snapWindowMs}
             <span
               class="inline-flex"
-              in:scale={{ start: 0.92, duration: 220, delay: 80 + i * 30, easing: cubicOut }}
+              in:scale={{
+                start: 0.92,
+                duration: 220,
+                delay: 80 + i * 30,
+                easing: cubicOut,
+              }}
             >
               <Button
                 type="button"
@@ -338,7 +343,12 @@
               {/each}
             </div>
 
-            <PanelSection title="Custom curve" flush collapsible defaultOpen={false}>
+            <PanelSection
+              title="Custom curve"
+              flush
+              collapsible
+              defaultOpen={false}
+            >
               <div class="pt-1">
                 <BezierEditor
                   value={cur}
@@ -491,7 +501,12 @@
             {@const isSelected = store.cursorSettings.highlightColor === color}
             <span
               class="inline-flex"
-              in:scale={{ start: 0.85, duration: 220, delay: 60 + i * 25, easing: cubicOut }}
+              in:scale={{
+                start: 0.85,
+                duration: 220,
+                delay: 60 + i * 25,
+                easing: cubicOut,
+              }}
             >
               <Button
                 variant="raw"

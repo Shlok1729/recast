@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { EditorStore } from "$lib/stores/editor-store.svelte";
-	import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
+	import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
 	import {
 	  Camera,
 	  LoaderCircle,
@@ -95,10 +95,10 @@
 
 	// OUTPUT (post-cut) time: readout/scrubber reflect the edited length and can't land
 	// in a removed region. `store.currentTime` stays the source of truth (original time); we map to output only for display + seek.
-	const cuts = $derived(store.effectiveCuts);
+	const timeMap = $derived(store.timeMap);
 	const fullDuration = $derived(store.metadata?.duration ?? 0);
-	const outputDuration = $derived(originalToOutput(cuts, fullDuration));
-	const currentOutput = $derived(originalToOutput(cuts, store.currentTime));
+	const outputDuration = $derived(originalToOutput(timeMap, fullDuration));
+	const currentOutput = $derived(originalToOutput(timeMap, store.currentTime));
 
 	const currentTimeFormatted = $derived(formatTime(currentOutput));
 	const durationFormatted = $derived(formatTime(outputDuration));
@@ -128,7 +128,7 @@
 			0,
 			Math.min(currentOutput + frameDuration * direction, outputDuration),
 		);
-		const orig = outputToOriginal(cuts, nextOut);
+		const orig = outputToOriginal(timeMap, nextOut);
 		if (videoEl) videoEl.currentTime = orig;
 		store.currentTime = orig;
 	}
@@ -137,7 +137,7 @@
 		const target = e.target as HTMLInputElement;
 		// The scrubber is in output time; map back to original time (skipping over
 		// collapsed cuts) before driving the transport.
-		const orig = outputToOriginal(cuts, parseFloat(target.value));
+		const orig = outputToOriginal(timeMap, parseFloat(target.value));
 		if (videoEl) videoEl.currentTime = orig;
 		store.currentTime = orig;
 	}

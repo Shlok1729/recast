@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import { originalToOutput } from "$lib/timeline/cuts";
+  import { originalToOutput } from "$lib/timeline/time-map";
   import type { TimeMode } from "./timeline-helpers";
   import { buildSnapTargets, snapLabel, type SnapTarget } from "./timeline-snap";
   import ZoomLayerCard from "./ZoomLayerCard.svelte";
@@ -33,7 +33,7 @@
   // Snap targets are original times; place the guide on the output axis.
   const snapX = $derived(
     activeSnap
-      ? originalToOutput(store.effectiveCuts, activeSnap.time) * pixelsPerSecond
+      ? originalToOutput(store.timeMap, activeSnap.time) * pixelsPerSecond
       : 0,
   );
 
@@ -58,14 +58,13 @@
     <div
       class="flex h-6 items-center justify-center text-[10px] text-muted-foreground"
     >
-      Add a focus region to punch in during playback
+      Add a zoom region to punch in during playback
     </div>
   {:else}
-    {#each store.zoomRegions as region, index (region.id)}
+    {#each store.zoomRegions as region (region.id)}
       <ZoomLayerCard
         {store}
         {region}
-        {index}
         {pixelsPerSecond}
         {fps}
         {duration}

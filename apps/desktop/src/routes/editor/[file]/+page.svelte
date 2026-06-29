@@ -38,8 +38,11 @@
   } from "$lib/stores/editor-store.svelte";
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import { AudioTimelineEngine } from "$lib/playback/audio-engine";
-  import { keptRegions } from "$lib/playback/audio-schedule";
-  import { originalToOutput, outputToOriginal } from "$lib/timeline/cuts";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
+  import {
+    createTileProvider,
+    type TileProvider,
+  } from "$lib/timeline/filmstrip-source";
   import { gdrive } from "$lib/stores/gdrive.svelte";
   import {
     ArrowLeft,
@@ -147,6 +150,14 @@
   let error = $state("");
   let loadedPath = $state("");
   let thumbnailToken = 0;
+
+  // Density-based filmstrip: a WebCodecs tile provider (or null, when the clip
+  // bar falls back to the stretched Rust strip). `filmstripVersion` bumps as
+  // decoded tiles land so the bar repaints. Clip-bar height (h-12) in CSS px.
+  const FILMSTRIP_TILE_HEIGHT = 48;
+  let tileProvider = $state<TileProvider | null>(null);
+  let filmstripVersion = $state(0);
+  let tileProviderToken = 0;
 
   // Legacy-format gate: a v1 `.recast` must be migrated before the editor
   // touches it. `migrationDone` distinguishes a confirmed update (→ reload)
@@ -290,14 +301,21 @@
   }
   onDestroy(stopAudioClockSync);
   onDestroy(() => audioEngine?.dispose());
+  onDestroy(disposeTileProvider);
 
-  // Kept audio regions (trim minus cuts) and current OUTPUT time — what the
-  // Web Audio engine schedules against.
+  // Kept audio regions and current OUTPUT time — what the Web Audio engine
+  // schedules against. Regions are the kept SEGMENTS (trim − cuts, split-bounded)
+  // each carrying its clip speed, so audio speeds up/down with the segment.
+  // Output time is the warped axis (store.timeMap), matching the picture clock.
   function audioRegions() {
-    return keptRegions(store.inPoint, store.outPoint, store.effectiveCuts);
+    return store.segments.map((s) => ({
+      start: s.start,
+      end: s.end,
+      speed: store.segmentSpeedAt(s.start),
+    }));
   }
   function outputNow() {
-    return originalToOutput(store.effectiveCuts, store.currentTime);
+    return originalToOutput(store.timeMap, store.currentTime);
   }
   // Lazily build the engine on first WebCodecs playback. Tried once; on failure
   // it's marked failed and the <audio> elements take over.
@@ -376,17 +394,16 @@
   let lastRegionsKey = "";
   $effect(() => {
     const t = store.currentTime;
-    const cuts = store.effectiveCuts;
     const eng = audioEngine;
     if (!eng || !webcodecsActive || !store.isPlaying) {
       engineSyncOut = -1;
       lastRegionsKey = "";
       return;
     }
-    const out = originalToOutput(cuts, t);
-    const regions = keptRegions(store.inPoint, store.outPoint, cuts);
+    const out = originalToOutput(store.timeMap, t);
+    const regions = audioRegions();
     const regionsKey = regions
-      .map((r) => `${r.start.toFixed(3)}-${r.end.toFixed(3)}`)
+      .map((r) => `${r.start.toFixed(3)}-${r.end.toFixed(3)}@${r.speed.toFixed(3)}`)
       .join(",");
     const jumped =
       engineSyncOut >= 0 && Math.abs(out - engineSyncOut) > ENGINE_RESEEK_JUMP;
@@ -394,6 +411,17 @@
     engineSyncOut = out;
     lastRegionsKey = regionsKey;
     if (jumped || editsChanged) eng.reschedule(regions, out);
+  });
+
+  // Legacy/fallback path: the <audio> elements are slaved to the <video> clock,
+  // so they must share its per-segment clip speed or audio plays at 1× while the
+  // picture speeds up. preservesPitch stays on (default), matching the export's
+  // pitch-preserving atempo. On the WebCodecs path these elements are paused
+  // (the Web Audio engine carries speed via the schedule), so this is a no-op.
+  $effect(() => {
+    const segSpeed = store.segmentSpeedAtTime(store.currentTime);
+    if (systemAudioEl) systemAudioEl.playbackRate = segSpeed;
+    if (micAudioEl) micAudioEl.playbackRate = segSpeed;
   });
 
   // Apply volume/mute from the store's audio settings to both audio elements.
@@ -421,14 +449,14 @@
   // kept frame, never inside a removed range. `store.currentTime` stays original.
   function frameStepSeek(direction: 1 | -1) {
     if (!store.metadata) return;
-    const cuts = store.effectiveCuts;
+    const map = store.timeMap;
     const frameDur = 1 / (store.metadata.fps || 30);
-    const outDur = originalToOutput(cuts, store.metadata.duration);
+    const outDur = originalToOutput(map, store.metadata.duration);
     const nextOut = Math.max(
       0,
-      Math.min(originalToOutput(cuts, store.currentTime) + frameDur * direction, outDur),
+      Math.min(originalToOutput(map, store.currentTime) + frameDur * direction, outDur),
     );
-    const orig = outputToOriginal(cuts, nextOut);
+    const orig = outputToOriginal(map, nextOut);
     if (videoEl) videoEl.currentTime = orig;
     store.currentTime = orig;
   }
@@ -445,6 +473,32 @@
     if (store.trimEnd <= 0 && store.metadata.duration > 0) {
       store.loadRenderState({ trimEnd: store.metadata.duration });
     }
+  }
+
+  function disposeTileProvider() {
+    tileProvider?.dispose();
+    tileProvider = null;
+  }
+
+  // Build the WebCodecs filmstrip provider for the opened media. Tokened so a
+  // rapid reopen disposes a provider that resolves after we moved on.
+  async function setupTileProvider(url: string) {
+    const token = ++tileProviderToken;
+    disposeTileProvider();
+    const dpr = browser ? window.devicePixelRatio || 1 : 1;
+    const provider = await createTileProvider({
+      url,
+      sizeBytes: store.metadata?.sizeBytes,
+      tileHeightPx: Math.round(FILMSTRIP_TILE_HEIGHT * dpr),
+      onChange: () => {
+        filmstripVersion++;
+      },
+    });
+    if (token !== tileProviderToken) {
+      provider?.dispose();
+      return;
+    }
+    tileProvider = provider;
   }
 
   async function loadThumbnailStrip(path: string) {
@@ -467,6 +521,9 @@
       }
     }
   }
+
+  // Latch so the lazy scheduler fires once per loaded clip (reset on load).
+  let waveformRequested = false;
 
   // Decode the audio peak envelope for the timeline waveform. Best-effort async.
   async function loadWaveform() {
@@ -530,6 +587,7 @@
     store.metadata = null;
     store.reset();
     store.thumbnailStrip = [];
+    disposeTileProvider();
 
     try {
       const document = await loadEditorDocument(data.filePath);
@@ -553,6 +611,7 @@
       });
       void loadThumbnailStrip(document.projectPath);
       videoSrc = convertFileSrc(document.mediaPath);
+      void setupTileProvider(videoSrc);
       cursorPath = document.cursorPath ?? null;
       store.cursorPath = cursorPath;
       // Raw on-disk media paths for Rust-side analysis (silence detection).
@@ -560,9 +619,9 @@
       store.audioPath = document.audioPath ?? null;
       store.microphonePath = document.microphonePath ?? null;
       store.waveform = [];
-      // Only the experimental cut lane uses the waveform; skip the ffmpeg pass
-      // when off (the $effect below back-fills if the flag flips on).
-      if (experimentalStore.silenceDetection) void loadWaveform();
+      // Lazy: the idle-scheduled effect below extracts the waveform once the
+      // editor is interactive, so the ffmpeg pass never competes with load.
+      waveformRequested = false;
       systemAudioSrc = document.audioPath
         ? convertFileSrc(document.audioPath)
         : "";
@@ -1259,12 +1318,19 @@
     videoEl.muted = true;
   });
 
-  // Back-fill the waveform if the experimental flag flips on after load.
+  // Extract the waveform lazily: defer to browser idle (best-effort) so the
+  // ffmpeg pass runs after the editor is interactive, never on the load path.
+  // The latch keeps the reactive re-runs from scheduling it more than once.
   $effect(() => {
-    if (!experimentalStore.silenceDetection) return;
-    if (store.waveform.length > 0) return;
+    if (store.waveform.length > 0 || waveformRequested) return;
     if (!store.audioPath && !store.microphonePath) return;
-    void loadWaveform();
+    waveformRequested = true;
+    const run = () => void loadWaveform();
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: 3000 });
+    } else {
+      setTimeout(run, 1000);
+    }
   });
 
   $effect(() => {
@@ -1445,7 +1511,7 @@
             class="shrink-0 overflow-hidden"
             transition:slide={{ axis: "y", duration: 240, easing: cubicOut }}
           >
-            <Timeline {store} {videoEl} />
+            <Timeline {store} {videoEl} {tileProvider} {filmstripVersion} />
           </div>
         {/if}
       </div>

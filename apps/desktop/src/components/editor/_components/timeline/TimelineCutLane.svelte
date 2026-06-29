@@ -1,10 +1,7 @@
 <script lang="ts">
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
-  import {
-    originalToOutput,
-    outputToOriginal,
-    type TimelineCut,
-  } from "$lib/timeline/cuts";
+  import { type TimelineCut } from "$lib/timeline/cuts";
+  import { originalToOutput, outputToOriginal } from "$lib/timeline/time-map";
   import { X } from "@lucide/svelte";
 
   // Hosts cut bands. Drag empty lane space to carve a cut; drag a band's edges or body to adjust it.
@@ -22,10 +19,10 @@
 
   let laneEl = $state<HTMLDivElement | null>(null);
 
-  // Output (post-cut) axis. An applied cut collapses to zero width (rendered as a
-  // seam); an unapplied cut (lane off → not in effectiveCuts) keeps its width as an editable band.
-  const cuts = $derived(store.effectiveCuts);
-  const xOf = (t: number) => originalToOutput(cuts, t) * pixelsPerSecond;
+  // Output axis via the shared display map. An applied cut collapses to zero
+  // width (rendered as a seam); an unapplied cut (lane off → not in the map's
+  // cuts) keeps its width as an editable band.
+  const xOf = (t: number) => originalToOutput(store.timeMap, t) * pixelsPerSecond;
   const axisWidth = $derived(xOf(duration));
 
   type DragMode = "create" | "move" | "resize-l" | "resize-r";
@@ -44,7 +41,7 @@
     if (!laneEl) return 0;
     const x = clientX - laneEl.getBoundingClientRect().left;
     // Pointer is in OUTPUT pixels → output seconds → original time.
-    return Math.min(duration, Math.max(0, outputToOriginal(cuts, x / pixelsPerSecond)));
+    return Math.min(duration, Math.max(0, outputToOriginal(store.timeMap, x / pixelsPerSecond)));
   }
 
   function onLaneDown(e: PointerEvent) {

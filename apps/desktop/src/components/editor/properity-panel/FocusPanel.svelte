@@ -221,7 +221,7 @@
         >
           <Target size={16} />
         </div>
-        <p class="text-[11px] font-medium text-foreground">No focus regions yet</p>
+        <p class="text-[11px] font-medium text-foreground">No zoom regions yet</p>
         <p class="text-[10px] leading-snug text-muted-foreground">
           Park the playhead where you want to zoom, then press Add.
         </p>

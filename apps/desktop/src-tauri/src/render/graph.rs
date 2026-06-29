@@ -33,6 +33,16 @@ pub struct CutRange {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Per-segment speed override, anchored to a kept segment's ORIGINAL start time
+/// (see apps/desktop/src/lib/timeline/segment-speed.ts). A segment with no entry
+/// plays at 1×. Read by the export pipeline to warp the kept stream's timing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentSpeed {
+    pub start: f64,
+    pub speed: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderState {
@@ -87,6 +97,14 @@ pub struct RenderState {
     /// User-accepted silence/manual cuts removed from the timeline.
     #[serde(default)]
     pub cuts: Vec<CutRange>,
+    /// Split markers (original-recording seconds) dividing the kept clip into
+    /// addressable segments. Editor-only on their own; here they bound the
+    /// segments that `segment_speeds` retimes.
+    #[serde(default)]
+    pub split_points: Vec<f64>,
+    /// Per-segment speed overrides (empty = every segment plays at 1×).
+    #[serde(default)]
+    pub segment_speeds: Vec<SegmentSpeed>,
     /// Annotation overlays (rect/ellipse for Phase 1, more to follow).
     /// Preview-only today; export integration lands with the cursor-overlay rewrite.
     #[serde(default)]
@@ -171,6 +189,8 @@ impl Default for RenderState {
             cursor_sway: 0.0,
             zoom_regions: Vec::new(),
             cuts: Vec::new(),
+            split_points: Vec::new(),
+            segment_speeds: Vec::new(),
             annotations: Vec::new(),
             shadow: ShadowSettings::default(),
             audio_settings: AudioSettings::default(),

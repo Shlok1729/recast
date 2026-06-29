@@ -3,16 +3,22 @@
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
+    AudioLines,
     Clock,
-    Gauge,
+    Expand,
+    FastForward,
+    ImageIcon,
     Keyboard,
+    Layers,
     Maximize2,
-    RotateCcw,
+    Pencil,
+    Redo2,
     Scissors,
     Search,
     SlidersHorizontal,
     SquareSplitHorizontal,
     Target,
+    Undo2,
     VolumeX,
     Wand2,
     ZoomIn,
@@ -21,14 +27,14 @@
   import * as DropdownMenu from "@recast/ui/dropdown-menu";
   import { Kbd } from "@recast/ui/kbd";
   import * as Popover from "@recast/ui/popover";
-  import { SliderControl } from "@recast/ui/slider-control";
   import { cn } from "@recast/ui/utils";
   import SilenceReviewPopover from "../../SilenceReviewPopover.svelte";
   import ZoomSuggestionsPopover from "../../ZoomSuggestionsPopover.svelte";
   import { formatTimeByMode, type TimeMode } from "./timeline-helpers";
 
-  // Popovers (Suggest, Remove-silence, Speed) must be portalled: the timeline
-  // sits in an `overflow-hidden` slide wrapper that would clip an in-DOM popover.
+  // Three clusters: EDIT (split + trim to playhead) · INSERT (focus/suggest/
+  // silence) · VIEW (zoom + display options). Popovers are portalled — the
+  // timeline lives in an `overflow-hidden` slide wrapper that would clip them.
 
   interface Props {
     store: EditorStore;
@@ -40,8 +46,16 @@
     speeds: readonly number[];
     timeMode: TimeMode;
     hasSelectedRegion: boolean;
+    razorActive: boolean;
+    clipContent: "thumbnails" | "waveform";
+    showZoomLane: boolean;
+    showMarkupLane: boolean;
     onSetTrim: (kind: "in" | "out") => void;
     onSplit: () => void;
+    onToggleRazor: () => void;
+    onSetClipContent: (content: "thumbnails" | "waveform") => void;
+    onToggleZoomLane: () => void;
+    onToggleMarkupLane: () => void;
     onAddFocusRegion: () => void;
     onResetTrim: () => void;
     onZoomTimeline: (dir: number) => void;
@@ -61,8 +75,16 @@
     speeds,
     timeMode,
     hasSelectedRegion,
+    razorActive,
+    clipContent,
+    showZoomLane,
+    showMarkupLane,
     onSetTrim,
     onSplit,
+    onToggleRazor,
+    onSetClipContent,
+    onToggleZoomLane,
+    onToggleMarkupLane,
     onAddFocusRegion,
     onResetTrim,
     onZoomTimeline,
@@ -72,7 +94,7 @@
     onZoomToSelection,
   }: Props = $props();
 
-  const trimHint = `Set trim points to exclude parts of the clip from export, or add focus regions to highlight important moments. You can also ask Trace to suggest focus regions based on where you moved the cursor.`;
+  const trimHint = `Set in/out points (I/O) to keep only part of the clip, split at the playhead (S) to cut a section out, or add zoom regions to highlight moments. Trace can also suggest zoom regions from your cursor activity.`;
 
   let suggestOpen = $state(false);
   let showSilence = $state(false);
@@ -95,20 +117,64 @@
     "flex h-6 items-center gap-1 rounded-md border border-border/40 bg-muted/40 px-2 text-[11px] font-semibold text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground disabled:opacity-40";
 
   const speedLabel = (s: number) => `${s.toFixed(2).replace(/\.?0+$/, "")}×`;
-
-  const SPEED_MIN = 0.25;
-  const SPEED_MAX = 2;
 </script>
 
 <div class="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+  <!-- EDIT + INSERT -->
   <div class="flex items-center gap-1">
     <InspectorHint content={trimHint} />
 
+    <!-- History -->
     <div class={GROUP}>
       <button
         type="button"
+        onclick={() => store.undo()}
+        disabled={!store.canUndo}
+        title="Undo (Ctrl+Z)"
+        aria-label="Undo"
+        class={SEG_ICON}
+      >
+        <Undo2 class="size-3" />
+      </button>
+      <button
+        type="button"
+        onclick={() => store.redo()}
+        disabled={!store.canRedo}
+        title="Redo (Ctrl+Shift+Z)"
+        aria-label="Redo"
+        class={SEG_ICON}
+      >
+        <Redo2 class="size-3" />
+      </button>
+    </div>
+
+    <!-- Edit: split + trim to playhead -->
+    <div class={GROUP}>
+      <button
+        type="button"
+        onclick={onSplit}
+        title="Split the clip at the playhead (S)"
+        class={SEG}
+      >
+        <SquareSplitHorizontal class="size-3" />
+        <span class="hidden sm:inline">Split</span>
+        <Kbd class="ml-0.5">S</Kbd>
+      </button>
+      <button
+        type="button"
+        onclick={onToggleRazor}
+        aria-pressed={razorActive}
+        title="Cut tool (C) — click two points on the timeline to remove a section; Esc or click again to exit"
+        class={cn(SEG, razorActive && SEG_ACTIVE)}
+      >
+        <Scissors class="size-3" />
+        <span class="hidden sm:inline">Cut</span>
+        <Kbd class="ml-0.5">C</Kbd>
+      </button>
+      <button
+        type="button"
         onclick={() => onSetTrim("in")}
-        title="Cut everything before the playhead (I)"
+        title="Trim the start to the playhead (I)"
         class={SEG}
       >
         <span class="hidden sm:inline">Start here</span>
@@ -118,7 +184,7 @@
       <button
         type="button"
         onclick={() => onSetTrim("out")}
-        title="Cut everything after the playhead (O)"
+        title="Trim the end to the playhead (O)"
         class={SEG}
       >
         <span class="hidden sm:inline">End here</span>
@@ -127,21 +193,28 @@
       </button>
     </div>
 
-    <button
-      type="button"
-      onclick={onSplit}
-      title="Split the clip at the playhead (S)"
-      class={SOLO}
-    >
-      <SquareSplitHorizontal class="size-3" />
-      <span class="hidden sm:inline">Split</span>
-      <Kbd class="ml-0.5">S</Kbd>
-    </button>
+    {#if hasTrim}
+      <button
+        type="button"
+        onclick={onResetTrim}
+        title="Restore the full recording — undo all trims"
+        class={SOLO}
+      >
+        <Expand class="size-3" />
+        <span class="hidden sm:inline">Use full clip</span>
+      </button>
+    {/if}
 
+    <!-- Insert: focus regions, suggestions, silence removal -->
     <div class={GROUP}>
-      <button type="button" onclick={onAddFocusRegion} class={SEG}>
+      <button
+        type="button"
+        onclick={onAddFocusRegion}
+        title="Punch in on the moment at the playhead (zoom region)"
+        class={SEG}
+      >
         <Search class="size-3" />
-        Focus
+        Zoom
       </button>
       <Popover.Root open={suggestOpen} onOpenChange={(v) => (suggestOpen = v)}>
         <Popover.Trigger>
@@ -205,77 +278,19 @@
         </Popover.Content>
       </Popover.Root>
     {/if}
-
-    {#if hasTrim}
-      <button
-        type="button"
-        onclick={onResetTrim}
-        title="Restore the full recording — undo all cuts"
-        class={SOLO}
-      >
-        <Scissors class="size-3" />
-        Use full clip
-      </button>
-    {/if}
-
-    <!-- Inline discoverability for the core clip keys; hidden on narrow rails. -->
-    <span
-      class="ml-1 hidden items-center gap-1 text-[10px] text-muted-foreground xl:inline-flex"
-    >
-      <Kbd>S</Kbd>
-      split
-      <Kbd>⌫</Kbd>
-      remove
-    </span>
   </div>
 
+  <!-- VIEW -->
   <div class="flex items-center gap-1.5 text-muted-foreground">
-    <Popover.Root>
-      <Popover.Trigger>
-        {#snippet child({ props })}
-          <button {...props} type="button" aria-label="Playback speed" class={SOLO}>
-            <Gauge class="size-3" />
-            <span class="font-mono tabular-nums">{speedLabel(playbackSpeed)}</span>
-          </button>
-        {/snippet}
-      </Popover.Trigger>
-      <Popover.Content side="top" align="end" class="w-56">
-        <div class="flex flex-col gap-2.5">
-          <SliderControl
-            label="Playback speed"
-            value={playbackSpeed}
-            min={SPEED_MIN}
-            max={SPEED_MAX}
-            step={0.05}
-            unit="×"
-            formatValue={(v) => speedLabel(v)}
-            onchange={(v) => onSelectSpeed(v)}
-          >
-            {#snippet icon()}
-              <Gauge class="size-3" />
-            {/snippet}
-          </SliderControl>
-          <div class="flex items-center gap-1">
-            {#each speeds as speed (speed)}
-              {@const active = Math.abs(playbackSpeed - speed) < 0.001}
-              <button
-                type="button"
-                onclick={() => onSelectSpeed(speed)}
-                aria-pressed={active}
-                class={cn(
-                  "flex-1 rounded-md border px-1.5 py-1 font-mono text-[10px] font-semibold tabular-nums transition-colors",
-                  active
-                    ? "border-primary/60 bg-primary/10 text-primary"
-                    : "border-border/60 bg-card/40 text-muted-foreground hover:border-border hover:text-foreground",
-                )}
-              >
-                {speedLabel(speed)}
-              </button>
-            {/each}
-          </div>
-        </div>
-      </Popover.Content>
-    </Popover.Root>
+    {#if hasTrim}
+      <span
+        class="inline-flex h-6 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 font-mono text-[10px] font-semibold tabular-nums text-primary"
+        title="Length of the kept clip"
+      >
+        <Scissors class="size-2.5" />
+        {formatTimeByMode(store.clipDuration, timeMode, fps)}
+      </span>
+    {/if}
 
     <div class={GROUP}>
       <button
@@ -322,15 +337,73 @@
       </button>
     </div>
 
-    {#if hasTrim}
-      <span
-        class="inline-flex h-6 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 font-mono text-[10px] font-semibold tabular-nums text-primary"
-        title="Length of the kept clip"
-      >
-        <Scissors class="size-2.5" />
-        {formatTimeByMode(store.clipDuration, timeMode, fps)}
-      </span>
-    {/if}
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        <button
+          type="button"
+          aria-label="Layers"
+          title="Show or hide timeline layers"
+          class={SOLO}
+        >
+          <Layers class="size-3" />
+          <span class="hidden md:inline">Layers</span>
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content size="sm" align="end" class="w-48">
+        <DropdownMenu.Label>Clip content</DropdownMenu.Label>
+        <DropdownMenu.RadioGroup
+          value={clipContent}
+          onValueChange={(v) =>
+            onSetClipContent(v === "waveform" ? "waveform" : "thumbnails")}
+        >
+          <DropdownMenu.RadioItem value="thumbnails">
+            <ImageIcon class="size-3" />
+            Thumbnails
+          </DropdownMenu.RadioItem>
+          <DropdownMenu.RadioItem value="waveform">
+            <AudioLines class="size-3" />
+            Waveform
+          </DropdownMenu.RadioItem>
+        </DropdownMenu.RadioGroup>
+
+        <DropdownMenu.Separator />
+
+        <DropdownMenu.Label>Show lanes</DropdownMenu.Label>
+        <DropdownMenu.CheckboxItem
+          checked={showZoomLane}
+          onCheckedChange={onToggleZoomLane}
+        >
+          <Target class="size-3" />
+          Zoom
+        </DropdownMenu.CheckboxItem>
+        <DropdownMenu.CheckboxItem
+          checked={showMarkupLane}
+          onCheckedChange={onToggleMarkupLane}
+        >
+          <Pencil class="size-3" />
+          Markup
+        </DropdownMenu.CheckboxItem>
+
+        <DropdownMenu.Separator />
+
+        <DropdownMenu.Label>Apply to video</DropdownMenu.Label>
+        <DropdownMenu.CheckboxItem
+          checked={store.focusEnabled}
+          onCheckedChange={() => (store.focusEnabled = !store.focusEnabled)}
+        >
+          <Target class="size-3" />
+          Zoom effects
+        </DropdownMenu.CheckboxItem>
+        <DropdownMenu.CheckboxItem
+          checked={!store.annotationsGloballyHidden}
+          onCheckedChange={() =>
+            (store.annotationsGloballyHidden = !store.annotationsGloballyHidden)}
+        >
+          <Pencil class="size-3" />
+          Markup
+        </DropdownMenu.CheckboxItem>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
 
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>
@@ -340,6 +413,25 @@
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Content size="sm" align="end" class="w-52">
+        <!-- Preview rate is a VIEWING aid only (not the export) — kept here, away
+             from the per-clip Clip speed in the sidebar, so the two never read alike. -->
+        <DropdownMenu.Label class="flex items-center gap-1.5">
+          <FastForward class="size-3" />
+          Preview rate
+        </DropdownMenu.Label>
+        <DropdownMenu.RadioGroup
+          value={String(playbackSpeed)}
+          onValueChange={(v) => onSelectSpeed(parseFloat(v))}
+        >
+          {#each speeds as speed (speed)}
+            <DropdownMenu.RadioItem value={String(speed)}>
+              {speedLabel(speed)}
+            </DropdownMenu.RadioItem>
+          {/each}
+        </DropdownMenu.RadioGroup>
+
+        <DropdownMenu.Separator />
+
         <DropdownMenu.Label class="flex items-center gap-1.5">
           <Clock class="size-3" />
           Time display

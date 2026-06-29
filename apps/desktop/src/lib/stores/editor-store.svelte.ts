@@ -11,6 +11,15 @@ import { log } from '../logger';
 import { resolveBackgroundWireValue } from '../registry/resolve';
 import { totalCutDuration, type CutSource, type TimelineCut } from '../timeline/cuts';
 import { deriveSegments, planDeleteSegment, planSplit, segmentAt, type Segment } from '../timeline/segments';
+import {
+	buildSpeedOf,
+	pruneSegmentSpeeds,
+	type SegmentSpeed,
+	segmentSpeedAt as speedAtAnchor,
+	segmentSpeedAtTime as speedAtTime,
+	setSegmentSpeed as upsertSegmentSpeed,
+} from '../timeline/segment-speed';
+import { displayTimeMap, timeMapFromSegments } from '../timeline/time-map';
 import { experimentalStore } from './experimental.svelte';
 
 export type BackgroundType = 'wallpaper' | 'image' | 'color' | 'gradient';
@@ -489,6 +498,9 @@ export interface EditorRenderState {
 	 *  individually deletable segments. Editor-only — has no export effect on
 	 *  its own; deleting a segment is what produces a cut. */
 	splitPoints?: number[];
+	/** Per-segment speed overrides, anchored to a segment's original start. A
+	 *  segment with no entry plays at 1×. */
+	segmentSpeeds?: SegmentSpeed[];
 	/** Whether zoom regions apply in preview/export. */
 	focusEnabled?: boolean;
 	/** Whether annotations render in preview/export. Negation of the
@@ -581,7 +593,7 @@ export function aspectRatio(a: OutputAspect): number | null {
 
 export type EditorWindowBehavior = 'navigate' | 'new-window';
 
-export type PanelTab = 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'extensions' | 'info';
+export type PanelTab = 'clip' | 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'extensions' | 'info';
 
 // Wallpapers 19–23 were moved into the installable "Waves" extension pack
 // (extensions/packs/waves-wallpapers) — keep the built-in default set at 18 so
@@ -735,6 +747,11 @@ export function createEditorStore() {
 	// individually deletable segments. Purely an editing aid — no export effect
 	// until a segment between two boundaries is ripple-deleted (→ a manual cut).
 	let splitPoints = $state<number[]>([]);
+	let segmentSpeeds = $state<SegmentSpeed[]>([]);
+	// Transient (not serialized): true only while a trim handle is being dragged.
+	// Flips the timeline onto the full-recording axis so the handle can move
+	// across the whole source and reveal the trimmed head/tail (Cap-style ghost).
+	let isTrimming = $state(false);
 	// Transient UI selection: the start time of the highlighted clip block, or
 	// null. Not serialized (mirrors selectedZoomRegionId).
 	let selectedClipStart = $state<number | null>(null);
@@ -922,6 +939,7 @@ export function createEditorStore() {
 			zoomRegions,
 			cuts,
 			splitPoints,
+			segmentSpeeds,
 			autoZoomEnabled,
 			autoZoomApplied,
 			annotations,
@@ -1025,6 +1043,7 @@ export function createEditorStore() {
 		autoZoomApplied = s.autoZoomApplied ?? autoZoomApplied;
 		cuts = (s.cuts ?? []).map((c: TimelineCut) => ({ ...c }));
 		splitPoints = [...(s.splitPoints ?? [])];
+		segmentSpeeds = (s.segmentSpeeds ?? []).map((o: SegmentSpeed) => ({ ...o }));
 		// Annotation undo: restore the captured array. Each entry already
 		// carries its own id from the snapshot — we keep them so refs from
 		// `selectedAnnotationId` etc. survive the undo cleanly.
@@ -1430,6 +1449,7 @@ export function createEditorStore() {
 		selectedZoomRegionId = null;
 		cuts = [];
 		splitPoints = [];
+		segmentSpeeds = [];
 		cutsEnabled = true;
 		focusEnabled = true;
 		dismissedSilences = [];
@@ -1589,6 +1609,52 @@ export function createEditorStore() {
 		});
 	}
 
+	/** The timeline axis: the KEPT clip only (trimmed head/tail collapse away,
+	 * Cap-style), with each kept segment warped by its per-segment speed and cuts
+	 * closed to seams. `output 0 == inPoint`; the clip fills the track from the
+	 * left. Every lane, the playhead, and the preview clock position against this.
+	 * At all-1× speeds it's the cut translation map restricted to [inPoint,outPoint]. */
+	function currentTimeMap() {
+		const segs = currentSegments();
+		const speedOf = buildSpeedOf(segs, segmentSpeeds);
+		// While trimming, un-collapse onto the full recording so the handle can
+		// move across the whole source (and reveal/restore the trimmed head/tail).
+		if (isTrimming) {
+			const { start, end } = clipBounds();
+			return displayTimeMap({
+				trimStart: start,
+				trimEnd: end,
+				durationSec: metadata?.duration ?? end,
+				segments: segs,
+				cuts: effectiveCutList(),
+				speedOf,
+			});
+		}
+		return timeMapFromSegments(segs, speedOf);
+	}
+
+	/** Speed of the segment anchored at original `start` (1 when unset). */
+	function segmentSpeedAtStart(start: number): number {
+		return speedAtAnchor(segmentSpeeds, start);
+	}
+
+	/** Speed of the segment that CONTAINS original time `t` (1 when none / unset).
+	 * The legacy `<video>` preview reads this to set `playbackRate` per segment,
+	 * since that path plays at the element's native rate rather than the warped
+	 * output clock. Tolerant at seams: forward-biased onto the next segment. */
+	function segmentSpeedAtTime(t: number): number {
+		return speedAtTime(currentSegments(), segmentSpeeds, t);
+	}
+
+	/** Set the speed of the segment anchored at original `start`. Coalesced into
+	 * one undo entry per anchor while a slider drags; orphaned anchors are pruned. */
+	function setSegmentSpeed(start: number, speed: number) {
+		pushUndoStateCoalesced(`segment-speed-${start.toFixed(3)}`, 400);
+		const next = upsertSegmentSpeed(segmentSpeeds, start, speed);
+		segmentSpeeds = pruneSegmentSpeeds(next, currentSegments());
+		isDirty = true;
+	}
+
 	/** Split the clip at original time `t`. Returns true if a split was added. */
 	function splitAt(t: number): boolean {
 		const { start, end } = clipBounds();
@@ -1713,6 +1779,8 @@ export function createEditorStore() {
 			autoZoomEnabled,
 			cuts: cuts.map((cut) => ({ ...cut })),
 			splitPoints: [...splitPoints],
+			// Prune orphaned anchors on save so the section diffs cleanly.
+			segmentSpeeds: pruneSegmentSpeeds(segmentSpeeds, currentSegments()),
 			cutsEnabled,
 			focusEnabled,
 			annotationsEnabled: !annotationsGloballyHidden,
@@ -1801,6 +1869,7 @@ export function createEditorStore() {
 		}));
 		cutsEnabled = state.cutsEnabled ?? true;
 		splitPoints = [...(state.splitPoints ?? [])];
+		segmentSpeeds = (state.segmentSpeeds ?? []).map((o) => ({ ...o }));
 		focusEnabled = state.focusEnabled ?? true;
 		if (state.annotationsEnabled !== undefined) {
 			annotationsGloballyHidden = !state.annotationsEnabled;
@@ -1974,6 +2043,16 @@ export function createEditorStore() {
 		// — both empty out when timeline editing is opted off.
 		get segments() { return currentSegments(); },
 		get splitPoints() { return activeSplitPoints(); },
+		get segmentSpeeds() { return segmentSpeeds; },
+		// Warped output axis (kept segments × per-segment speed). Reduces to the
+		// cut translation map when every segment is 1×. Un-collapses to the full
+		// recording while `isTrimming` so a trim drag can reveal the trimmed parts.
+		get timeMap() { return currentTimeMap(); },
+		get isTrimming() { return isTrimming; },
+		set isTrimming(v: boolean) { isTrimming = v; },
+		segmentSpeedAt: segmentSpeedAtStart,
+		segmentSpeedAtTime,
+		setSegmentSpeed,
 		get selectedClipStart() { return selectedClipStart; },
 		set selectedClipStart(v: number | null) { selectedClipStart = v; },
 		get focusEnabled() { return focusEnabled; },

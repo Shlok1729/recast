@@ -1,6 +1,3 @@
-import type { Easing } from "$lib/easing/cubic-bezier";
-import type { ZoomRegion } from "$lib/stores/editor-store.svelte";
-
 // Pure helpers extracted from Timeline.svelte so subviews share them and they stay unit-testable.
 
 export function effectiveFps(metadataFps: number | undefined): number {
@@ -79,47 +76,6 @@ export function greatestCommonDivisor(a: number, b: number): number {
 		right = next;
 	}
 	return left || 1;
-}
-
-// Polynomial-in-t approximation; indistinguishable from the real Newton-Raphson solve at sparkline resolution.
-export function approxEaseY(easing: Easing, x: number): number {
-	const a = 1 - 3 * easing.y2 + 3 * easing.y1;
-	const b = 3 * easing.y2 - 6 * easing.y1;
-	const c = 3 * easing.y1;
-	return ((a * x + b) * x + c) * x;
-}
-
-// SVG path (100×18 viewBox) of the region's scale curve, normalised so peak scale hits the top.
-export function zoomSparklinePath(r: ZoomRegion): string {
-	const duration = Math.max(0.001, r.end - r.start);
-	const half = duration * 0.5;
-	const rampIn = Math.min(Math.max(0, r.rampIn), half);
-	const rampOut = Math.min(Math.max(0, r.rampOut), half);
-	const holdStart = rampIn;
-	const holdEnd = duration - rampOut;
-	const peak = Math.max(r.scale, 1.0);
-	const norm = (s: number) => (peak === 1 ? 0 : (s - 1) / (peak - 1));
-	const W = 100;
-	const H = 18;
-	const pts: string[] = [];
-	const N = 48;
-	for (let i = 0; i <= N; i++) {
-		const t = (i / N) * duration;
-		let s = 1.0;
-		if (t < holdStart) {
-			const phase = rampIn > 0 ? t / rampIn : 1;
-			s = 1 + (r.scale - 1) * approxEaseY(r.easeIn, phase);
-		} else if (t > holdEnd) {
-			const phase = rampOut > 0 ? (duration - t) / rampOut : 1;
-			s = 1 + (r.scale - 1) * approxEaseY(r.easeOut, phase);
-		} else {
-			s = r.scale;
-		}
-		const x = (t / duration) * W;
-		const y = H - norm(s) * (H - 2) - 1;
-		pts.push(`${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`);
-	}
-	return pts.join(" ");
 }
 
 export interface TimeMarker {

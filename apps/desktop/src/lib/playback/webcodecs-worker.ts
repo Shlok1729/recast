@@ -13,15 +13,7 @@
  * feeding from the playhead time the main thread sends.
  */
 
-import {
-	createFile,
-	DataStream,
-	type ISOFile,
-	MP4BoxBuffer,
-	type Movie,
-	type Sample,
-	type Track,
-} from "mp4box";
+import { createFile, type ISOFile, MP4BoxBuffer, type Movie } from "mp4box";
 import {
 	buildKeyframes,
 	buildPresOrder,
@@ -32,6 +24,7 @@ import {
 } from "./frame-index";
 import { frameBudget } from "./frame-budget";
 import { GopByteBudget } from "./gop-byte-budget";
+import { demuxWholeFile, extractDescription } from "./mp4-demux";
 import {
 	buildSampleTable,
 	gopByteRange,
@@ -129,92 +122,21 @@ function post(msg: FromWorker, transfer: Transferable[] = []): void {
 }
 
 async function init(ab: ArrayBuffer): Promise<void> {
-	if (typeof VideoDecoder === "undefined") {
-		post({ type: "error", message: "WebCodecs VideoDecoder unavailable" });
-		return;
-	}
 	try {
-		const file = createFile();
-		const collected: ChunkMeta[] = [];
-
-		// Resolve with track + config so they reach the linear flow as non-null
-		// locals — TS can't see assignments inside these mp4box callbacks.
-		const ready = new Promise<{ track: Track; cfg: VideoDecoderConfig }>((resolve, reject) => {
-			let track: Track | null = null;
-			let cfg: VideoDecoderConfig | null = null;
-			file.onError = (e: string) => reject(new Error(`mp4box: ${e}`));
-			file.onReady = (info: Movie) => {
-				const vtrack =
-					info.videoTracks?.[0] ??
-					info.tracks.find((t) => t.type === "video") ??
-					null;
-				if (!vtrack) {
-					reject(new Error("no video track in source"));
-					return;
-				}
-				track = vtrack;
-				cfg = {
-					codec: vtrack.codec,
-					description: extractDescription(file, vtrack.id),
-					// Editor playback wants throughput, not low latency: a
-					// latency-optimised decoder serialises and can tank to
-					// single-digit fps. Prefer hardware and let it pipeline.
-					hardwareAcceleration: "prefer-hardware",
-					optimizeForLatency: false,
-					// codedWidth/Height omitted: the container reports
-					// the DISPLAY size (1920x1080) but the coded size is padded
-					// (1920x1088); a mismatched hint can confuse the decoder. It
-					// derives the true size from the SPS in `description`.
-				};
-				file.setExtractionOptions(vtrack.id, null, { nbSamples: Infinity });
-				file.start();
-			};
-			file.onSamples = (_id: number, _user: unknown, samples: Sample[]) => {
-				for (const s of samples) {
-					const ts = s.timescale || 1;
-					collected.push({
-						ctsUs: Math.round((s.cts / ts) * 1e6),
-						durUs: Math.round((s.duration / ts) * 1e6),
-						key: s.is_sync,
-						data: s.data ? s.data.slice() : new Uint8Array(0),
-					});
-				}
-				if (track && cfg && collected.length >= track.nb_samples)
-					resolve({ track, cfg });
-			};
-		});
-
-		file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(ab, 0), true);
-		file.flush();
-		const { track, cfg } = await ready;
-
-		if (collected.length === 0) throw new Error("demux produced no samples");
-
-		const support = await VideoDecoder.isConfigSupported(cfg);
-		if (!support.supported) {
-			throw new Error(`codec not supported: ${cfg.codec}`);
-		}
-
-		chunks = collected;
+		const res = await demuxWholeFile(ab);
+		chunks = res.chunks;
 		keyframes = buildKeyframes(chunks);
 		presOrder = buildPresOrder(chunks);
-		config = cfg;
+		config = res.config;
 		decoder = makeDecoder();
 		decoder.configure(config);
-
-		const durationSec =
-			track.movie_timescale > 0
-				? track.movie_duration / track.movie_timescale
-				: 0;
-		const vw = track.video?.width ?? track.track_width;
-		const vh = track.video?.height ?? track.track_height;
-		decodeAhead = frameBudget(vw, vh).decodeAhead;
+		decodeAhead = frameBudget(res.width, res.height).decodeAhead;
 		post({
 			type: "ready",
-			width: vw,
-			height: vh,
-			durationSec,
-			fps: durationSec > 0 ? track.nb_samples / durationSec : 30,
+			width: res.width,
+			height: res.height,
+			durationSec: res.durationSec,
+			fps: res.fps,
 		});
 	} catch (err) {
 		post({ type: "error", message: err instanceof Error ? err.message : String(err) });
@@ -625,24 +547,3 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
 			break;
 	}
 };
-
-/**
- * Pull the codec config (avcC / hvcC / av1C / vpcC) out of the sample
- * description as the raw box payload WebCodecs expects (box contents minus the
- * 8-byte size+type header).
- */
-function extractDescription(file: ISOFile, trackId: number): Uint8Array {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const trak = file.getTrackById(trackId) as any;
-	const entries = trak?.mdia?.minf?.stbl?.stsd?.entries ?? [];
-	for (const entry of entries) {
-		const box = entry.avcC ?? entry.hvcC ?? entry.av1C ?? entry.vpcC;
-		if (box) {
-			// Default endianness is BIG_ENDIAN (network order), as avcC requires.
-			const stream = new DataStream(undefined, 0);
-			box.write(stream);
-			return new Uint8Array(stream.buffer, 8);
-		}
-	}
-	throw new Error("no codec description (avcC/hvcC/...) in sample table");
-}
