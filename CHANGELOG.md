@@ -42,10 +42,13 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 
 ## [Unreleased]
 
+## [0.2.9] — 2026-06-29
+
 ### Added
 - Update older recordings to the current project format in bulk from the library, or one at a time from a recording's menu. Recordings that still use the old format are marked so you can see which need updating.
 
 ### Changed
+- Silence detection is far more accurate. It now uses on-device voice detection to find genuinely silent, speech-free stretches and suggest them for removal, instead of judging by volume alone, which often mistook breathing, typing, and background hum for speech. Suggestions appear instantly when a recording opens, and now show up for camera-only recordings, not just screen recordings. Nothing is removed automatically, the quiet parts are only suggested for you to accept or skip.
 - Recordings now save in a new project format that keeps each part of your edit (background, zoom, annotations, audio) in its own section, so project files are more robust and easier to inspect. Older recordings are updated to the new format when you open them, and a copy of the original is kept alongside it first.
 - The editor stays responsive on long recordings. Adjusting cursor smoothing no longer freezes the preview, undo and redo are quicker, and autosave no longer causes a brief stutter.
 
