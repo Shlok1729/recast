@@ -1,21 +1,24 @@
 //! Silence detection for the editor timeline.
 //!
-//! A range counts as silence when **both** of the following hold for at least
-//! `min_segment` seconds:
+//! Candidates come from a Silero voice-activity model — per-frame speech
+//! probability — not an energy threshold. Room tone, breathing and keyboard
+//! noise all sit well above the noise floor an RMS gate keys on, so the old
+//! envelope approach both leaked false silences and swallowed quiet speech.
+//! A range is a candidate when the model reports non-speech (with hysteresis,
+//! so a single dipping frame doesn't split a run) for at least
+//! `min_audio_silence` seconds.
 //!
-//!   1. The audio envelope is *flat and minimal* — frames sit within
-//!      `flatness_db` of the recording's own estimated noise floor. This is
-//!      explicitly relative, not an absolute dB threshold: a quiet hum in a
-//!      noisy room reads as "background" because the floor itself adapts.
-//!   2. The mouse cursor is *idle* — the cursor track shows no meaningful
-//!      movement over the same range.
-//!
-//! Background-noise suppression is intentionally out of scope here. So is
-//! pixel-level screen-motion detection (blinking carets and ticking clocks
-//! made `freezedetect` too noisy to be useful as a hard gate).
+//! The cursor track is a *confidence* signal, not a gate. An idle cursor over
+//! the range raises the score; a moving cursor no longer vetoes it, so
+//! webcam / talking-head recordings with no meaningful cursor still get
+//! suggestions. Nothing is cut automatically — these are suggestions only.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::process::{Command, Stdio};
+
+use voice_activity_detector::VoiceActivityDetector;
 
 use serde::{Deserialize, Serialize};
 
@@ -26,12 +29,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SilenceOptions {
-    /// Frames must sit within this many dB of the recording's noise floor
-    /// to count as background. Smaller = stricter (only very flat
-    /// stretches register); larger = more aggressive.
-    #[serde(default = "d_flatness_db")]
-    pub flatness_db: f64,
-    /// Minimum continuous flat-audio run for a candidate (seconds).
+    /// Speech-probability threshold in [0,1]: a frame is speech once the model
+    /// scores at or above it. Higher = more aggressive (more gets called
+    /// silence). Hysteresis derives a lower release threshold from this.
+    #[serde(default = "d_threshold")]
+    pub threshold: f32,
+    /// Minimum continuous non-speech run for a candidate (seconds).
     #[serde(default = "d_min_audio_silence")]
     pub min_audio_silence: f64,
     /// Minimum length of a returned silence segment (seconds).
@@ -39,8 +42,8 @@ pub struct SilenceOptions {
     pub min_segment: f64,
 }
 
-fn d_flatness_db() -> f64 {
-    5.0
+fn d_threshold() -> f32 {
+    0.5
 }
 fn d_min_audio_silence() -> f64 {
     0.6
@@ -52,7 +55,7 @@ fn d_min_segment() -> f64 {
 impl Default for SilenceOptions {
     fn default() -> Self {
         Self {
-            flatness_db: d_flatness_db(),
+            threshold: d_threshold(),
             min_audio_silence: d_min_audio_silence(),
             min_segment: d_min_segment(),
         }
@@ -60,7 +63,7 @@ impl Default for SilenceOptions {
 }
 
 /// A detected silence range, in original-recording seconds.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SilenceSegment {
     pub start: f64,
@@ -77,22 +80,19 @@ pub struct SilenceSegment {
 
 type Interval = (f64, f64);
 
-// 8 kHz mono is plenty for envelope detection — speech and dynamics live well
-// below half that.
-const RATE: u32 = 8000;
-const FRAME_MS: f64 = 50.0;
+// Silero v5 runs at 16 kHz with a fixed 512-sample window (32 ms/frame).
+const RATE: u32 = 16_000;
+const CHUNK: usize = 512;
+/// How far below `threshold` the score must fall to *end* a speech run. The
+/// gap is the hysteresis band: it stops a single quiet frame mid-word from
+/// fracturing speech into spurious micro-silences.
+const RELEASE_MARGIN: f32 = 0.15;
 /// Cursor counts as idle once it stays within this radius for this long.
 const CURSOR_IDLE_MIN_US: u64 = 300_000;
 const CURSOR_IDLE_RADIUS_PX: f64 = 8.0;
-/// Where the noise floor sits in the frame-energy distribution. The 5th
-/// percentile is conservative: it remains inside the genuine background
-/// even on a recording that is mostly speech (the 20th percentile crept
-/// up into quiet-syllable territory and made `audio_flat` swallow speech).
-const PERCENTILE_FLOOR: f64 = 0.05;
-/// Hard ceiling — a frame above this is never "silent" regardless of how
-/// close it sits to the estimated floor. Guards against pathological
-/// percentile bias on very noisy recordings.
-const ABS_QUIET_DBFS: f64 = -28.0;
+/// A candidate whose duration is at least this fraction covered by cursor-idle
+/// time is reported as cursor-confirmed (drives the `cursor_idle` flag).
+const CURSOR_CONFIRM_FRAC: f64 = 0.5;
 
 //  Command
 
@@ -131,6 +131,20 @@ fn detect_blocking(
         return Err("no audio track available to analyse".into());
     }
 
+    // Detection is a pure function of the input files + options, but each run
+    // is a full FFmpeg decode plus per-frame model inference. Serve it from the
+    // file-identity disk cache so the editor opens instantly on reopen — and so
+    // the precompute kicked off at recording-stop is what the editor reads.
+    // The cursor track is a source too: re-recording it changes the scores.
+    let mut sources: Vec<&Path> = inputs.iter().map(|p| Path::new(*p)).collect();
+    if let Some(c) = cursor_path.filter(|c| Path::new(c).exists()) {
+        sources.push(Path::new(c));
+    }
+    let key = opts_key(&opts);
+    if let Some(cached) = crate::cache::get::<Vec<SilenceSegment>>("silence", &sources, key) {
+        return Ok(cached);
+    }
+
     // Decode the mixed audio to mono s16le at our analysis rate.
     let mut args: Vec<String> = vec!["-hide_banner".into(), "-nostats".into()];
     for p in &inputs {
@@ -155,30 +169,30 @@ fn detect_blocking(
         .chunks_exact(2)
         .map(|c| i16::from_le_bytes([c[0], c[1]]))
         .collect();
-    if samples.len() < 2 {
+    if samples.len() < CHUNK {
         return Ok(Vec::new());
     }
     let total = samples.len() as f64 / RATE as f64;
 
-    // Per-frame RMS in dBFS.
-    let frame_size = (RATE as f64 * FRAME_MS / 1000.0).round() as usize;
-    let frame_dur = FRAME_MS / 1000.0;
-    let frame_db: Vec<f64> = samples.chunks(frame_size).map(frame_rms_db).collect();
+    // Per-frame speech probability. Silero is stateful across frames (an LSTM),
+    // so they must be scored in order; `predict` carries that state and
+    // zero-fills the short trailing frame.
+    let mut vad = VoiceActivityDetector::builder()
+        .sample_rate(RATE)
+        .chunk_size(CHUNK)
+        .build()
+        .map_err(|e| format!("init Silero VAD: {e}"))?;
+    let probs: Vec<f32> = samples
+        .chunks(CHUNK)
+        .map(|c| vad.predict(c.iter().copied()))
+        .collect();
+    let frame_dur = CHUNK as f64 / RATE as f64;
 
-    // Audio-flat runs: stretches whose envelope stays within `flatness_db`
-    // of the recording's own noise floor *and* below an absolute quiet
-    // ceiling. We deliberately do NOT merge_close these — bridging a short
-    // gap would silently swallow a speech burst between two flat runs.
-    let audio_flat = flat_intervals(
-        &frame_db,
-        frame_dur,
-        opts.min_audio_silence,
-        opts.flatness_db,
-    );
+    // Non-speech runs as frame-index ranges, gated by minimum duration.
+    let runs = silence_runs(&probs, frame_dur, opts.threshold, opts.min_audio_silence);
 
-    // Cursor-idle intervals. A missing track is treated as "idle everywhere"
-    // so the feature still works without cursor data, but the segment's
-    // `cursor_idle` flag and score reflect the unverified state.
+    // Cursor-idle intervals — a confidence signal, not a gate. A missing track
+    // just means no cursor confirmation is available; candidates still stand.
     let (cursor_idle, has_cursor) = match cursor_path {
         Some(p) if Path::new(p).exists() => {
             let bytes =
@@ -201,125 +215,105 @@ fn detect_blocking(
                 .collect();
             (ivs, true)
         }
-        _ => (vec![(0.0, total)], false),
+        _ => (Vec::new(), false),
     };
 
-    // Both constraints must hold — the user's spec, intentionally strict.
-    // No `merge_close` here either: a gap between two intersected ranges
-    // means at least one of {audio quiet, cursor still} *failed* in that
-    // gap, and bridging would mark a region as silent that isn't.
-    let mut candidates = intersect(&audio_flat, &cursor_idle);
-    candidates.retain(|iv| iv.1 - iv.0 >= opts.min_segment);
+    let mic_present = microphone_path
+        .map(|p| Path::new(p).exists())
+        .unwrap_or(false);
+    let system_present = audio_path.map(|p| Path::new(p).exists()).unwrap_or(false);
 
-    Ok(candidates
-        .into_iter()
-        .map(|seg| SilenceSegment {
-            start: round3(seg.0),
-            end: round3(seg.1),
-            confidence: score(seg, has_cursor),
-            mic_silent: microphone_path
-                .map(|p| Path::new(p).exists())
-                .unwrap_or(false),
-            system_silent: audio_path.map(|p| Path::new(p).exists()).unwrap_or(false),
-            cursor_idle: has_cursor,
-        })
-        .collect())
+    let mut out = Vec::new();
+    for (s, e) in runs {
+        let start = s as f64 * frame_dur;
+        let end = (e as f64 * frame_dur).min(total);
+        if end - start < opts.min_segment {
+            continue;
+        }
+        let mean_speech = mean(&probs[s..e]);
+        let idle_frac = if has_cursor {
+            overlap_fraction((start, end), &cursor_idle)
+        } else {
+            0.0
+        };
+        out.push(SilenceSegment {
+            start: round3(start),
+            end: round3(end),
+            confidence: score(end - start, mean_speech, idle_frac, has_cursor),
+            mic_silent: mic_present,
+            system_silent: system_present,
+            cursor_idle: has_cursor && idle_frac >= CURSOR_CONFIRM_FRAC,
+        });
+    }
+    crate::cache::put("silence", &sources, key, &out);
+    Ok(out)
+}
+
+/// Fold the detection options into a cache discriminator so a different
+/// sensitivity doesn't collide with a previously cached result.
+fn opts_key(opts: &SilenceOptions) -> u64 {
+    let mut h = DefaultHasher::new();
+    opts.threshold.to_bits().hash(&mut h);
+    opts.min_audio_silence.to_bits().hash(&mut h);
+    opts.min_segment.to_bits().hash(&mut h);
+    h.finish()
 }
 
 //  Audio analysis
 
-fn frame_rms_db(chunk: &[i16]) -> f64 {
-    if chunk.is_empty() {
-        return -120.0;
-    }
-    let sum_sq: f64 = chunk
-        .iter()
-        .map(|s| {
-            let v = *s as f64;
-            v * v
-        })
-        .sum();
-    let rms = (sum_sq / chunk.len() as f64).sqrt();
-    if rms > 1e-6 {
-        20.0 * (rms / 32768.0).log10()
-    } else {
-        -120.0
-    }
-}
-
-/// Find runs of frames whose energy sits within `tol_db` of the recording's
-/// estimated noise floor *and* below an absolute quiet ceiling. Returns
-/// intervals in seconds.
+/// Walk per-frame speech probabilities and return the non-speech runs as
+/// half-open frame-index ranges `[start, end)`, keeping only those at least
+/// `min_dur` seconds long.
 ///
-/// The dual gate matters on recordings that are mostly speech: the
-/// percentile-based floor drifts upward into quiet-syllable territory there,
-/// and a relative-only check would happily mark speech as silence. The hard
-/// `ABS_QUIET_DBFS` ceiling rejects any frame that simply isn't quiet.
-fn flat_intervals(frame_db: &[f64], frame_dur: f64, min_dur: f64, tol_db: f64) -> Vec<Interval> {
-    if frame_db.is_empty() {
-        return Vec::new();
-    }
-    let mut finite: Vec<f64> = frame_db.iter().copied().filter(|v| v.is_finite()).collect();
-    if finite.is_empty() {
-        return Vec::new();
-    }
-    finite.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let idx = ((finite.len() as f64) * PERCENTILE_FLOOR).floor() as usize;
-    let floor = finite[idx.min(finite.len() - 1)];
-    let cap = floor + tol_db;
-
-    // Per-frame bg decision: close to the noise floor AND below the absolute
-    // quiet ceiling. Both must hold.
-    let raw_mask: Vec<bool> = frame_db
-        .iter()
-        .map(|v| *v <= cap && *v <= ABS_QUIET_DBFS)
-        .collect();
-
-    // 3-frame majority smoothing — kills single-frame jitter (an isolated
-    // envelope spike inside a silent stretch, or a one-frame bg fleck inside
-    // speech) without bridging a real burst, which is always longer than the
-    // 100 ms smoothing window.
-    let mask: Vec<bool> = (0..raw_mask.len())
-        .map(|i| {
-            let a = if i > 0 { raw_mask[i - 1] } else { false };
-            let b = raw_mask[i];
-            let c = if i + 1 < raw_mask.len() {
-                raw_mask[i + 1]
-            } else {
-                false
-            };
-            (a as u8 + b as u8 + c as u8) >= 2
-        })
-        .collect();
+/// A two-threshold state machine provides hysteresis: a frame opens a speech
+/// run at `threshold` and only closes it once the score falls below
+/// `threshold - RELEASE_MARGIN`. Without the gap, one quiet frame inside a
+/// word would carve a real utterance into spurious micro-silences.
+fn silence_runs(probs: &[f32], frame_dur: f64, threshold: f32, min_dur: f64) -> Vec<(usize, usize)> {
+    let release = (threshold - RELEASE_MARGIN).max(0.0);
+    let min_frames = (min_dur / frame_dur).ceil() as usize;
 
     let mut out = Vec::new();
-    let mut run_start: Option<usize> = None;
-    let n = mask.len();
-    for i in 0..n {
-        match (mask[i], run_start) {
-            (true, None) => run_start = Some(i),
-            (false, Some(s)) => {
-                let st = s as f64 * frame_dur;
-                let en = i as f64 * frame_dur;
-                if en - st >= min_dur {
-                    out.push((st, en));
-                }
-                run_start = None;
+    let mut speaking = false;
+    let mut run_start = 0usize;
+    for (i, &p) in probs.iter().enumerate() {
+        if speaking {
+            if p < release {
+                speaking = false;
+                run_start = i;
             }
-            _ => {}
+        } else if p >= threshold {
+            if i - run_start >= min_frames {
+                out.push((run_start, i));
+            }
+            speaking = true;
         }
     }
-    if let Some(s) = run_start {
-        let st = s as f64 * frame_dur;
-        let en = n as f64 * frame_dur;
-        if en - st >= min_dur {
-            out.push((st, en));
-        }
+    if !speaking && probs.len() - run_start >= min_frames {
+        out.push((run_start, probs.len()));
     }
     out
 }
 
+fn mean(xs: &[f32]) -> f32 {
+    if xs.is_empty() {
+        return 0.0;
+    }
+    xs.iter().sum::<f32>() / xs.len() as f32
+}
+
 //  Interval algebra
+
+/// Fraction of `seg`'s duration covered by the (sorted, disjoint) `cover`
+/// intervals, in [0,1].
+fn overlap_fraction(seg: Interval, cover: &[Interval]) -> f64 {
+    let span = seg.1 - seg.0;
+    if span <= 0.0 {
+        return 0.0;
+    }
+    let covered: f64 = intersect(&[seg], cover).iter().map(|iv| iv.1 - iv.0).sum();
+    (covered / span).clamp(0.0, 1.0)
+}
 
 /// Intersect two sorted, non-overlapping interval lists.
 fn intersect(a: &[Interval], b: &[Interval]) -> Vec<Interval> {
@@ -342,16 +336,16 @@ fn intersect(a: &[Interval], b: &[Interval]) -> Vec<Interval> {
 
 //  Confidence
 
-fn score(seg: Interval, has_cursor: bool) -> f32 {
-    let len = seg.1 - seg.0;
+/// Blend three signals into a 0..1 score:
+///   - how confidently non-speech the audio is (`1 - mean_speech`),
+///   - how long the run is (saturating at 4 s),
+///   - cursor confirmation (only when a track was present), proportional to
+///     how much of the run the cursor sat idle through.
+fn score(len: f64, mean_speech: f32, idle_frac: f64, has_cursor: bool) -> f32 {
+    let audio_conf = (1.0 - mean_speech).clamp(0.0, 1.0) as f64;
     let len_score = (len / 4.0).min(1.0);
-    let mut c = 0.45 + 0.40 * len_score;
-    // Verified-idle cursor is a real second-source confirmation; an
-    // unverified cursor (track missing) gets none.
-    if has_cursor {
-        c += 0.15;
-    }
-    c.clamp(0.0, 1.0) as f32
+    let cursor_bonus = if has_cursor { 0.15 * idle_frac } else { 0.0 };
+    (0.55 * audio_conf + 0.30 * len_score + cursor_bonus).clamp(0.0, 1.0) as f32
 }
 
 fn round3(v: f64) -> f64 {
@@ -475,16 +469,35 @@ fn waveform_blocking(
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_rms_db, intersect, round3, score};
+    use super::{intersect, overlap_fraction, round3, score, silence_runs};
+
+    // frame_dur 1.0 makes frame index == seconds, so min_dur reads directly.
+    const DUR: f64 = 1.0;
 
     #[test]
-    fn frame_rms_db_handles_silence_and_levels() {
-        // No samples and digital silence both read as the floor.
-        assert_eq!(frame_rms_db(&[]), -120.0);
-        assert_eq!(frame_rms_db(&[0, 0, 0, 0]), -120.0);
-        // Full-scale sits at ~0 dBFS, half-amplitude at ~ -6 dBFS.
-        assert!((frame_rms_db(&[i16::MAX; 64]) - 0.0).abs() < 0.01);
-        assert!((frame_rms_db(&[16384i16; 64]) - (-6.02)).abs() < 0.05);
+    fn silence_runs_finds_leading_internal_and_trailing_gaps() {
+        let probs = [0.1, 0.1, 0.9, 0.9, 0.1, 0.1, 0.1, 0.9];
+        assert_eq!(silence_runs(&probs, DUR, 0.5, 2.0), vec![(0, 2), (4, 7)]);
+    }
+
+    #[test]
+    fn silence_runs_hysteresis_does_not_split_speech_on_a_single_dip() {
+        // 0.4 sits in the [release, threshold) band, so the speech run holds
+        // through it instead of fracturing into two silences.
+        let probs = [0.9, 0.9, 0.4, 0.9, 0.9];
+        assert!(silence_runs(&probs, DUR, 0.5, 2.0).is_empty());
+    }
+
+    #[test]
+    fn silence_runs_drops_runs_below_min_duration() {
+        // A single-frame gap (< 2 s) is discarded; the trailing 3-frame gap
+        // is kept and runs to the end.
+        assert!(silence_runs(&[0.1, 0.9, 0.9], DUR, 0.5, 2.0).is_empty());
+        assert_eq!(
+            silence_runs(&[0.9, 0.9, 0.1, 0.1, 0.1], DUR, 0.5, 2.0),
+            vec![(2, 5)]
+        );
+        assert_eq!(silence_runs(&[0.1; 5], DUR, 0.5, 2.0), vec![(0, 5)]);
     }
 
     #[test]
@@ -499,16 +512,23 @@ mod tests {
     }
 
     #[test]
-    fn score_scales_with_length_and_cursor_confirmation() {
-        // A 4 s segment saturates the length term (0.45 + 0.40).
-        assert!((score((0.0, 4.0), false) - 0.85_f32).abs() < 1e-4);
-        // Cursor confirmation adds 0.15 and clamps at 1.0.
-        assert!((score((0.0, 4.0), true) - 1.0_f32).abs() < 1e-4);
-        // A 2 s segment → half the length term.
-        assert!((score((0.0, 2.0), false) - 0.65_f32).abs() < 1e-4);
-        // Always within [0, 1].
-        let long = score((0.0, 100.0), true);
-        assert!((0.0..=1.0).contains(&long));
+    fn overlap_fraction_measures_covered_share() {
+        assert!((overlap_fraction((0.0, 10.0), &[(2.0, 4.0), (6.0, 7.0)]) - 0.3).abs() < 1e-9);
+        assert_eq!(overlap_fraction((0.0, 10.0), &[]), 0.0);
+        assert_eq!(overlap_fraction((5.0, 5.0), &[(0.0, 10.0)]), 0.0);
+    }
+
+    #[test]
+    fn score_blends_audio_length_and_cursor() {
+        // Deeply silent (mean 0), 4 s saturates length: 0.55 + 0.30.
+        assert!((score(4.0, 0.0, 0.0, false) - 0.85).abs() < 1e-6);
+        // Full cursor-idle confirmation adds 0.15 → clamps at 1.0.
+        assert!((score(4.0, 0.0, 1.0, true) - 1.0).abs() < 1e-6);
+        // High mean speech probability collapses the audio term.
+        assert!((score(4.0, 1.0, 0.0, false) - 0.30).abs() < 1e-6);
+        // Shorter run → half the length term, no cursor track.
+        assert!((score(2.0, 0.0, 0.0, false) - 0.70).abs() < 1e-6);
+        assert!((0.0..=1.0).contains(&score(100.0, 0.0, 1.0, true)));
     }
 
     #[test]
@@ -516,5 +536,19 @@ mod tests {
         assert_eq!(round3(1.234_56), 1.235);
         assert_eq!(round3(0.0), 0.0);
         assert_eq!(round3(2.0 / 3.0), 0.667);
+    }
+
+    // Integration guard: the bundled Silero model loads through ort and scores
+    // a frame, and digital silence reads as non-speech.
+    #[test]
+    fn silero_model_loads_and_scores_silence_low() {
+        let mut vad = super::VoiceActivityDetector::builder()
+            .sample_rate(super::RATE)
+            .chunk_size(super::CHUNK)
+            .build()
+            .expect("build Silero VAD");
+        let p = vad.predict(vec![0i16; super::CHUNK]);
+        assert!((0.0..=1.0).contains(&p), "probability in range, got {p}");
+        assert!(p < 0.5, "digital silence should read as non-speech, got {p}");
     }
 }

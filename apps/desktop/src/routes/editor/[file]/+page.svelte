@@ -19,6 +19,7 @@
     cancelExport,
     clearAutosave,
     createExportId,
+    detectSilence,
     extractWaveform,
     generateThumbnails,
     loadEditorDocument,
@@ -541,6 +542,24 @@
     } catch (err) {
       console.warn("Waveform extraction failed", err);
       store.waveform = [];
+    }
+    // Warm the silence-detection cache off the back of the waveform pass (one
+    // FFmpeg decode at a time, never on the load path). The result is discarded
+    // here — `detectSilence` writes it to the file-identity cache the review
+    // popover reads, so opening that popover is instant. Default options match
+    // the popover's "balanced" sensitivity.
+    void warmSilenceCache();
+  }
+
+  async function warmSilenceCache() {
+    try {
+      await detectSilence(
+        store.audioPath,
+        store.microphonePath,
+        store.cursorPath,
+      );
+    } catch (err) {
+      console.warn("Silence precompute failed", err);
     }
   }
 

@@ -547,13 +547,12 @@ export function suggestZoomRegions(cursorPath: string): Promise<ZoomSuggestion[]
 /** Tunable thresholds for `detectSilence`; omit any field to use the default. */
 export interface SilenceDetectOptions {
 	/**
-	 * Frames must sit within this many dB of the recording's own noise floor
-	 * to count as background. The floor is estimated per-recording, so this
-	 * is relative to whatever level "background" sits at — a noisy room and a
-	 * dead-quiet one both detect sensibly.
+	 * Speech-probability threshold in [0,1]: a frame counts as speech once the
+	 * voice-activity model scores at or above it, so everything below is
+	 * silence. Higher = more aggressive (more gets called silence).
 	 */
-	flatnessDb?: number;
-	/** Minimum continuous flat-audio run (seconds). */
+	threshold?: number;
+	/** Minimum continuous non-speech run (seconds). */
 	minAudioSilence?: number;
 	/** Minimum length of a returned silence segment (seconds). */
 	minSegment?: number;
@@ -572,9 +571,9 @@ export interface SilenceSegment {
 }
 
 /**
- * Analyse a recording for silence — ranges where the audio envelope is flat
- * near its own noise floor AND the cursor isn't moving. Both constraints
- * must hold. Implementation lives in `silence.rs` (Rust).
+ * Analyse a recording for silence — ranges a Silero voice-activity model
+ * scores as non-speech. An idle cursor over the range raises confidence but is
+ * no longer required. Implementation lives in `silence.rs` (Rust).
  */
 export function detectSilence(
 	audioPath?: string | null,

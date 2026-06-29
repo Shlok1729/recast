@@ -70,6 +70,13 @@ urlencoding = "2"
 # Cryptographic-quality randomness for PKCE code verifier + state token.
 # The `getrandom` backend on each OS feeds /dev/urandom or BCryptGenRandom.
 rand = "0.8"
+# Silero VAD (MIT model, bundled inside the crate) for silence detection —
+# replaces the old RMS-envelope gate, which mistakes room tone / breathing
+# for speech. Pulls `ort`; its default `download-binaries` fetches and
+# static-links a prebuilt ONNX Runtime at build time, so there's no loose
+# native lib to ship. `ort` is pinned to a pre-release by this crate, so it
+# stays pinned here too — a float would break the build on the next rc.
+voice_activity_detector = "0.2.1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58.0", features = [
