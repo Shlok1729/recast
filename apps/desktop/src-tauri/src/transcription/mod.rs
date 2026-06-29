@@ -23,6 +23,10 @@ use tokio::fs;
 use capabilities::DeviceCapabilities;
 use models::{CaptionModel, Engine as ModelEngine};
 
+// Reused by silence detection to fetch the Silero VAD model (vad-rs needs an
+// external silero_vad.onnx; the download/verify path lives in `models`).
+pub(crate) use models::{download_file, models_dir};
+
 // ---- Transcript data model (mirrors the planned project-format `transcript` section) ----
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +249,7 @@ pub async fn transcribe_project(
     if !models::is_installed(&app, &model)? {
         return Err(format!("model '{model_id}' is not downloaded"));
     }
+    let model_dir = models::model_dir(&app, &model.id)?;
 
     let _ = app.emit(
         "captions:transcribe-progress",
@@ -264,7 +269,7 @@ pub async fn transcribe_project(
         if samples.is_empty() {
             return Err("no audio to transcribe".to_string());
         }
-        engine::transcribe(&model, &samples, lang.as_deref())
+        engine::transcribe(&model, &model_dir, &samples, lang.as_deref())
     })
     .await
     .map_err(|e| format!("transcription task panicked: {e}"))??;

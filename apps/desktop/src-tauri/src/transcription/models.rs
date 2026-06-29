@@ -95,19 +95,42 @@ fn whisper(
     }
 }
 
-/// Parakeet (NVIDIA, ONNX via `transcribe-rs`). Files are TBD until the exact
-/// ONNX set `transcribe-rs` loads is confirmed, so these aren't downloadable
-/// yet (the UI shows "Soon").
-fn parakeet(id: &str, name: &str, multilingual: bool, is_default: bool) -> CaptionModel {
+/// The int8 ONNX file set `transcribe-rs`'s `ParakeetModel::load(dir, Int8)`
+/// expects in the model directory.
+const PARAKEET_FILES: [&str; 4] = [
+    "encoder-model.int8.onnx",
+    "decoder_joint-model.int8.onnx",
+    "nemo128.onnx",
+    "vocab.txt",
+];
+
+/// Parakeet (NVIDIA, ONNX via `transcribe-rs`, CPU-optimized). Downloaded from
+/// the `istupakov/parakeet-tdt-0.6b-*-onnx` HuggingFace repos.
+fn parakeet(
+    id: &str,
+    name: &str,
+    hf_repo: &str,
+    multilingual: bool,
+    is_default: bool,
+) -> CaptionModel {
+    let base = format!("https://huggingface.co/{hf_repo}/resolve/main");
+    let files = PARAKEET_FILES
+        .iter()
+        .map(|f| ModelFile {
+            rel_path: (*f).into(),
+            url: format!("{base}/{f}"),
+            sha256: None, // TODO: pin once we lock a revision
+        })
+        .collect();
     CaptionModel {
         id: id.into(),
         display_name: name.into(),
         engine: Engine::Parakeet,
         family: "Parakeet".into(),
         languages: vec![if multilingual { "multi" } else { "en" }.into()],
-        approx_size_bytes: Some(2_400_000_000),
+        approx_size_bytes: Some(660_000_000),
         is_default,
-        files: vec![],       // TODO: confirm transcribe-rs Parakeet file set + HF repo
+        files,
         requires_gpu: false, // Parakeet is CPU-optimized
         prefers_gpu: false,
         min_ram_bytes: Some(2_000_000_000),
@@ -120,9 +143,22 @@ fn parakeet(id: &str, name: &str, multilingual: bool, is_default: bool) -> Capti
 /// is the default. `(id, name, file, size, min RAM, prefers GPU)` for Whisper.
 pub fn registry() -> Vec<CaptionModel> {
     vec![
-        // ---- Parakeet ----
-        parakeet("parakeet-v3", "Parakeet V3 (0.6B)", true, true),
-        parakeet("parakeet-v2", "Parakeet V2 (0.6B, English)", false, false),
+        // ---- Parakeet (primary) ----
+        parakeet(
+            "parakeet-v3",
+            "Parakeet V3 (0.6B)",
+            "istupakov/parakeet-tdt-0.6b-v3-onnx",
+            true,
+            true,
+        ),
+        // TODO: confirm the v2 (English) repo id / file names before shipping.
+        parakeet(
+            "parakeet-v2",
+            "Parakeet V2 (0.6B, English)",
+            "istupakov/parakeet-tdt-0.6b-v2-onnx",
+            false,
+            false,
+        ),
         // ---- Whisper (whisper.cpp GGML) ----
         whisper(
             "whisper-tiny",

@@ -15,10 +15,11 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use voice_activity_detector::VoiceActivityDetector;
+use tauri::AppHandle;
+use vad_rs::Vad;
 
 use serde::{Deserialize, Serialize};
 
@@ -96,16 +97,41 @@ const CURSOR_CONFIRM_FRAC: f64 = 0.5;
 
 //  Command
 
+/// Silero VAD v5 ONNX (16 kHz, 512-sample window). `vad-rs` loads it from a
+/// path — it isn't embedded — so we fetch it on first use.
+/// TODO: confirm this is the exact model `vad-rs` expects + pin its sha256.
+const SILERO_URL: &str =
+    "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx";
+
+/// Ensure `silero_vad.onnx` is on disk (downloaded once), under
+/// `app_data/models/silero/`. Reuses the captions download/verify helper.
+async fn ensure_silero(app: &AppHandle) -> Result<PathBuf, String> {
+    let path = crate::transcription::models_dir(app)?
+        .join("silero")
+        .join("silero_vad.onnx");
+    if !path.exists() {
+        let client = reqwest::Client::builder()
+            .user_agent("recast-desktop")
+            .build()
+            .map_err(|e| format!("client: {e}"))?;
+        crate::transcription::download_file(&client, SILERO_URL, None, &path, |_, _| {}).await?;
+    }
+    Ok(path)
+}
+
 #[tauri::command]
 pub async fn detect_silence(
+    app: AppHandle,
     audio_path: Option<String>,
     microphone_path: Option<String>,
     cursor_path: Option<String>,
     options: Option<SilenceOptions>,
 ) -> Result<Vec<SilenceSegment>, String> {
     let opts = options.unwrap_or_default();
+    let silero = ensure_silero(&app).await?;
     tokio::task::spawn_blocking(move || {
         detect_blocking(
+            &silero,
             audio_path.as_deref(),
             microphone_path.as_deref(),
             cursor_path.as_deref(),
@@ -117,6 +143,7 @@ pub async fn detect_silence(
 }
 
 fn detect_blocking(
+    silero_path: &Path,
     audio_path: Option<&str>,
     microphone_path: Option<&str>,
     cursor_path: Option<&str>,
@@ -174,18 +201,23 @@ fn detect_blocking(
     }
     let total = samples.len() as f64 / RATE as f64;
 
-    // Per-frame speech probability. Silero is stateful across frames (an LSTM),
-    // so they must be scored in order; `predict` carries that state and
-    // zero-fills the short trailing frame.
-    let mut vad = VoiceActivityDetector::builder()
-        .sample_rate(RATE)
-        .chunk_size(CHUNK)
-        .build()
-        .map_err(|e| format!("init Silero VAD: {e}"))?;
-    let probs: Vec<f32> = samples
-        .chunks(CHUNK)
-        .map(|c| vad.predict(c.iter().copied()))
-        .collect();
+    // Per-frame speech probability. Silero is a stateful LSTM, so frames are
+    // scored in order; `reset` clears that state, and the short trailing frame
+    // is zero-padded to a full window. vad-rs takes f32 in [-1, 1].
+    let mut vad =
+        Vad::new(silero_path, RATE as usize).map_err(|e| format!("init Silero VAD: {e}"))?;
+    vad.reset();
+    let mut probs: Vec<f32> = Vec::with_capacity(samples.len() / CHUNK + 1);
+    let mut window = [0f32; CHUNK];
+    for chunk in samples.chunks(CHUNK) {
+        for (i, slot) in window.iter_mut().enumerate() {
+            *slot = chunk.get(i).map(|s| *s as f32 / 32768.0).unwrap_or(0.0);
+        }
+        let result = vad
+            .compute(&window)
+            .map_err(|e| format!("Silero VAD compute: {e}"))?;
+        probs.push(result.prob);
+    }
     let frame_dur = CHUNK as f64 / RATE as f64;
 
     // Non-speech runs as frame-index ranges, gated by minimum duration.
