@@ -4,6 +4,7 @@
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
     Clock,
+    Expand,
     FastForward,
     Keyboard,
     Maximize2,
@@ -39,8 +40,10 @@
     speeds: readonly number[];
     timeMode: TimeMode;
     hasSelectedRegion: boolean;
+    razorActive: boolean;
     onSetTrim: (kind: "in" | "out") => void;
     onSplit: () => void;
+    onToggleRazor: () => void;
     onAddFocusRegion: () => void;
     onResetTrim: () => void;
     onZoomTimeline: (dir: number) => void;
@@ -60,8 +63,10 @@
     speeds,
     timeMode,
     hasSelectedRegion,
+    razorActive,
     onSetTrim,
     onSplit,
+    onToggleRazor,
     onAddFocusRegion,
     onResetTrim,
     onZoomTimeline,
@@ -71,7 +76,7 @@
     onZoomToSelection,
   }: Props = $props();
 
-  const trimHint = `Set in/out points (I/O) to keep only part of the clip, split at the playhead (S) to cut a section out, or add focus regions to highlight moments. Trace can also suggest focus regions from your cursor activity.`;
+  const trimHint = `Set in/out points (I/O) to keep only part of the clip, split at the playhead (S) to cut a section out, or add zoom regions to highlight moments. Trace can also suggest zoom regions from your cursor activity.`;
 
   let suggestOpen = $state(false);
   let showSilence = $state(false);
@@ -115,6 +120,17 @@
       </button>
       <button
         type="button"
+        onclick={onToggleRazor}
+        aria-pressed={razorActive}
+        title="Cut tool (C) — click two points on the timeline to remove a section; Esc or click again to exit"
+        class={cn(SEG, razorActive && SEG_ACTIVE)}
+      >
+        <Scissors class="size-3" />
+        <span class="hidden sm:inline">Cut</span>
+        <Kbd class="ml-0.5">C</Kbd>
+      </button>
+      <button
+        type="button"
         onclick={() => onSetTrim("in")}
         title="Trim the start to the playhead (I)"
         class={SEG}
@@ -142,16 +158,21 @@
         title="Restore the full recording — undo all trims"
         class={SOLO}
       >
-        <Scissors class="size-3" />
+        <Expand class="size-3" />
         <span class="hidden sm:inline">Use full clip</span>
       </button>
     {/if}
 
     <!-- Insert: focus regions, suggestions, silence removal -->
     <div class={GROUP}>
-      <button type="button" onclick={onAddFocusRegion} class={SEG}>
+      <button
+        type="button"
+        onclick={onAddFocusRegion}
+        title="Punch in on the moment at the playhead (zoom region)"
+        class={SEG}
+      >
         <Search class="size-3" />
-        Focus
+        Zoom
       </button>
       <Popover.Root open={suggestOpen} onOpenChange={(v) => (suggestOpen = v)}>
         <Popover.Trigger>

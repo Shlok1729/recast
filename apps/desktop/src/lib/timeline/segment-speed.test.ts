@@ -7,6 +7,7 @@ import {
 	pruneSegmentSpeeds,
 	type SegmentSpeed,
 	segmentSpeedAt,
+	segmentSpeedAtTime,
 	setSegmentSpeed,
 } from "./segment-speed";
 import { deriveSegments, type Segment } from "./segments";
@@ -41,6 +42,27 @@ describe("segmentSpeedAt", () => {
 	it("returns 1 for an unmatched anchor", () => {
 		expect(segmentSpeedAt(overrides, 5)).toBe(1);
 		expect(segmentSpeedAt([], 4)).toBe(1);
+	});
+});
+
+describe("segmentSpeedAtTime", () => {
+	// Two kept segments [0,4] and [4,10]; only the second is sped up.
+	const segments = [seg(0, 4, 0), seg(4, 10, 1)];
+	const overrides: SegmentSpeed[] = [{ start: 4, speed: 2 }];
+
+	it("returns the speed of the segment containing the time", () => {
+		expect(segmentSpeedAtTime(segments, overrides, 1)).toBe(1);
+		expect(segmentSpeedAtTime(segments, overrides, 7)).toBe(2);
+	});
+	it("forward-biases a seam onto the following segment", () => {
+		expect(segmentSpeedAtTime(segments, overrides, 4)).toBe(2);
+	});
+	it("holds the last segment's speed at/after the final frame", () => {
+		expect(segmentSpeedAtTime(segments, overrides, 10)).toBe(2);
+		expect(segmentSpeedAtTime(segments, overrides, 99)).toBe(2);
+	});
+	it("defaults to 1 with no segments", () => {
+		expect(segmentSpeedAtTime([], overrides, 3)).toBe(1);
 	});
 });
 

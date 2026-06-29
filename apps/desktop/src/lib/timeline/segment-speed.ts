@@ -38,6 +38,26 @@ export function segmentSpeedAt(
 }
 
 /**
+ * Speed of the segment that CONTAINS original time `t`, or 1 when none matches.
+ * Forward-biased at a seam (t on a boundary resolves to the following segment),
+ * and held at the final segment's speed once `t` reaches the last kept frame.
+ * The legacy `<video>` preview reads this to set `playbackRate` per segment.
+ */
+export function segmentSpeedAtTime(
+	segments: ReadonlyArray<Segment>,
+	overrides: ReadonlyArray<SegmentSpeed>,
+	t: number,
+): number {
+	for (const s of segments) {
+		if (t >= s.start - EPS && t < s.end - EPS) {
+			return segmentSpeedAt(overrides, s.start);
+		}
+	}
+	const last = segments[segments.length - 1];
+	return last ? segmentSpeedAt(overrides, last.start) : 1;
+}
+
+/**
  * Upsert a segment's speed, returning a new sorted array. Setting it back to ~1
  * removes the entry so the override list stays sparse (and serializes to
  * nothing). The value is clamped to the supported range.

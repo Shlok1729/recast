@@ -39,10 +39,10 @@
   // flips back to true. The CameraPanel component itself is intact.
   // See apps/desktop/docs/camera-recording-todo.md.
   const tabs: TabType[] = [
-    { id: "clip", label: "Clip", icon: SquareSplitHorizontal },
+    // { id: "clip", label: "Clip", icon: SquareSplitHorizontal },
     { id: "background", label: "Background", icon: ImageIcon },
-    { id: "focus", label: "Focus", icon: Target },
-    { id: "annotations", label: "Annotations", icon: Pencil },
+    { id: "focus", label: "Zoom", icon: Target },
+    { id: "annotations", label: "Markup", icon: Pencil },
     { id: "cursor", label: "Cursor", icon: MousePointer },
     ...(CAMERA_OVERLAY_UI_ENABLED
       ? [{ id: "camera" as PanelTab, label: "Camera", icon: Video }]

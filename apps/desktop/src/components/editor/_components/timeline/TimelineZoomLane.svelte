@@ -58,7 +58,7 @@
     <div
       class="flex h-6 items-center justify-center text-[10px] text-muted-foreground"
     >
-      Add a focus region to punch in during playback
+      Add a zoom region to punch in during playback
     </div>
   {:else}
     {#each store.zoomRegions as region, index (region.id)}

@@ -413,6 +413,17 @@
     if (jumped || editsChanged) eng.reschedule(regions, out);
   });
 
+  // Legacy/fallback path: the <audio> elements are slaved to the <video> clock,
+  // so they must share its per-segment clip speed or audio plays at 1× while the
+  // picture speeds up. preservesPitch stays on (default), matching the export's
+  // pitch-preserving atempo. On the WebCodecs path these elements are paused
+  // (the Web Audio engine carries speed via the schedule), so this is a no-op.
+  $effect(() => {
+    const segSpeed = store.segmentSpeedAtTime(store.currentTime);
+    if (systemAudioEl) systemAudioEl.playbackRate = segSpeed;
+    if (micAudioEl) micAudioEl.playbackRate = segSpeed;
+  });
+
   // Apply volume/mute from the store's audio settings to both audio elements.
   $effect(() => {
     const settings = store.audioSettings;

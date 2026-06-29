@@ -16,6 +16,7 @@ import {
 	pruneSegmentSpeeds,
 	type SegmentSpeed,
 	segmentSpeedAt as speedAtAnchor,
+	segmentSpeedAtTime as speedAtTime,
 	setSegmentSpeed as upsertSegmentSpeed,
 } from '../timeline/segment-speed';
 import { displayTimeMap, timeMapFromSegments } from '../timeline/time-map';
@@ -1637,6 +1638,14 @@ export function createEditorStore() {
 		return speedAtAnchor(segmentSpeeds, start);
 	}
 
+	/** Speed of the segment that CONTAINS original time `t` (1 when none / unset).
+	 * The legacy `<video>` preview reads this to set `playbackRate` per segment,
+	 * since that path plays at the element's native rate rather than the warped
+	 * output clock. Tolerant at seams: forward-biased onto the next segment. */
+	function segmentSpeedAtTime(t: number): number {
+		return speedAtTime(currentSegments(), segmentSpeeds, t);
+	}
+
 	/** Set the speed of the segment anchored at original `start`. Coalesced into
 	 * one undo entry per anchor while a slider drags; orphaned anchors are pruned. */
 	function setSegmentSpeed(start: number, speed: number) {
@@ -2042,6 +2051,7 @@ export function createEditorStore() {
 		get isTrimming() { return isTrimming; },
 		set isTrimming(v: boolean) { isTrimming = v; },
 		segmentSpeedAt: segmentSpeedAtStart,
+		segmentSpeedAtTime,
 		setSegmentSpeed,
 		get selectedClipStart() { return selectedClipStart; },
 		set selectedClipStart(v: number | null) { selectedClipStart = v; },

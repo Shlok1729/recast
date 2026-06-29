@@ -241,8 +241,8 @@
       beginDrag("move", e);
     }}
     class="absolute inset-0 overflow-hidden rounded border bg-card/85 text-left backdrop-blur-sm transition-all duration-150 hover:bg-card hover:shadow-craft-sm focus:outline-none focus:ring-1 focus:ring-ring {isSelected
-      ? 'border-amber-500/80 cursor-grabbing shadow-[inset_3px_0_0_0_rgba(245,158,11,0.9)] hover:shadow-[inset_3px_0_0_0_rgba(245,158,11,0.9)]'
-      : 'border-amber-500/40 hover:border-amber-500/70 cursor-grab'} {drag?.mode ===
+      ? 'border-warning/80 cursor-grabbing shadow-[inset_3px_0_0_0_var(--color-warning)] hover:shadow-[inset_3px_0_0_0_var(--color-warning)]'
+      : 'border-warning/40 hover:border-warning/70 cursor-grab'} {drag?.mode ===
     'move'
       ? 'cursor-grabbing shadow-craft-floating'
       : ''}"
@@ -253,7 +253,7 @@
       aria-label={`${kindLabel(annotation)} annotation from ${formatTimeByMode(annotation.start, timeMode, fps)} to ${formatTimeByMode(annotation.end, timeMode, fps)}. Click to select; drag to move; drag the edges to resize.`}
     >
       <span
-        class="flex size-4 shrink-0 items-center justify-center rounded text-amber-600 dark:text-amber-400"
+        class="flex size-4 shrink-0 items-center justify-center rounded text-warning"
       >
         <Icon class="size-3" />
       </span>
@@ -298,7 +298,7 @@
     class="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize"
   >
     <div
-      class="mx-auto h-full w-0.5 rounded-l-sm bg-amber-500/70 opacity-0 transition-opacity {isSelected ||
+      class="mx-auto h-full w-0.5 rounded-l-sm bg-warning/70 opacity-0 transition-opacity {isSelected ||
       drag?.mode === 'resize-start'
         ? 'opacity-100!'
         : ''}"
@@ -319,7 +319,7 @@
     class="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize"
   >
     <div
-      class="ml-auto h-full w-0.5 rounded-r-sm bg-amber-500/70 opacity-0 transition-opacity {isSelected ||
+      class="ml-auto h-full w-0.5 rounded-r-sm bg-warning/70 opacity-0 transition-opacity {isSelected ||
       drag?.mode === 'resize-end'
         ? 'opacity-100!'
         : ''}"

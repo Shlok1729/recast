@@ -35,15 +35,15 @@
 >
   <div class="relative -translate-x-1/2">
     <div
-      class="absolute left-1/2 top-1 -translate-x-1/2 rounded border border-border bg-foreground px-1.5 py-0.5 font-mono text-[9px] tabular-nums text-background"
+      class="absolute left-1/2 top-1 -translate-x-1/2 rounded border border-border bg-foreground px-1.5 py-0.5 font-mono text-[9px] tabular-nums text-background shadow-craft-sm"
     >
       {formatTimeByMode(currentTime, timeMode, fps)}
     </div>
     <div
-      class="mx-auto mt-6 size-2 rounded-full border border-background bg-primary"
+      class="mx-auto mt-6 size-2 rounded-full border border-background bg-primary ring-1 ring-primary/30"
     ></div>
     <div
-      class="mx-auto w-px bg-primary/60 pointer-events-none"
+      class="mx-auto w-px bg-primary/70 pointer-events-none"
       class:h-57={tall}
       class:h-45={!tall}
       id="timeline-control"

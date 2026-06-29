@@ -65,12 +65,16 @@
   let reverseFrame = 0;
 
   $effect(() => {
-    if (videoEl) {
-      videoEl.playbackRate =
-        shuttleDirection === 1
-          ? SHUTTLE_SPEEDS[shuttleSpeedIndex] * playbackSpeed
-          : playbackSpeed;
-    }
+    if (!videoEl) return;
+    // Legacy <video> path: the element IS the clock, so per-segment clip speed
+    // must ride on its playbackRate (the warped output clock only exists on the
+    // WebCodecs path). Re-evaluated as the playhead crosses into each segment.
+    const segSpeed = store.segmentSpeedAtTime(store.currentTime);
+    const transport =
+      shuttleDirection === 1
+        ? SHUTTLE_SPEEDS[shuttleSpeedIndex] * playbackSpeed
+        : playbackSpeed;
+    videoEl.playbackRate = transport * segSpeed;
   });
 
   // Reverse-play loop. Held active only while shuttleDirection === -1.
@@ -240,13 +244,19 @@
   }
 
   function handleTimelinePointerDown(event: PointerEvent) {
+    // Razor mode owns the click: place an anchor / carve a cut, never seek/drag.
+    if (razorActive) {
+      event.preventDefault();
+      razorClickAt(event.clientX);
+      return;
+    }
     isDraggingPlayhead = true;
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     seekToPosition(event.clientX);
   }
 
   function handleTimelinePointerMove(event: PointerEvent) {
-    updateHover(event.clientX);
+    updateHover(event.clientX, event.clientY);
     if (!isDraggingPlayhead) return;
     seekToPosition(event.clientX);
   }
@@ -255,10 +265,46 @@
     isDraggingPlayhead = false;
   }
 
+  // Razor (Cut) tool: when armed, the scroller stops seeking and instead takes
+  // two clicks to carve a manual cut. The first click sets `razorAnchor`; the
+  // second commits `addCut(lo, hi)`. Stays armed for repeated cuts until toggled
+  // off or Esc. While armed the cursor is a scissor and a destructive preview
+  // band shows the span that will be removed.
+  let razorActive = $state(false);
+  let razorAnchor = $state<number | null>(null);
+
+  function toggleRazor() {
+    razorActive = !razorActive;
+    razorAnchor = null;
+  }
+
+  // Original time under the pointer, clamped + frame-quantized — the razor's
+  // click resolution (so a cut lands on the same frame preview and export use).
+  function clientXToOriginal(clientX: number): number {
+    if (!timelineEl) return 0;
+    const rect = timelineEl.getBoundingClientRect();
+    const x = clientX - rect.left + timelineEl.scrollLeft;
+    return quantizeToFrame(Math.max(0, Math.min(duration, tOf(x))));
+  }
+
+  function razorClickAt(clientX: number) {
+    const t = clientXToOriginal(clientX);
+    if (razorAnchor === null) {
+      razorAnchor = t;
+      return;
+    }
+    const lo = Math.min(razorAnchor, t);
+    const hi = Math.max(razorAnchor, t);
+    razorAnchor = null;
+    // addCut drops sub-10ms ranges; merge folds it into any neighbour.
+    if (store.addCut(lo, hi, "manual")) store.mergeCuts();
+  }
+
   // Hover-scrub: a frame thumbnail (decoded by the filmstrip provider) follows
   // the cursor over the timeline, with the output timecode under it.
   let hover = $state<{
     clientX: number;
+    clientY: number;
     top: number;
     outputSec: number;
     originalSec: number;
@@ -269,7 +315,7 @@
     return tileProvider.previewAt(hover.originalSec);
   });
 
-  function updateHover(clientX: number) {
+  function updateHover(clientX: number, clientY = 0) {
     if (!timelineEl || isDraggingPlayhead || duration <= 0) {
       hover = null;
       return;
@@ -283,6 +329,7 @@
     const outputSec = clientXToOutput(clientX);
     hover = {
       clientX,
+      clientY,
       top: rect.top,
       outputSec,
       originalSec: outputToOriginal(store.timeMap, outputSec),
@@ -296,6 +343,19 @@
     if (duration <= 0) return;
 
     const mod = event.ctrlKey || event.metaKey;
+
+    // Razor (Cut) tool: C arms/disarms; Esc cancels a pending anchor, else disarms.
+    if (event.key === "Escape" && razorActive) {
+      event.preventDefault();
+      if (razorAnchor !== null) razorAnchor = null;
+      else razorActive = false;
+      return;
+    }
+    if ((event.key === "c" || event.key === "C") && !mod) {
+      event.preventDefault();
+      toggleRazor();
+      return;
+    }
 
     // Paste works anywhere in the timeline (cards own copy/duplicate — they need focus).
     if (mod && (event.key === "v" || event.key === "V")) {
@@ -634,8 +694,10 @@
     speeds={SPEEDS}
     {timeMode}
     hasSelectedRegion={!!store.selectedZoomRegionId}
+    {razorActive}
     onSetTrim={setTrimPoint}
     onSplit={() => store.splitAt(store.currentTime)}
+    onToggleRazor={toggleRazor}
     onAddFocusRegion={addFocusRegion}
     onResetTrim={resetTrim}
     onZoomTimeline={zoomTimeline}
@@ -662,37 +724,37 @@
         </div>
         <!-- Focus -->
         <div class="mt-1.5 flex min-h-9 items-center justify-between gap-1">
-          {@render railLabel(Target, "Focus", "bg-primary/15 text-primary")}
+          {@render railLabel(Target, "Zoom", "bg-primary/15 text-primary")}
           {@render railEye(
             store.focusEnabled,
             () => (store.focusEnabled = !store.focusEnabled),
             store.focusEnabled
-              ? "Disable focus (regions stay; preview & export ignore them)"
-              : "Enable focus",
+              ? "Disable zoom (regions stay; preview & export ignore them)"
+              : "Enable zoom",
           )}
         </div>
         <!-- Notes -->
         <div class="mt-1.5 flex min-h-9 items-center justify-between gap-1">
-          {@render railLabel(Pencil, "Notes", "bg-warning/15 text-warning")}
+          {@render railLabel(Pencil, "Markup", "bg-warning/15 text-warning")}
           {@render railEye(
             !store.annotationsGloballyHidden,
             () =>
               (store.annotationsGloballyHidden = !store.annotationsGloballyHidden),
             store.annotationsGloballyHidden
-              ? "Enable notes"
-              : "Disable notes (annotations stay; preview & export ignore them)",
+              ? "Enable markup"
+              : "Disable markup (it stays; preview & export ignore it)",
           )}
         </div>
         {#if experimentalStore.silenceDetection}
           <!-- Cuts -->
           <div class="mt-1.5 flex min-h-9 items-center justify-between gap-1">
-            {@render railLabel(Scissors, "Cuts", "bg-destructive/15 text-destructive")}
+            {@render railLabel(Scissors, "Silence", "bg-destructive/15 text-destructive")}
             {@render railEye(
               store.cutsEnabled,
               () => (store.cutsEnabled = !store.cutsEnabled),
               store.cutsEnabled
-                ? "Disable cuts (cuts stay; playback & export ignore them)"
-                : "Enable cuts",
+                ? "Disable silence cuts (cuts stay; playback & export ignore them)"
+                : "Enable silence cuts",
             )}
           </div>
         {/if}
@@ -708,6 +770,7 @@
       aria-valuemax={duration}
       aria-valuenow={store.currentTime}
       class="custom-scrollbar relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+      style={razorActive ? "cursor: none" : ""}
       onpointerdown={handleTimelinePointerDown}
       onpointermove={handleTimelinePointerMove}
       onpointerup={handleTimelinePointerUp}
@@ -773,14 +836,54 @@
         {timeMode}
         tall={experimentalStore.silenceDetection}
       />
+
+      <!-- Razor preview: a hairline at the pending click point, and once an anchor
+           is set, the destructive span that the second click will remove. -->
+      {#if razorActive && hover}
+        {@const anchorX =
+          razorAnchor !== null ? xOf(razorAnchor) : xOf(hover.originalSec)}
+        {@const hoverX = xOf(hover.originalSec)}
+        {#if razorAnchor !== null}
+          {@const left = Math.min(anchorX, hoverX)}
+          {@const w = Math.abs(hoverX - anchorX)}
+          <div
+            class="pointer-events-none absolute inset-y-0 z-20 border-x border-destructive/70 bg-destructive/15"
+            style="left: {left}px; width: {w}px; background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, color-mix(in srgb, var(--destructive) 20%, transparent) 5px, color-mix(in srgb, var(--destructive) 20%, transparent) 10px);"
+          >
+            {#if w > 36}
+              <span
+                class="absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded bg-destructive px-1 py-0.5 font-mono text-[9px] font-bold text-destructive-foreground shadow-sm"
+              >
+                −{Math.abs(hover.originalSec - razorAnchor).toFixed(2)}s
+              </span>
+            {/if}
+          </div>
+        {/if}
+        <div
+          class="pointer-events-none absolute inset-y-0 z-20 w-px bg-destructive"
+          style="left: {anchorX}px;"
+        ></div>
+      {/if}
       </div>
     </div>
   </div>
 </div>
 
+<!-- Scissor cursor for the razor tool: the scroller hides its native cursor
+     (cursor:none) and this glyph rides the pointer instead, so the cursor
+     literally reads as a scissor while armed. -->
+{#if razorActive && hover}
+  <div
+    class="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 text-destructive drop-shadow-md"
+    style="left: {hover.clientX}px; top: {hover.clientY}px;"
+  >
+    <Scissors class="size-5" />
+  </div>
+{/if}
+
 <!-- Hover-scrub preview: fixed so it floats above the timeline without being
      clipped by the scroller's overflow. Only with the WebCodecs filmstrip. -->
-{#if hover && tileProvider && !isDraggingPlayhead}
+{#if hover && tileProvider && !isDraggingPlayhead && !razorActive}
   <div
     class="pointer-events-none fixed z-50 flex -translate-x-1/2 -translate-y-full flex-col items-center gap-1"
     style="left: {hover.clientX}px; top: {hover.top - 8}px;"
@@ -817,12 +920,18 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(120, 120, 128, 0.35);
+    background: color-mix(in srgb, var(--color-foreground) 14%, transparent);
     border-radius: 999px;
+    transition: background 0.2s cubic-bezier(0.625, 0.05, 0, 1);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-foreground) 24%, transparent);
   }
 
   .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(120, 120, 128, 0.35) transparent;
+    scrollbar-color: color-mix(in srgb, var(--color-foreground) 14%, transparent)
+      transparent;
   }
 </style>

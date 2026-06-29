@@ -1012,7 +1012,7 @@ fn atempo_chain(speed: f64) -> String {
 
 /// Per-segment audio retime that matches the video warp: split the kept audio
 /// into one branch per segment, `atrim` each to its post-trim range, `atempo` to
-/// its speed, then `aconcat`. Replaces the cut-only `aselect`/`asetpts` path when
+/// its speed, then `concat` (audio mode). Replaces the cut-only `aselect`/`asetpts` path when
 /// any segment is sped. `amap` is the audio label to consume (e.g. "[0:a:0]").
 fn build_speed_audio_filter(amap: &str, segs: &[SpeedSegment]) -> String {
     let n = segs.len();
@@ -1032,10 +1032,9 @@ fn build_speed_audio_filter(amap: &str, segs: &[SpeedSegment]) -> String {
         ));
         seg_labels.push(out);
     }
-    parts.push(format!(
-        "{}aconcat=n={n}:v=0:a=1[acut]",
-        seg_labels.join("")
-    ));
+    // FFmpeg has no `aconcat`; audio is concatenated with the `concat` filter
+    // configured for audio only (v=0:a=1).
+    parts.push(format!("{}concat=n={n}:v=0:a=1[acut]", seg_labels.join("")));
     parts.join(";")
 }
 
@@ -1800,7 +1799,7 @@ pub async fn export_video(
         video_map_after_cursor = "[vcut]".to_string();
         if let Some(amap) = audio_map.take() {
             if speed_active {
-                // Per-segment atrim+atempo+aconcat keeps audio length matched to
+                // Per-segment atrim+atempo+concat keeps audio length matched to
                 // the warped video, pitch-preserved (atempo time-stretches).
                 complex.push_str(&format!(
                     ";{}",
