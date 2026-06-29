@@ -50,12 +50,14 @@
     clipContent: "thumbnails" | "waveform";
     showZoomLane: boolean;
     showMarkupLane: boolean;
+    showSilenceLane: boolean;
     onSetTrim: (kind: "in" | "out") => void;
     onSplit: () => void;
     onToggleRazor: () => void;
     onSetClipContent: (content: "thumbnails" | "waveform") => void;
     onToggleZoomLane: () => void;
     onToggleMarkupLane: () => void;
+    onToggleSilenceLane: () => void;
     onAddFocusRegion: () => void;
     onResetTrim: () => void;
     onZoomTimeline: (dir: number) => void;
@@ -79,12 +81,14 @@
     clipContent,
     showZoomLane,
     showMarkupLane,
+    showSilenceLane,
     onSetTrim,
     onSplit,
     onToggleRazor,
     onSetClipContent,
     onToggleZoomLane,
     onToggleMarkupLane,
+    onToggleSilenceLane,
     onAddFocusRegion,
     onResetTrim,
     onZoomTimeline,
@@ -383,6 +387,15 @@
           <Pencil class="size-3" />
           Markup
         </DropdownMenu.CheckboxItem>
+        {#if experimentalStore.silenceDetection}
+          <DropdownMenu.CheckboxItem
+            checked={showSilenceLane}
+            onCheckedChange={onToggleSilenceLane}
+          >
+            <Scissors class="size-3" />
+            Silence
+          </DropdownMenu.CheckboxItem>
+        {/if}
 
         <DropdownMenu.Separator />
 
@@ -402,6 +415,15 @@
           <Pencil class="size-3" />
           Markup
         </DropdownMenu.CheckboxItem>
+        {#if experimentalStore.silenceDetection}
+          <DropdownMenu.CheckboxItem
+            checked={store.cutsEnabled}
+            onCheckedChange={() => (store.cutsEnabled = !store.cutsEnabled)}
+          >
+            <Scissors class="size-3" />
+            Silence cuts
+          </DropdownMenu.CheckboxItem>
+        {/if}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
 
