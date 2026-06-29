@@ -5,11 +5,9 @@
     LoaderCircle,
     PanelBottom,
     PanelRight,
-    Redo2,
     RotateCcw,
     Save,
     Sparkles,
-    Undo2,
     Upload,
     X,
   } from "@lucide/svelte";
@@ -212,50 +210,6 @@
         </Tooltip.Root>
       </div>
     {/if}
-
-    <Separator orientation="vertical" class="mx-0.5 h-3.5" />
-
-    <div
-      class="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-inset ring-border/40"
-    >
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          <button
-            type="button"
-            onclick={() => store.undo()}
-            disabled={!store.canUndo}
-            aria-label="Undo"
-            class="cursor-pointer flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-          >
-            <Undo2 size={12} />
-          </button>
-        </Tooltip.Trigger>
-        <Tooltip.Content>
-          <span class="inline-flex items-center gap-1.5">
-            Undo <Kbd>Ctrl+Z</Kbd>
-          </span>
-        </Tooltip.Content>
-      </Tooltip.Root>
-
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          <button
-            type="button"
-            onclick={() => store.redo()}
-            disabled={!store.canRedo}
-            aria-label="Redo"
-            class="cursor-pointer flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-          >
-            <Redo2 size={12} />
-          </button>
-        </Tooltip.Trigger>
-        <Tooltip.Content>
-          <span class="inline-flex items-center gap-1.5">
-            Redo <Kbd>Ctrl+Shift+Z</Kbd>
-          </span>
-        </Tooltip.Content>
-      </Tooltip.Root>
-    </div>
   </div>
 
   <div class="ml-auto flex items-center gap-1">

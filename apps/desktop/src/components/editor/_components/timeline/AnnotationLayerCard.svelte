@@ -21,7 +21,6 @@
   interface Props {
     store: EditorStore;
     annotation: Annotation;
-    index: number;
     pixelsPerSecond: number;
     fps: number;
     duration: number;
@@ -34,7 +33,6 @@
   let {
     store,
     annotation,
-    index,
     pixelsPerSecond,
     fps,
     duration,
@@ -227,7 +225,8 @@
   style="
     left: {left}px;
     width: {width}px;
-    top: {2 + index * 2}px;
+    top: 50%;
+    margin-top: -13px;
     height: 26px;
   "
 >
@@ -240,7 +239,7 @@
       if (e.button !== 0) return;
       beginDrag("move", e);
     }}
-    class="absolute inset-0 overflow-hidden rounded border bg-card/85 text-left backdrop-blur-sm transition-all duration-150 hover:bg-card hover:shadow-craft-sm focus:outline-none focus:ring-1 focus:ring-ring {isSelected
+    class="absolute inset-0 overflow-hidden rounded-md border bg-warning/10 text-left backdrop-blur-sm transition-all duration-150 hover:bg-warning/20 hover:shadow-craft-sm focus:outline-none focus:ring-1 focus:ring-ring {isSelected
       ? 'border-warning/80 cursor-grabbing shadow-[inset_3px_0_0_0_var(--color-warning)] hover:shadow-[inset_3px_0_0_0_var(--color-warning)]'
       : 'border-warning/40 hover:border-warning/70 cursor-grab'} {drag?.mode ===
     'move'
@@ -253,7 +252,7 @@
       aria-label={`${kindLabel(annotation)} annotation from ${formatTimeByMode(annotation.start, timeMode, fps)} to ${formatTimeByMode(annotation.end, timeMode, fps)}. Click to select; drag to move; drag the edges to resize.`}
     >
       <span
-        class="flex size-4 shrink-0 items-center justify-center rounded text-warning"
+        class="flex size-5 shrink-0 items-center justify-center rounded-md bg-warning/20 text-warning"
       >
         <Icon class="size-3" />
       </span>

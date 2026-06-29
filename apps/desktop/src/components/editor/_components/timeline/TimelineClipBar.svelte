@@ -7,7 +7,8 @@
   } from "$lib/timeline/filmstrip";
   import type { TileProvider } from "$lib/timeline/filmstrip-source";
   import { deriveSeams } from "$lib/timeline/segments";
-  import { Gauge, Trash2 } from "@lucide/svelte";
+  import { Gauge, RotateCcw, SquareSplitHorizontal, Trash2 } from "@lucide/svelte";
+  import * as ContextMenu from "@recast/ui/context-menu";
   import { fade } from "svelte/transition";
   import {
     formatTimeByMode,
@@ -32,6 +33,8 @@
     clipWidth: number;
     thumbnailWidth: number;
     timeMode: TimeMode;
+    /** What fills the clip bar — thumbnails or the audio waveform, never both. */
+    content: "thumbnails" | "waveform";
     /** Pointer clientX → output seconds (pre-map); trim maps it via a frozen map. */
     clientXToOutput: (clientX: number) => number;
     // Density-based filmstrip. When null, the stretched Rust strip is rendered.
@@ -51,6 +54,7 @@
     clipWidth,
     thumbnailWidth,
     timeMode,
+    content,
     clientXToOutput,
     tileProvider,
     filmstripVersion,
@@ -165,6 +169,42 @@
     store.currentTime = joinAt;
     if (videoEl) videoEl.currentTime = joinAt;
   }
+
+  // Right-click menu: original time the menu was opened at (set on pointerdown,
+  // which fires for the right button before `contextmenu`), so "Split here"
+  // splits exactly where you clicked rather than at the playhead.
+  const SPEED_PRESETS = [0.5, 1, 1.5, 2] as const;
+  let menuTime = $state(0);
+  function rememberMenuTime(clientX: number) {
+    menuTime = outputToOriginal(store.timeMap, clientXToOutput(clientX));
+  }
+
+  // Faint audio envelope over the footage, so you can see where to cut. Built in
+  // output-pixel space (each bucket at `xOf(bucketTime)`) over the kept range
+  // only; buckets inside a removed cut collapse onto the seam like the cut lane.
+  const WAVE_H = 48;
+  const waveformPath = $derived.by(() => {
+    const w = store.waveform;
+    const n = w.length;
+    if (n < 2 || duration <= 0) return "";
+    const mid = WAVE_H / 2;
+    const amp = WAVE_H / 2 - 3;
+    const kept: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const t = (i / n) * duration;
+      if (t < store.inPoint - 0.001 || t > store.outPoint + 0.001) continue;
+      kept.push(i);
+    }
+    if (kept.length < 2) return "";
+    const xAt = (i: number) => xOf((i / n) * duration).toFixed(2);
+    let d = `M ${xAt(kept[0])} ${mid}`;
+    for (const i of kept) d += ` L ${xAt(i)} ${(mid - w[i] * amp).toFixed(2)}`;
+    for (let k = kept.length - 1; k >= 0; k--) {
+      const i = kept[k];
+      d += ` L ${xAt(i)} ${(mid + w[i] * amp).toFixed(2)}`;
+    }
+    return `${d} Z`;
+  });
 
   let activeTrimHandle = $state<"in" | "out" | null>(null);
   // Output-x of the active trim snap target (playhead/region/etc.), or null.
@@ -325,21 +365,30 @@
       store.selectedClipStart !== null &&
       Math.abs(store.selectedClipStart - block.start) < 1e-4}
     {@const speed = store.segmentSpeedAt(block.start)}
-    <!-- Select on POINTERDOWN, not click: the timeline scroller calls
-         setPointerCapture on its own pointerdown, which redirects pointerup and
-         makes the synthesised click land on the scroller (seek) instead of here.
-         We don't stop propagation, so the click still seeks too (select + seek). -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      role="button"
-      tabindex="-1"
-      onpointerdown={() => (store.selectedClipStart = block.start)}
-      class="group/clip absolute inset-y-0 cursor-pointer overflow-hidden rounded-md border bg-primary/5 transition-[box-shadow,border-color] {selected
-        ? 'border-primary ring-2 ring-primary/50'
-        : 'border-primary/40 hover:border-primary/70'}"
-      style="left: {block.left}px; width: {block.width}px;"
-    >
-      {#if tileProvider}
+    <ContextMenu.Root>
+      <ContextMenu.Trigger>
+        {#snippet child({ props })}
+          <!-- Select on POINTERDOWN, not click: the timeline scroller calls
+               setPointerCapture on its own pointerdown, which redirects pointerup
+               and makes the synthesised click land on the scroller (seek) instead
+               of here. We don't stop propagation, so the click still seeks too
+               (select + seek). Right-click records the time for "Split here". -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            {...props}
+            role="button"
+            tabindex="-1"
+            onpointerdown={(e) => {
+              rememberMenuTime(e.clientX);
+              if (e.button === 0) store.selectedClipStart = block.start;
+            }}
+            class="group/clip absolute inset-y-0 cursor-pointer overflow-hidden rounded-md border bg-primary/5 transition-[box-shadow,border-color] {selected
+              ? 'border-primary ring-2 ring-primary/50'
+              : 'border-primary/40 hover:border-primary/70'}"
+            style="left: {block.left}px; width: {block.width}px;"
+          >
+      {#if content === "thumbnails"}
+        {#if tileProvider}
         {#each tilesByBlock.get(block.key) ?? [] as tile (tile.cacheKey)}
           {@const url = tileUrls.get(tile.cacheKey)}
           <div
@@ -381,6 +430,7 @@
         >
           Generating thumbnails…
         </div>
+        {/if}
       {/if}
 
       <!-- Read-only speed badge (the editable control lives in the Clip panel). -->
@@ -407,8 +457,67 @@
           <Trash2 class="size-2.5" />
         </button>
       {/if}
-    </div>
+          </div>
+        {/snippet}
+      </ContextMenu.Trigger>
+      <ContextMenu.Content size="sm" class="w-48">
+        <ContextMenu.Item onSelect={() => store.splitAt(menuTime)}>
+          <SquareSplitHorizontal />
+          Split here
+        </ContextMenu.Item>
+        <ContextMenu.Sub>
+          <ContextMenu.SubTrigger>
+            <Gauge />
+            Speed
+          </ContextMenu.SubTrigger>
+          <ContextMenu.SubContent>
+            <ContextMenu.RadioGroup
+              value={String(speed)}
+              onValueChange={(v) =>
+                store.setSegmentSpeed(block.start, parseFloat(v))}
+            >
+              {#each SPEED_PRESETS as preset (preset)}
+                <ContextMenu.RadioItem value={String(preset)}>
+                  {formatSpeed(preset)}
+                </ContextMenu.RadioItem>
+              {/each}
+            </ContextMenu.RadioGroup>
+          </ContextMenu.SubContent>
+        </ContextMenu.Sub>
+        <ContextMenu.Item
+          disabled={speed === 1}
+          onSelect={() => store.setSegmentSpeed(block.start, 1)}
+        >
+          <RotateCcw />
+          Reset speed
+        </ContextMenu.Item>
+        {#if clipBlocks.length > 1}
+          <ContextMenu.Separator />
+          <ContextMenu.Item
+            variant="destructive"
+            onSelect={() => deleteSegment(block.start, block.end)}
+          >
+            <Trash2 />
+            Delete clip
+          </ContextMenu.Item>
+        {/if}
+      </ContextMenu.Content>
+    </ContextMenu.Root>
   {/each}
+
+  <!-- Audio waveform fills the clip bar when it's the chosen content (the radio
+       in the Layers menu), so it never overlaps the thumbnails. -->
+  {#if content === "waveform" && waveformPath && clipWidth > 0}
+    <svg
+      class="pointer-events-none absolute inset-y-0 left-0"
+      style="width: {clipWidth}px;"
+      viewBox="0 0 {clipWidth} {WAVE_H}"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <path d={waveformPath} class="fill-primary/45" />
+    </svg>
+  {/if}
 
   <!-- Removed section collapsed to a restorable seam (click to restore). -->
   {#each seamMarkers as seam (seam.gapStart)}

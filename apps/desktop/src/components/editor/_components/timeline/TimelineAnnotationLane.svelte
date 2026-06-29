@@ -56,11 +56,10 @@
       Annotations you draw on the preview appear here as draggable layers
     </div>
   {:else}
-    {#each store.annotations as annotation, index (annotation.id)}
+    {#each store.annotations as annotation (annotation.id)}
       <AnnotationLayerCard
         {store}
         {annotation}
-        {index}
         {pixelsPerSecond}
         {fps}
         {duration}

@@ -61,11 +61,10 @@
       Add a zoom region to punch in during playback
     </div>
   {:else}
-    {#each store.zoomRegions as region, index (region.id)}
+    {#each store.zoomRegions as region (region.id)}
       <ZoomLayerCard
         {store}
         {region}
-        {index}
         {pixelsPerSecond}
         {fps}
         {duration}

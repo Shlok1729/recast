@@ -14,6 +14,19 @@ import { chooseIngestion } from "../playback/mp4-sample-table";
 import { type FilmstripTile, LruCache } from "./filmstrip";
 import type { FromFilmstripWorker, ToFilmstripWorker } from "./filmstrip-protocol";
 
+/** A built storyboard sprite — one image of `cols`×`rows` cells (`cellW`×`cellH`
+ *  each) holding `count` frames evenly spaced across `durationSec`. Cell `i`
+ *  (col `i%cols`, row `i/cols`) samples `((i+0.5)/count)·durationSec`. */
+export interface Storyboard {
+	url: string;
+	cols: number;
+	rows: number;
+	cellW: number;
+	cellH: number;
+	count: number;
+	durationSec: number;
+}
+
 export interface TileProvider {
 	/** The image URL for a planned tile, or undefined while it's still decoding. */
 	get(tile: FilmstripTile): string | undefined;
@@ -22,6 +35,9 @@ export interface TileProvider {
 	/** A decoded frame URL near `originalSec` for hover-scrub, or undefined while
 	 *  it decodes (the call also queues the decode). */
 	previewAt(originalSec: number): string | undefined;
+	/** The storyboard sprite for instant hover-scrub, or undefined until built —
+	 *  the first call kicks off the one-time build. */
+	storyboard(): Storyboard | undefined;
 	dispose(): void;
 }
 
@@ -46,6 +62,9 @@ class WebCodecsTileProvider implements TileProvider {
 	#pending = new Map<string, number>();
 	#flushScheduled = false;
 	#disposed = false;
+	/** Built storyboard sprite, and whether its one-time build is requested. */
+	#storyboard: Storyboard | undefined;
+	#storyboardRequested = false;
 
 	private constructor(worker: Worker, onChange: () => void) {
 		this.#worker = worker;
@@ -120,6 +139,17 @@ class WebCodecsTileProvider implements TileProvider {
 		return undefined;
 	}
 
+	storyboard(): Storyboard | undefined {
+		if (this.#disposed) return undefined;
+		// First request kicks off the one-time build; the reply lands in #onMessage.
+		if (!this.#storyboard && !this.#storyboardRequested) {
+			this.#storyboardRequested = true;
+			const msg: ToFilmstripWorker = { type: "storyboard" };
+			this.#worker.postMessage(msg);
+		}
+		return this.#storyboard;
+	}
+
 	#scheduleFlush(): void {
 		if (this.#pending.size > 0 && !this.#flushScheduled) {
 			this.#flushScheduled = true;
@@ -147,6 +177,20 @@ class WebCodecsTileProvider implements TileProvider {
 			console.error("filmstrip worker:", msg.message);
 			return;
 		}
+		if (msg.type === "storyboard") {
+			if (this.#disposed) return;
+			this.#storyboard = {
+				url: URL.createObjectURL(msg.blob),
+				cols: msg.cols,
+				rows: msg.rows,
+				cellW: msg.cellW,
+				cellH: msg.cellH,
+				count: msg.count,
+				durationSec: msg.durationSec,
+			};
+			this.#onChange();
+			return;
+		}
 		if (msg.type !== "tile") return;
 		const cacheKey = this.#idToKey.get(msg.id);
 		this.#idToKey.delete(msg.id);
@@ -168,6 +212,8 @@ class WebCodecsTileProvider implements TileProvider {
 		}
 		this.#worker.terminate();
 		this.#cache.clear(); // revokes every object URL
+		if (this.#storyboard) URL.revokeObjectURL(this.#storyboard.url);
+		this.#storyboard = undefined;
 		this.#inflight.clear();
 		this.#idToKey.clear();
 		this.#pending.clear();

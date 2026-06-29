@@ -522,6 +522,9 @@
     }
   }
 
+  // Latch so the lazy scheduler fires once per loaded clip (reset on load).
+  let waveformRequested = false;
+
   // Decode the audio peak envelope for the timeline waveform. Best-effort async.
   async function loadWaveform() {
     // Skip sub-5s clips: too narrow to read, and the FFmpeg pass isn't worth it.
@@ -616,9 +619,9 @@
       store.audioPath = document.audioPath ?? null;
       store.microphonePath = document.microphonePath ?? null;
       store.waveform = [];
-      // Only the experimental cut lane uses the waveform; skip the ffmpeg pass
-      // when off (the $effect below back-fills if the flag flips on).
-      if (experimentalStore.silenceDetection) void loadWaveform();
+      // Lazy: the idle-scheduled effect below extracts the waveform once the
+      // editor is interactive, so the ffmpeg pass never competes with load.
+      waveformRequested = false;
       systemAudioSrc = document.audioPath
         ? convertFileSrc(document.audioPath)
         : "";
@@ -1315,12 +1318,19 @@
     videoEl.muted = true;
   });
 
-  // Back-fill the waveform if the experimental flag flips on after load.
+  // Extract the waveform lazily: defer to browser idle (best-effort) so the
+  // ffmpeg pass runs after the editor is interactive, never on the load path.
+  // The latch keeps the reactive re-runs from scheduling it more than once.
   $effect(() => {
-    if (!experimentalStore.silenceDetection) return;
-    if (store.waveform.length > 0) return;
+    if (store.waveform.length > 0 || waveformRequested) return;
     if (!store.audioPath && !store.microphonePath) return;
-    void loadWaveform();
+    waveformRequested = true;
+    const run = () => void loadWaveform();
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: 3000 });
+    } else {
+      setTimeout(run, 1000);
+    }
   });
 
   $effect(() => {

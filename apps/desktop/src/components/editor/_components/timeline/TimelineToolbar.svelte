@@ -3,16 +3,22 @@
   import { experimentalStore } from "$lib/stores/experimental.svelte";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import {
+    AudioLines,
     Clock,
     Expand,
     FastForward,
+    ImageIcon,
     Keyboard,
+    Layers,
     Maximize2,
+    Pencil,
+    Redo2,
     Scissors,
     Search,
     SlidersHorizontal,
     SquareSplitHorizontal,
     Target,
+    Undo2,
     VolumeX,
     Wand2,
     ZoomIn,
@@ -41,9 +47,15 @@
     timeMode: TimeMode;
     hasSelectedRegion: boolean;
     razorActive: boolean;
+    clipContent: "thumbnails" | "waveform";
+    showZoomLane: boolean;
+    showMarkupLane: boolean;
     onSetTrim: (kind: "in" | "out") => void;
     onSplit: () => void;
     onToggleRazor: () => void;
+    onSetClipContent: (content: "thumbnails" | "waveform") => void;
+    onToggleZoomLane: () => void;
+    onToggleMarkupLane: () => void;
     onAddFocusRegion: () => void;
     onResetTrim: () => void;
     onZoomTimeline: (dir: number) => void;
@@ -64,9 +76,15 @@
     timeMode,
     hasSelectedRegion,
     razorActive,
+    clipContent,
+    showZoomLane,
+    showMarkupLane,
     onSetTrim,
     onSplit,
     onToggleRazor,
+    onSetClipContent,
+    onToggleZoomLane,
+    onToggleMarkupLane,
     onAddFocusRegion,
     onResetTrim,
     onZoomTimeline,
@@ -105,6 +123,30 @@
   <!-- EDIT + INSERT -->
   <div class="flex items-center gap-1">
     <InspectorHint content={trimHint} />
+
+    <!-- History -->
+    <div class={GROUP}>
+      <button
+        type="button"
+        onclick={() => store.undo()}
+        disabled={!store.canUndo}
+        title="Undo (Ctrl+Z)"
+        aria-label="Undo"
+        class={SEG_ICON}
+      >
+        <Undo2 class="size-3" />
+      </button>
+      <button
+        type="button"
+        onclick={() => store.redo()}
+        disabled={!store.canRedo}
+        title="Redo (Ctrl+Shift+Z)"
+        aria-label="Redo"
+        class={SEG_ICON}
+      >
+        <Redo2 class="size-3" />
+      </button>
+    </div>
 
     <!-- Edit: split + trim to playhead -->
     <div class={GROUP}>
@@ -294,6 +336,74 @@
         <Target class="size-3" />
       </button>
     </div>
+
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        <button
+          type="button"
+          aria-label="Layers"
+          title="Show or hide timeline layers"
+          class={SOLO}
+        >
+          <Layers class="size-3" />
+          <span class="hidden md:inline">Layers</span>
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content size="sm" align="end" class="w-48">
+        <DropdownMenu.Label>Clip content</DropdownMenu.Label>
+        <DropdownMenu.RadioGroup
+          value={clipContent}
+          onValueChange={(v) =>
+            onSetClipContent(v === "waveform" ? "waveform" : "thumbnails")}
+        >
+          <DropdownMenu.RadioItem value="thumbnails">
+            <ImageIcon class="size-3" />
+            Thumbnails
+          </DropdownMenu.RadioItem>
+          <DropdownMenu.RadioItem value="waveform">
+            <AudioLines class="size-3" />
+            Waveform
+          </DropdownMenu.RadioItem>
+        </DropdownMenu.RadioGroup>
+
+        <DropdownMenu.Separator />
+
+        <DropdownMenu.Label>Show lanes</DropdownMenu.Label>
+        <DropdownMenu.CheckboxItem
+          checked={showZoomLane}
+          onCheckedChange={onToggleZoomLane}
+        >
+          <Target class="size-3" />
+          Zoom
+        </DropdownMenu.CheckboxItem>
+        <DropdownMenu.CheckboxItem
+          checked={showMarkupLane}
+          onCheckedChange={onToggleMarkupLane}
+        >
+          <Pencil class="size-3" />
+          Markup
+        </DropdownMenu.CheckboxItem>
+
+        <DropdownMenu.Separator />
+
+        <DropdownMenu.Label>Apply to video</DropdownMenu.Label>
+        <DropdownMenu.CheckboxItem
+          checked={store.focusEnabled}
+          onCheckedChange={() => (store.focusEnabled = !store.focusEnabled)}
+        >
+          <Target class="size-3" />
+          Zoom effects
+        </DropdownMenu.CheckboxItem>
+        <DropdownMenu.CheckboxItem
+          checked={!store.annotationsGloballyHidden}
+          onCheckedChange={() =>
+            (store.annotationsGloballyHidden = !store.annotationsGloballyHidden)}
+        >
+          <Pencil class="size-3" />
+          Markup
+        </DropdownMenu.CheckboxItem>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
 
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>
