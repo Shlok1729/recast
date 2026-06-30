@@ -132,28 +132,28 @@
     isLoading && "cursor-wait",
   )}
   aria-busy={isLoading}
-  data-tauri-drag-region
+  
 >
   <!-- Header -->
   <header
     class="flex items-center justify-between border-b border-border-subtle px-4 h-10 shrink-0"
-    data-tauri-drag-region
   >
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2" data-tauri-drag-region>
       {#if isMic}
-        <Mic size={11} class="text-muted-foreground" />
+        <Mic size={11} class="text-muted-foreground pointer-events-none" />
       {:else}
-        <Camera size={11} class="text-muted-foreground" />
+        <Camera size={11} class="text-muted-foreground pointer-events-none" />
       {/if}
-      <span
-        class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-      >
+      <span class="pointer-events-none text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         Select {title}
       </span>
     </div>
+    
+    <!-- Empty space for dragging -->
+    <div class="flex-1 h-full" data-tauri-drag-region></div>
+
     <Button
       onclick={closeWindow}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
       size="icon-sm"
       variant="ghost"
       class="opacity-0 group-hover/root:opacity-100 transition-opacity"
@@ -289,13 +289,11 @@
 
   <!-- Footer -->
   <footer
-    data-tauri-drag-region
     class="flex items-center justify-between border-t border-border-subtle bg-card/50 px-3 h-11 shrink-0"
   >
     <Button
       onclick={fetchDevices}
       disabled={isLoading}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
       variant="ghost"
       size="xs"
       class="gap-1.5"
@@ -303,10 +301,13 @@
       <RefreshCw size={11} class={isLoading ? "animate-spin" : ""} />
       Rescan
     </Button>
+
+    <!-- Empty space for dragging -->
+    <div class="flex-1 h-full" data-tauri-drag-region></div>
+
     <Button
       onclick={turnOff}
       disabled={isLoading}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
       variant="destructive_soft"
       size="xs"
       class="gap-1.5"

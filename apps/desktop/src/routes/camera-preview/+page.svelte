@@ -441,7 +441,7 @@
 
 <div
   class="group/root relative flex h-screen w-full select-none flex-col scroll-m-0 scrollbar-none"
-  data-tauri-drag-region
+  
 >
   <!-- Video bubble — the only clipped/rounded surface; `flex-1` is the window
        height minus the control strip, the region the aspect lock governs. -->
@@ -483,7 +483,7 @@
        never clipped; fades in on hover. -->
   <div
     class="flex w-full shrink-0 items-center justify-center"
-    data-tauri-drag-region
+    
     style="height: {CONTROL_BAR_HEIGHT}px"
   >
     <div

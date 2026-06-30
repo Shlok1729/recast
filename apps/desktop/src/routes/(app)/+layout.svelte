@@ -54,7 +54,7 @@
       <CustomTitlebar class="items-center gap-1 px-3">
         <div
           class="flex h-full items-center gap-2 font-sans"
-          data-tauri-drag-region
+          
         >
           <div
             in:fade={{ duration: 180, delay: 100, easing: cubicOut }}
@@ -113,7 +113,7 @@
       {/if}
       <div
         class="flex h-full items-center gap-2 font-sans"
-        data-tauri-drag-region
+        
       >
         <Sidebar.Trigger
           class="size-7 rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"

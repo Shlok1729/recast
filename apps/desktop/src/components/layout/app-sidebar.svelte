@@ -68,23 +68,18 @@
       >
         <Logo
           size="24"
-          // color="var(--foreground)"
-          // fill="var(--background)"
           class="shrink-0"
-          data-tauri-drag-region
         />
         {#if open}
           <span
             in:fly={{ x: -8, duration: 240, easing: cubicOut, delay: 60 }}
             out:fade={{ duration: 220, easing: cubicOut }}
             class="truncate text-[15px] font-semibold tracking-tight text-foreground"
-            data-tauri-drag-region
           >
             Recast
           </span>
         {/if}
       </a>
-
     </Sidebar.MenuItem>
 
     <Sidebar.MenuItem>

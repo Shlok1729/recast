@@ -991,25 +991,25 @@
      it shows the desktop through. -->
 <div
   class="flex h-dvh w-dvw items-center justify-center px-4 py-3"
-  data-tauri-drag-region
+  
 >
 <div
   class="group/panel relative flex h-11 shrink-0 items-center justify-center overflow-hidden no-scrollbar bg-card/95 backdrop-blur-xl border border-border/60 rounded-lg ring-1 ring-foreground/5"
   style="width: {barWidth.current}px"
-  data-tauri-drag-region
+  
 >
   <!-- Content is `w-fit`; the bar tweens to follow it, centered, so collapse
        and expand are one symmetric motion. -->
   <div
     bind:this={barContentEl}
     class="relative flex w-fit shrink-0 items-center justify-center gap-1 p-2"
-    data-tauri-drag-region
+    
   >
   {#if phase === "countdown"}
     <!-- Depleting ring with the ticking second (click to start now), status, Cancel. -->
     <div
       class="flex w-fit items-center gap-2.5 pl-1"
-      data-tauri-drag-region
+      
       in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
       out:phaseOut
     >
@@ -1120,7 +1120,7 @@
             class="shrink-0 font-mono text-[13px] font-semibold tabular-nums tracking-tight"
             class:text-foreground={!isPaused}
             class:text-muted-foreground={isPaused}
-            data-tauri-drag-region
+            
           >
             {timer}
           </span>
