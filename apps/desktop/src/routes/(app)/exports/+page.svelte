@@ -203,7 +203,7 @@
       const result = await cloudShare.share(path, title, workspaceId);
       try {
         await navigator.clipboard.writeText(result.shareUrl);
-        toast.success("Shared — link copied to clipboard.");
+        toast.success("Shared. Link copied to clipboard.");
       } catch {
         toast.success("Shared to Recast Cloud.");
       }

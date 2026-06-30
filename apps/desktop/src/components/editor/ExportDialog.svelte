@@ -236,7 +236,7 @@
         step={1}
         unit=" fps"
         description={store.gifSettings.fps === null
-          ? "Auto — follows the quality preset"
+          ? "Auto (follows the quality preset)"
           : undefined}
         onchange={(next: number) => store.updateGifSettings({ fps: next })}
       >
@@ -567,7 +567,7 @@
     in:fly={{ y: 8, duration: 240, delay: 200, easing: cubicOut }}
     class="flex flex-col gap-2.5"
   >
-    {@render sectionLabel("Speed", "Encoder effort — same resolution.")}
+    {@render sectionLabel("Speed", "Encoder effort. Same resolution.")}
     <div class="grid grid-cols-3 gap-1.5">
       {#each speeds as s, i (s.value)}
         {@const selected = store.exportSpeed === s.value}

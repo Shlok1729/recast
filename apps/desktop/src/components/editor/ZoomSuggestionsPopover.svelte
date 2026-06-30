@@ -66,7 +66,7 @@
   }
 
   function previewAt(sug: ZoomSuggestion) {
-    store.currentTime = sug.timestampUs / 1_000_000;
+    store.seek(sug.timestampUs / 1_000_000);
   }
 
   function currentOccupied(): Interval[] {

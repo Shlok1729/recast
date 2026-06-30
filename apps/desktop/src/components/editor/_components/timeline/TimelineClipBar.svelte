@@ -436,7 +436,7 @@
       <!-- Read-only speed badge (the editable control lives in the Clip panel). -->
       {#if speed !== 1}
         <div
-          title="Clip speed — edit in the Clip panel"
+          title="Clip speed. Edit in the Clip panel."
           class="pointer-events-none absolute left-1 top-1 z-7 flex h-4 items-center gap-0.5 rounded bg-primary/90 px-1 font-mono text-[9px] font-bold text-primary-foreground"
         >
           <Gauge class="size-2.5" />
@@ -526,7 +526,7 @@
       type="button"
       onpointerdown={(e) => e.stopPropagation()}
       onclick={() => restoreSeam(seam.gapStart, seam.gapEnd)}
-      title="Removed {seam.removed.toFixed(2)}s — click to restore"
+      title="Removed {seam.removed.toFixed(2)}s. Click to restore."
       class="group/seam absolute inset-y-0 z-6 w-3 -translate-x-1/2 cursor-pointer"
       style="left: {seam.x}px;"
     >
@@ -550,7 +550,7 @@
       role="presentation"
       onpointerdown={(e) => e.stopPropagation()}
       ondblclick={() => store.removeSplit(marker.time)}
-      title="Split — double-click to rejoin"
+      title="Split. Double-click to rejoin."
       class="group/split absolute inset-y-0 z-6 w-2 -translate-x-1/2 cursor-pointer"
       style="left: {marker.x}px;"
     >

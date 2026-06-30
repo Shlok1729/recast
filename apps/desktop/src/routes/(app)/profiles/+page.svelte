@@ -219,7 +219,7 @@
     const conflict = profilesStore.duplicateOf(next);
     if (conflict) {
       toast.error(
-        `"${conflict.name}" already uses this combination — change a toggle or device`,
+        `"${conflict.name}" already uses this combination. Change a toggle or device.`,
       );
       return;
     }
@@ -425,7 +425,7 @@
                 <span class="text-muted-foreground">
                   Profiles are unique by audio · mic · camera · countdown,
                   including which specific device is picked. All {totalCombinations}
-                  combinations for your current devices are taken — plug in another
+                  combinations for your current devices are taken. Plug in another
                   mic or camera, or edit an existing profile to free a slot.
                 </span>
               </div>
@@ -441,7 +441,7 @@
         in:fly={{ y: 8, duration: 280, delay: 100, easing: cubicOut }}
         class="text-[12.5px] leading-relaxed text-muted-foreground"
       >
-        Save what to capture — system audio, mic, camera — and pick the default
+        Save what to capture (system audio, mic, camera) and pick the default
         that loads on launch.
         {#if profilesStore.profiles.length > 0}
           <span class="text-muted-foreground/70">

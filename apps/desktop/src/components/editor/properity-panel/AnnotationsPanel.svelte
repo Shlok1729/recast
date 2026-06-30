@@ -137,7 +137,7 @@
       case "text":
         return "Drag a box on the preview, then type.";
       case "blur":
-        return "Drag a region to obscure — applied at export.";
+        return "Drag a region to obscure. Applied at export.";
       default:
         return "";
     }
@@ -150,7 +150,7 @@
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
   <PanelSection
     title="Tools"
-    hint="Pick a tool, then drag on the preview. Annotations are anchored in video-space so they follow zoom and crop. Press Esc to cancel placement; hold Alt while dragging to bypass snap."
+    hint="Pick a tool, then drag on the preview. Annotations follow zoom and crop. Esc cancels placement; hold Alt to bypass snap."
     flush
   >
     {#snippet action()}

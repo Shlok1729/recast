@@ -339,7 +339,7 @@
   bind:open={showRevertConfirm}
   onOpenChange={(v) => (showRevertConfirm = v)}
   title="Revert unsaved changes?"
-  description="This restores every setting to the state of the last save. The revert is itself undoable — press Ctrl+Z if you change your mind."
+  description="Restores every setting to the last save. You can undo the revert with Ctrl+Z."
   confirmLabel="Revert"
   cancelLabel="Keep editing"
   variant="destructive"

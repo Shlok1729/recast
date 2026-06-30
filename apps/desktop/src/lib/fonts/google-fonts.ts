@@ -51,16 +51,83 @@ export const GOOGLE_FONTS = [
 	"Comfortaa",
 	"Josefin Sans",
 	"Quicksand",
+	// Sans
+	"Source Sans 3",
+	"IBM Plex Sans",
+	"Libre Franklin",
+	"Karla",
+	"Jost",
+	"Urbanist",
+	"Lexend",
+	"Red Hat Display",
+	"Be Vietnam Pro",
+	"Hanken Grotesk",
+	"Albert Sans",
+	"Heebo",
+	"PT Sans",
+	"Cabin",
+	// Serif
+	"EB Garamond",
+	"Cormorant Garamond",
+	"Bitter",
+	"Libre Baskerville",
+	"Spectral",
+	"Zilla Slab",
+	"IBM Plex Serif",
+	"Domine",
+	"Noto Serif",
+	// Display
+	"Abril Fatface",
+	"Lobster",
+	"Alfa Slab One",
+	"Righteous",
+	"Fjalla One",
+	"Staatliches",
+	"Bungee",
+	"Russo One",
+	"Yanone Kaffeesatz",
+	// Handwriting
+	"Satisfy",
+	"Great Vibes",
+	"Shadows Into Light",
+	"Indie Flower",
+	"Sacramento",
+	"Kalam",
+	// Mono
 	"JetBrains Mono",
 	"Fira Code",
+	"Space Mono",
+	"Source Code Pro",
+	"IBM Plex Mono",
 ] as const;
 
-/** A CSS font-family stack for a Google font, e.g. `'Poppins', sans-serif`. */
-export const googleFontStack = (family: string) => `'${family}', sans-serif`;
+/** Generic CSS fallback for a Google Fonts category, used while the webfont
+ *  is still loading (or if it fails). */
+export function fallbackForCategory(category?: string): string {
+	switch (category) {
+		case "Serif":
+			return "serif";
+		case "Monospace":
+			return "monospace";
+		case "Handwriting":
+			return "cursive";
+		case "Display":
+			return "'Arial Narrow', sans-serif";
+		default:
+			return "sans-serif";
+	}
+}
 
-/** True if a CSS stack refers to one of our Google fonts (and which family). */
+/** A CSS font-family stack for a Google font, e.g. `'Poppins', sans-serif`. */
+export const googleFontStack = (family: string, category?: string) =>
+	`'${family}', ${fallbackForCategory(category)}`;
+
+/** The Google family quoted at the head of a stack, e.g.
+ *  `'Playfair Display', serif` → `Playfair Display`. Returns null for stacks
+ *  that don't start with a quoted family (the system fonts). */
 export function googleFamilyFromStack(stack: string): string | null {
-	return GOOGLE_FONTS.find((f) => stack.includes(`'${f}'`)) ?? null;
+	const m = stack.match(/^\s*'([^']+)'/);
+	return m ? m[1] : null;
 }
 
 const loaded = new Set<string>();

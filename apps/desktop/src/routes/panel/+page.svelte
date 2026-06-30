@@ -467,7 +467,7 @@
       micOn = true;
       selectedMicId = micResult.device.id;
       selectedMicName = micResult.device.name;
-      micWarning = `“${micResult.requestedLabel}” unavailable — using “${micResult.device.name}”`;
+      micWarning = `“${micResult.requestedLabel}” unavailable, using “${micResult.device.name}”`;
     } else if (micResult.kind === "missing") {
       micOn = false;
       micWarning = `“${profile.name}” wants a mic but none is available`;
@@ -489,7 +489,7 @@
       cameraOn = true;
       selectedCameraId = camResult.device.deviceId;
       selectedCameraName = camResult.device.label;
-      cameraWarning = `“${camResult.requestedLabel}” unavailable — using “${camResult.device.label}”`;
+      cameraWarning = `“${camResult.requestedLabel}” unavailable, using “${camResult.device.label}”`;
       void refreshCameraValidation(camResult.device.deviceId);
       openCameraPreview(camResult.device.deviceId);
     } else if (camResult.kind === "missing") {
@@ -1019,7 +1019,7 @@
         onclick={startNow}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         title="Start now"
-        aria-label={`Recording starts in ${countdownValue} seconds — click to start now`}
+        aria-label={`Recording starts in ${countdownValue} seconds, click to start now`}
         class="group/cd relative flex size-7 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       >
         <svg
@@ -1240,7 +1240,7 @@
         onclick={openProfilePicker}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         title={activeProfile
-          ? `Profile: ${activeProfile.name} — click to switch`
+          ? `Profile: ${activeProfile.name}. Click to switch.`
           : "Switch profile"}
         aria-label="Switch profile"
       >
@@ -1280,9 +1280,9 @@
         onclick={toggleMic}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         title={micOn
-          ? `Mic: ${selectedMicName}${micWarning ? ` — ${micWarning}` : ""}`
+          ? `Mic: ${selectedMicName}${micWarning ? `. ${micWarning}` : ""}`
           : micWarning
-            ? `Microphone: off — ${micWarning}`
+            ? `Microphone: off. ${micWarning}`
             : "Microphone: off"}
       >
         {#if micOn}
@@ -1307,9 +1307,9 @@
             : "outline"}
         size="icon-sm"
         title={cameraOn
-          ? `Camera: ${selectedCameraName}${cameraValidation?.statusMessage ? ` — ${cameraValidation.statusMessage}` : ""}${cameraWarning ? ` — ${cameraWarning}` : ""}`
+          ? `Camera: ${selectedCameraName}${cameraValidation?.statusMessage ? `. ${cameraValidation.statusMessage}` : ""}${cameraWarning ? `. ${cameraWarning}` : ""}`
           : cameraWarning
-            ? `Camera: off — ${cameraWarning}`
+            ? `Camera: off. ${cameraWarning}`
             : "Camera: off"}
       >
         {#if cameraOn}

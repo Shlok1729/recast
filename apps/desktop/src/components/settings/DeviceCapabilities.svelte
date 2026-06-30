@@ -428,7 +428,7 @@
               everything else.
             {:else}
               No graphics-card encoder was available, so recordings are encoded
-              by your processor (CPU). It still works well — just expect higher
+              by your processor (CPU). It still works well, but expect higher
               CPU use while recording.
             {/if}
           </p>
@@ -515,7 +515,7 @@
           <Minus class="mr-0.5 inline size-3 -translate-y-px" />
           Recast records with the highest-priority available H.264 encoder.
           Hardware encoders (GPU) keep capture smooth on weaker CPUs; x264 is the
-          always-on software fallback. HEVC rows are informational — which HEVC
+          always-on software fallback. HEVC rows are informational: which HEVC
           encoders this device exposes.
         </p>
         </Collapsible.Content>

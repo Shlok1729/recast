@@ -122,7 +122,7 @@
               store.updateCursorSettings({ style: style.id });
             }}
             title={style.description
-              ? `${style.label} — ${style.description}`
+              ? `${style.label}: ${style.description}`
               : style.label}
             class={cn(
               "inline-flex items-center justify-center group relative aspect-square overflow-hidden rounded-md border transition-all duration-150",
@@ -179,7 +179,7 @@
 
     <PanelSection
       title="Motion"
-      hint="Gaussian-window smoothing over the captured path, click-snap anchoring, and an optional easing curve that reshapes interpolation between samples."
+      hint="Smooth the captured path, anchor clicks in place, and shape motion with an optional easing curve."
       flush
       collapsible
     >
@@ -250,7 +250,7 @@
           step={5}
           unit="%"
           description={store.cursorSettings.smoothing === 0
-            ? "Off — cursor follows the raw capture"
+            ? "Off (cursor follows the raw capture)"
             : undefined}
           onstart={() => store.pushUndoState()}
           onchange={(next) => store.updateCursorSettings({ smoothing: next })}
@@ -369,7 +369,7 @@
 
     <PanelSection
       title="Animation"
-      hint="Cinematic touches applied at export. Bounce reacts to clicks, sway adds subtle life at rest, motion blur trails the cursor during fast movement."
+      hint="Applied at export. Bounce reacts to clicks, sway adds life at rest, and motion blur trails fast movement."
       collapsible
     >
       {#snippet action()}
@@ -441,7 +441,7 @@
       >
         <SliderControl
           label="Cursor sway"
-          description="Subtle wobble during slow motion — disappears as you move faster"
+          description="Subtle wobble during slow motion. Fades as you move faster."
           value={store.cursorSettings.sway}
           min={0}
           max={1}

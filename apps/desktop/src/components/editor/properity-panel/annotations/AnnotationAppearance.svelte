@@ -279,7 +279,7 @@
           onchange={(v) => setGlow({ opacity: v / 100 })}
         />
         <p class="text-[10px] leading-tight text-muted-foreground">
-          Preview only — exports use a solid stroke. Tracked for v2.1.
+          Preview only. Exports use a solid stroke. Tracked for v2.1.
         </p>
       {/if}
     </div>

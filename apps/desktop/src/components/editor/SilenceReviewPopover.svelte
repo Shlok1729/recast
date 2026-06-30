@@ -110,7 +110,7 @@
   }
 
   function previewAt(seg: SilenceSegment) {
-    store.currentTime = seg.start;
+    store.seek(seg.start);
   }
 
   /** Apply the keep-margin and commit a cut. Returns true if a cut landed. */

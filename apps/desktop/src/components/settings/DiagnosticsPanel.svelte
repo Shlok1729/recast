@@ -55,7 +55,7 @@
         <div class="text-[11px] text-muted-foreground">
           Records what you do in the editor (which recast, selections, property
           changes, export settings) and backend processing to a local file.
-          Nothing is uploaded — it stays on this machine until you share it.
+          Nothing is uploaded. It stays on this machine until you share it.
         </div>
       </div>
       <button

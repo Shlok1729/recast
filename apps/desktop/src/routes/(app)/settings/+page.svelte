@@ -431,7 +431,7 @@
                     Countdown
                   </h2>
                   <p class="mt-0.5 text-[11px] text-muted-foreground/80">
-                    Wait a beat before capture starts — time to switch windows.
+                    Wait a beat before capture starts, so you can switch windows.
                   </p>
                 </div>
                 <div
@@ -546,7 +546,7 @@
                       Higher frame rates capture smoother motion. Your display
                       supports up to {maxRefreshHz} Hz.
                     {:else}
-                      Smoother motion needs a higher-refresh display — yours runs
+                      Smoother motion needs a higher-refresh display. Yours runs
                       at {maxRefreshHz} Hz, so 60 fps is the max useful rate.
                     {/if}
                   </p>
@@ -562,9 +562,9 @@
                       <div class="text-[11px] text-muted-foreground">
                         {#if recordingFps > effectiveFps}
                           Set to {recordingFps} fps, but this display runs at {maxRefreshHz}
-                          Hz — capture uses {effectiveFps} fps here.
+                          Hz, so capture uses {effectiveFps} fps here.
                         {:else}
-                          {recordingFps} fps — bigger files & more encode load at
+                          {recordingFps} fps. Bigger files and more encode load at
                           higher rates.
                         {/if}
                       </div>
@@ -741,7 +741,7 @@
                   </h2>
                   <p class="mt-0.5 text-[11px] text-muted-foreground/80">
                     Share recordings as Loom-style links with viewer analytics,
-                    password protection, and custom branding — layered on top of
+                    password protection, and custom branding, layered on top of
                     your local recordings.
                   </p>
                 </div>
@@ -793,7 +793,7 @@
                     Google Drive
                   </h2>
                   <p class="mt-0.5 text-[11px] text-muted-foreground/80">
-                    Upload exports to your own Drive — files land in a private
+                    Upload exports to your own Drive. Files land in a private
                     /Recast/ folder.
                   </p>
                 </div>
@@ -976,7 +976,7 @@
                     Privacy & Telemetry
                   </h2>
                   <p class="mt-0.5 text-[11px] text-muted-foreground/80">
-                    Recast is offline-first — your recordings never leave this
+                    Recast is offline-first, so your recordings never leave this
                     machine. These control anonymous diagnostics only.
                   </p>
                 </div>
@@ -990,7 +990,7 @@
                       </div>
                       <div class="text-[11px] text-muted-foreground">
                         Which features you use, so we know what to improve. Off by
-                        default — nothing is sent unless you turn this on.
+                        default. Nothing is sent unless you turn this on.
                       </div>
                     </div>
                     <button
@@ -1024,7 +1024,7 @@
                         Send anonymous crash reports
                       </div>
                       <div class="text-[11px] text-muted-foreground">
-                        Scrubbed error details when something breaks — no file
+                        Scrubbed error details when something breaks, with no file
                         names or paths. On by default.
                       </div>
                     </div>

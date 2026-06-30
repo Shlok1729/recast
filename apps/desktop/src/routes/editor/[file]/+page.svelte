@@ -436,6 +436,24 @@
     audioEngine?.setVolume(settings.volume, settings.muted);
   });
 
+  // Transport seek for `store.seek()` — seeks from outside the player (a
+  // transcript line, chapters, …). Most in-player seeks (timeline scrub,
+  // frame-step) already set `videoEl.currentTime` themselves; this gives panels
+  // the same reach. Moving the <video> works for both the legacy path and the
+  // WebCodecs path: paused → `seeked` realigns the picture clock; playing → the
+  // draw loop re-seats the clock off the changed `store.currentTime`. Setting
+  // `currentTime` alone failed mid-playback because the next time-publish (legacy)
+  // overwrote it before the seek took.
+  $effect(() => {
+    const off = store.registerSeekHandler((t) => {
+      if (videoEl) videoEl.currentTime = t;
+      for (const el of [systemAudioEl, micAudioEl]) {
+        if (el) el.currentTime = t;
+      }
+    });
+    return off;
+  });
+
   // Snap audio to the video time on scrub. Skipped on the WebCodecs path, where
   // audio follows the clock and snapping to seeks would fight it.
   function handleVideoSeeked() {
@@ -1115,7 +1133,7 @@
       const result = await cloudShare.share(exportResult.path, title);
       try {
         await navigator.clipboard.writeText(result.shareUrl);
-        toast.success("Shared — link copied to clipboard.");
+        toast.success("Shared. Link copied to clipboard.");
       } catch {
         toast.success("Shared to Recast Cloud.");
       }
@@ -1429,7 +1447,7 @@
   <ConfirmDialog
     bind:open={showMigration}
     title="Update project format"
-    description="This project was made with an older version of Recast. Update it to the current format to keep editing — a backup (.bak) is saved next to it first."
+    description="This project was made with an older version of Recast. Update it to the current format to keep editing. A backup (.bak) is saved next to it first."
     confirmLabel="Update project"
     cancelLabel="Not now"
     onConfirm={confirmMigration}
@@ -1448,7 +1466,7 @@
       <span class="min-w-0 flex-1 truncate">
         This project has {silenceCutCount} silence cut{silenceCutCount === 1
           ? ""
-          : "s"} — currently hidden and skipped on export. Enable
+          : "s"}, currently hidden and skipped on export. Enable
         <span class="font-semibold">Silence detection</span> to use them.
       </span>
       <Button
@@ -1703,7 +1721,7 @@
           {:else if isPreparing}
             Getting frames and effects ready…
           {:else}
-            This can take a moment — you can keep working.
+            This can take a moment. You can keep working.
           {/if}
         </p>
       </div>
@@ -2123,7 +2141,7 @@
           Export cancelled
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          Stopped before finishing — no file was written. Your settings are
+          Stopped before finishing, so no file was written. Your settings are
           kept, so you can pick up right where you left off.
         </p>
       </div>
@@ -2168,7 +2186,7 @@
           Export failed
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          Something went wrong while encoding. Your settings are kept — try
+          Something went wrong while encoding. Your settings are kept, so try
           again, or adjust them first.
         </p>
       </div>

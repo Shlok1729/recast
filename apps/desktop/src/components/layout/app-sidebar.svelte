@@ -64,7 +64,7 @@
           open ? "px-2 pr-9" : "justify-center px-0",
         )}
         data-tauri-drag-region
-        aria-label="Recast — home"
+        aria-label="Recast home"
       >
         <Logo
           size="24"

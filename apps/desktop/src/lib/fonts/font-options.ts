@@ -29,6 +29,8 @@ export const GOOGLE_FONT_OPTIONS: FontOption[] = GOOGLE_FONTS.map((f) => ({
 
 const ALL_FONTS: FontOption[] = [...SYSTEM_FONTS, ...GOOGLE_FONT_OPTIONS];
 
+const isSystem = (value: string) => SYSTEM_FONTS.some((f) => f.value === value);
+
 /** Human label for a stored font value (family name for Google fonts). */
 export function fontLabel(value: string): string {
 	return (
@@ -38,8 +40,9 @@ export function fontLabel(value: string): string {
 	);
 }
 
-/** Fetch + register the font if it's a Google font (no-op otherwise). */
+/** Fetch + register the font if it's a Google font (no-op for system fonts). */
 export function ensureFontLoaded(value: string, weight = 400): void {
+	if (isSystem(value)) return;
 	const family = googleFamilyFromStack(value);
 	if (family) void loadGoogleFont(family, weight);
 }

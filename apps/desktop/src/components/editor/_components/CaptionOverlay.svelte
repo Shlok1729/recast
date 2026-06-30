@@ -13,6 +13,15 @@
     ensureFontLoaded(store.captionStyle.fontFamily, store.captionStyle.fontWeight);
   });
 
+  /** Hex (#rrggbb) + 0–100 opacity → an rgba() string. */
+  function rgba(hex: string, opacity: number): string {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16) || 0;
+    const g = parseInt(h.slice(2, 4), 16) || 0;
+    const b = parseInt(h.slice(4, 6), 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(100, opacity)) / 100})`;
+  }
+
   const active = $derived.by(() => {
     const t = store.transcript;
     if (!t || !store.captionStyle.enabled) return null;
@@ -35,8 +44,14 @@
       class:cap-box={s.background === "box"}
       style="color: {s.color}; font-size: {s.fontSizePct}cqh;
         font-family: {s.fontFamily}; font-weight: {s.fontWeight};
-        margin-top: {s.position === 'top' ? '6%' : '0'};
-        margin-bottom: {s.position === 'bottom' ? '6%' : '0'};
+        letter-spacing: {s.letterSpacing}em;
+        text-transform: {s.uppercase ? 'uppercase' : 'none'};
+        margin-top: {s.position === 'top' ? `${s.offsetPct}%` : '0'};
+        margin-bottom: {s.position === 'bottom' ? `${s.offsetPct}%` : '0'};
+        {s.outlineWidth > 0
+          ? `-webkit-text-stroke: ${s.outlineWidth / 100}em ${s.outlineColor}; paint-order: stroke fill;`
+          : ''}
+        {s.background === 'box' ? `background: ${rgba(s.backgroundColor, s.backgroundOpacity)};` : ''}
         --lines: {s.maxLines};"
     >
       {active.text}
@@ -65,7 +80,6 @@
       0 0 6px rgba(0, 0, 0, 0.7);
   }
   .cap-box {
-    background: rgba(0, 0, 0, 0.65);
     padding: 0.15em 0.55em;
     border-radius: 0.28em;
   }

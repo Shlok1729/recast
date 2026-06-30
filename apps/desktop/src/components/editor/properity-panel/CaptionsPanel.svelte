@@ -24,6 +24,7 @@
     Sparkles,
     Trash2,
     Zap,
+    Package
   } from "@lucide/svelte";
   import { getRecentColors, pushRecentColor } from "$lib/annotations/recent-colors";
   import FontPicker from "./FontPicker.svelte";
@@ -219,7 +220,7 @@
 >
   <PanelSection
     title="Generate captions"
-    hint="Transcription runs entirely on your device — no upload, no account."
+    hint="Transcription runs on your device. No upload, no account."
     flush
     collapsible
     defaultOpen={!store.transcript}
@@ -260,7 +261,7 @@
               {#if selected && !selected.runnable}
                 <Lock size={13} />
               {:else}
-                <Sparkles size={13} />
+                <Package size={13} />
               {/if}
             </span>
             <span class="min-w-0 flex-1">
@@ -406,7 +407,7 @@
               <Download size={13} /> Download model
             </Button>
           {:else}
-            <p class="text-[11px] text-muted-foreground">Coming soon — not yet available.</p>
+            <p class="text-[11px] text-muted-foreground">Coming soon.</p>
           {/if}
         </div>
       </div>
@@ -490,6 +491,38 @@
           />
         </div>
 
+        <SliderControl
+          label="Font size"
+          value={cs.fontSizePct}
+          min={2}
+          max={10}
+          step={0.5}
+          unit="%"
+          onchange={(next) => store.updateCaptionStyle({ fontSizePct: next })}
+          formatValue={(v) => `${v}%`}
+        />
+
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Uppercase
+          </span>
+          <SegmentedToggle
+            checked={cs.uppercase}
+            offLabel="Off"
+            onLabel="On"
+            size="xs"
+            aria-label="Uppercase captions"
+            onCheckedChange={(next) => store.updateCaptionStyle({ uppercase: next })}
+          />
+        </div>
+
+        <div class="space-y-1.5">
+          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Text color
+          </span>
+          {@render colorField(cs.color, (c) => store.updateCaptionStyle({ color: c }))}
+        </div>
+
         <div>
           <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Position
@@ -504,6 +537,27 @@
           />
         </div>
 
+        <SliderControl
+          label="Max lines"
+          value={cs.maxLines}
+          min={1}
+          max={4}
+          step={1}
+          unit=""
+          onchange={(next) => store.updateCaptionStyle({ maxLines: next })}
+          formatValue={(v) => `${v}`}
+        />
+      </div>
+    </PanelSection>
+
+    <PanelSection
+      title="Background & outline"
+      hint="Keep captions legible over any footage with a backing box, a stroke, and finer spacing."
+      flush
+      collapsible
+      defaultOpen={false}
+    >
+      <div class="flex flex-col gap-3" class:opacity-50={!cs.enabled}>
         <div>
           <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Background
@@ -518,73 +572,71 @@
           />
         </div>
 
+        {#if cs.background === "box"}
+          <div class="space-y-1.5">
+            <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Box color
+            </span>
+            {@render colorField(cs.backgroundColor, (c) =>
+              store.updateCaptionStyle({ backgroundColor: c }),
+            )}
+          </div>
+
+          <SliderControl
+            label="Box opacity"
+            value={cs.backgroundOpacity}
+            min={0}
+            max={100}
+            step={5}
+            unit="%"
+            onchange={(next) => store.updateCaptionStyle({ backgroundOpacity: next })}
+            formatValue={(v) => `${v}%`}
+          />
+        {/if}
+
         <SliderControl
-          label="Font size"
-          value={cs.fontSizePct}
-          min={2}
+          label="Outline"
+          value={cs.outlineWidth}
+          min={0}
           max={10}
           step={0.5}
-          unit="%"
-          onchange={(next) => store.updateCaptionStyle({ fontSizePct: next })}
-          formatValue={(v) => `${v}%`}
+          unit=""
+          onchange={(next) => store.updateCaptionStyle({ outlineWidth: next })}
+          formatValue={(v) => (v === 0 ? "None" : `${v}`)}
+        />
+
+        {#if cs.outlineWidth > 0}
+          <div class="space-y-1.5">
+            <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Outline color
+            </span>
+            {@render colorField(cs.outlineColor, (c) =>
+              store.updateCaptionStyle({ outlineColor: c }),
+            )}
+          </div>
+        {/if}
+
+        <SliderControl
+          label="Letter spacing"
+          value={cs.letterSpacing}
+          min={-0.05}
+          max={0.3}
+          step={0.01}
+          unit="em"
+          onchange={(next) => store.updateCaptionStyle({ letterSpacing: next })}
+          formatValue={(v) => `${v.toFixed(2)}em`}
         />
 
         <SliderControl
-          label="Max lines"
-          value={cs.maxLines}
-          min={1}
-          max={4}
+          label="Edge offset"
+          value={cs.offsetPct}
+          min={0}
+          max={20}
           step={1}
-          unit=""
-          onchange={(next) => store.updateCaptionStyle({ maxLines: next })}
-          formatValue={(v) => `${v}`}
+          unit="%"
+          onchange={(next) => store.updateCaptionStyle({ offsetPct: next })}
+          formatValue={(v) => `${v}%`}
         />
-
-        <div class="space-y-1.5">
-          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Text color
-          </span>
-          <div class="flex flex-wrap items-center gap-1">
-            {#each CAPTION_SWATCHES as swatch (swatch)}
-              {@const isActive = cs.color.toLowerCase() === swatch}
-              <button
-                type="button"
-                aria-label={`Color ${swatch}`}
-                aria-pressed={isActive}
-                onclick={() => store.updateCaptionStyle({ color: swatch })}
-                class={cn(
-                  "size-5 rounded-full border-2 transition",
-                  isActive ? "border-foreground shadow-sm" : "border-border/40 hover:border-border",
-                )}
-                style:background={swatch}
-              ></button>
-            {/each}
-            <Popover.Root>
-              <Popover.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    type="button"
-                    {...props}
-                    aria-label="Custom caption color"
-                    class="grid size-5 place-items-center rounded-full border-2 border-dashed border-border/60 text-[11px] leading-none text-muted-foreground transition hover:border-border hover:text-foreground"
-                  >
-                    +
-                  </button>
-                {/snippet}
-              </Popover.Trigger>
-              <Popover.Content align="start" class="w-auto p-0">
-                <ColorPicker
-                  value={cs.color}
-                  {recents}
-                  oncommit={(c: string) => {
-                    store.updateCaptionStyle({ color: c });
-                    rememberColor(c);
-                  }}
-                />
-              </Popover.Content>
-            </Popover.Root>
-          </div>
-        </div>
       </div>
     </PanelSection>
 
@@ -605,7 +657,7 @@
           <button
             type="button"
             class="group flex items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted/60"
-            onclick={() => (store.currentTime = seg.start)}
+            onclick={() => store.seek(seg.start)}
           >
             <span
               class="shrink-0 pt-px font-mono text-[9.5px] tabular-nums text-muted-foreground/70 group-hover:text-foreground"
@@ -619,3 +671,46 @@
     </PanelSection>
   {/if}
 </div>
+
+{#snippet colorField(current: string, onCommit: (color: string) => void)}
+  <div class="flex flex-wrap items-center gap-1">
+    {#each CAPTION_SWATCHES as swatch (swatch)}
+      {@const isActive = current.toLowerCase() === swatch}
+      <button
+        type="button"
+        aria-label={`Color ${swatch}`}
+        aria-pressed={isActive}
+        onclick={() => onCommit(swatch)}
+        class={cn(
+          "size-5 rounded-full border-2 transition",
+          isActive ? "border-foreground shadow-sm" : "border-border/40 hover:border-border",
+        )}
+        style:background={swatch}
+      ></button>
+    {/each}
+    <Popover.Root>
+      <Popover.Trigger>
+        {#snippet child({ props })}
+          <button
+            type="button"
+            {...props}
+            aria-label="Custom color"
+            class="grid size-5 place-items-center rounded-full border-2 border-dashed border-border/60 text-[11px] leading-none text-muted-foreground transition hover:border-border hover:text-foreground"
+          >
+            +
+          </button>
+        {/snippet}
+      </Popover.Trigger>
+      <Popover.Content align="start" class="w-auto p-0">
+        <ColorPicker
+          value={current}
+          {recents}
+          oncommit={(c: string) => {
+            onCommit(c);
+            rememberColor(c);
+          }}
+        />
+      </Popover.Content>
+    </Popover.Root>
+  </div>
+{/snippet}

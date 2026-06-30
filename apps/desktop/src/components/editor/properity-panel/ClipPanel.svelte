@@ -42,7 +42,7 @@
   function deleteClip() {
     if (!selected) return;
     const joinAt = store.deleteSegmentAt((selected.start + selected.end) / 2);
-    if (joinAt !== null) store.currentTime = joinAt;
+    if (joinAt !== null) store.seek(joinAt);
   }
 </script>
 
@@ -75,7 +75,7 @@
 
     <PanelSection
       title="Clip speed"
-      hint="Changes how fast this clip plays — in the preview AND the export. 1× is normal."
+      hint="How fast this clip plays, in both preview and export. 1× is normal."
     >
       {#snippet action()}
         {#if isSped}

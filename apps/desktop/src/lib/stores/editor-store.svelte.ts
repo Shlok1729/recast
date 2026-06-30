@@ -731,10 +731,24 @@ export interface CaptionStyle {
 	/** Font size as a percent of the preview/video height. */
 	fontSizePct: number;
 	position: 'bottom' | 'center' | 'top';
+	/** Distance from the chosen edge, as a percent of preview height. */
+	offsetPct: number;
 	/** Text colour (hex). */
 	color: string;
+	/** Render text in uppercase. */
+	uppercase: boolean;
+	/** Letter spacing, in em (can be negative). */
+	letterSpacing: number;
 	/** Backing behind the text: none, soft shadow, or a solid box. */
 	background: 'none' | 'soft' | 'box';
+	/** Box backing colour (hex), used when `background` is `box`. */
+	backgroundColor: string;
+	/** Box backing opacity (0–100), used when `background` is `box`. */
+	backgroundOpacity: number;
+	/** Outline / stroke thickness as a percent of font size (0 = none). */
+	outlineWidth: number;
+	/** Outline / stroke colour (hex). */
+	outlineColor: string;
 	/** Max lines shown at once before clamping. */
 	maxLines: number;
 }
@@ -745,8 +759,15 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
 	fontWeight: 700,
 	fontSizePct: 5,
 	position: 'bottom',
+	offsetPct: 6,
 	color: '#ffffff',
+	uppercase: false,
+	letterSpacing: 0,
 	background: 'soft',
+	backgroundColor: '#000000',
+	backgroundOpacity: 65,
+	outlineWidth: 0,
+	outlineColor: '#000000',
 	maxLines: 2,
 };
 
@@ -774,6 +795,11 @@ export function createEditorStore() {
 	// Playback
 	let currentTime = $state(0);
 	let isPlaying = $state(false);
+	// The component that owns the <video>/picture-clock registers a transport
+	// seek here. `seek()` moves the playhead AND the transport in lockstep, so a
+	// seek from a panel (e.g. a transcript line) lands even mid-playback — setting
+	// `currentTime` alone is overwritten by the next playback time publish.
+	let seekHandler: ((time: number) => void) | null = null;
 
 	// Trim
 	let trimStart = $state(0);
@@ -2014,6 +2040,22 @@ export function createEditorStore() {
 
 		get currentTime() { return currentTime; },
 		set currentTime(v: number) { currentTime = v; },
+
+		/** Register the transport seek (the <video>/clock owner). Returns an
+		 *  unsubscribe to call on teardown. */
+		registerSeekHandler(fn: (time: number) => void) {
+			seekHandler = fn;
+			return () => {
+				if (seekHandler === fn) seekHandler = null;
+			};
+		},
+		/** Move the playhead AND the playback transport to `time`. Use this for
+		 *  any seek that originates outside the player (transcript, chapters, …)
+		 *  so it lands whether paused or playing. */
+		seek(time: number) {
+			currentTime = time;
+			seekHandler?.(time);
+		},
 
 		get isPlaying() { return isPlaying; },
 		set isPlaying(v: boolean) { isPlaying = v; },

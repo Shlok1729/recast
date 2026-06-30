@@ -1737,8 +1737,8 @@ void main() {
 					Preview unavailable on this device
 				</div>
 				<p class="max-w-md text-xs leading-relaxed text-muted-foreground">
-					Your graphics driver doesn't expose WebGL2, which Recast's preview compositor needs.
-					Updating your GPU driver (NVIDIA / AMD / Intel) usually fixes this. Export still works — the editor uses FFmpeg directly.
+					Your graphics driver doesn't expose WebGL2, which Recast's preview needs.
+					Updating your GPU driver (NVIDIA / AMD / Intel) usually fixes this. Export still works, since it uses FFmpeg directly.
 				</p>
 			</div>
 		{/if}
