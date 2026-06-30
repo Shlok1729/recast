@@ -29,7 +29,12 @@
     saveProjectEdits,
   } from "$lib/ipc";
   import { generateAutoZoom } from "$lib/services/analysis";
-  import { buildExportRenderState, runExport } from "$lib/services/export";
+  import {
+    buildCaptionExport,
+    buildCloudCaptionTranscript,
+    buildExportRenderState,
+    runExport,
+  } from "$lib/services/export";
   import { isShareSupported, shareRecording } from "$lib/share";
   import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
   import { cloudShare } from "$lib/stores/cloudShare.svelte";
@@ -272,11 +277,18 @@
   let lastAudioTarget = -1;
   function syncAudioToClock() {
     audioSyncRaf = requestAnimationFrame(syncAudioToClock);
-    if (!store.isPlaying || !webcodecsActive) {
+    if (!store.isPlaying) {
       lastAudioTarget = -1;
       return;
     }
-    const target = store.currentTime;
+    // WebCodecs path: the gapless output clock owns time. Legacy <video> path:
+    // the <video> element is the master and ALREADY skips cuts (it jumps to
+    // cut.end at each boundary), so tracking it here makes the <audio> elements
+    // skip the same cuts within a frame. Without this, the 4 Hz `timeupdate`
+    // drift-check left audio playing the removed region for up to ~250 ms.
+    const target = webcodecsActive
+      ? store.currentTime
+      : (videoEl?.currentTime ?? store.currentTime);
     const jumped =
       lastAudioTarget < 0 || Math.abs(target - lastAudioTarget) > AUDIO_JUMP;
     lastAudioTarget = target;
@@ -384,7 +396,11 @@
         el.pause();
       }
     }
-    if (playing && wc) startAudioClockSync();
+    // Run the rAF sync whenever the <audio> elements are the audio source —
+    // both the legacy <video> path AND the engine-failed WebCodecs fallback.
+    // It keeps them locked to the master (video time / output clock) so cuts
+    // are skipped tightly, not just on the coarse `timeupdate` tick.
+    if (playing) startAudioClockSync();
     else stopAudioClockSync();
   });
 
@@ -436,11 +452,34 @@
     audioEngine?.setVolume(settings.volume, settings.muted);
   });
 
+  // Transport seek for `store.seek()` — seeks from outside the player (a
+  // transcript line, chapters, …). Most in-player seeks (timeline scrub,
+  // frame-step) already set `videoEl.currentTime` themselves; this gives panels
+  // the same reach. Moving the <video> works for both the legacy path and the
+  // WebCodecs path: paused → `seeked` realigns the picture clock; playing → the
+  // draw loop re-seats the clock off the changed `store.currentTime`. Setting
+  // `currentTime` alone failed mid-playback because the next time-publish (legacy)
+  // overwrote it before the seek took.
+  $effect(() => {
+    const off = store.registerSeekHandler((t) => {
+      if (videoEl) videoEl.currentTime = t;
+      for (const el of [systemAudioEl, micAudioEl]) {
+        if (el) el.currentTime = t;
+      }
+    });
+    return off;
+  });
+
   // Snap audio to the video time on scrub. Skipped on the WebCodecs path, where
   // audio follows the clock and snapping to seeks would fight it.
   function handleVideoSeeked() {
     if (!videoEl || webcodecsActive) return;
     const t = videoEl.currentTime;
+    // Publish the jumped position immediately. During playback the <video>
+    // cut-skip seeks to cut.end, but `store.currentTime` otherwise only catches
+    // up on the next 4 Hz `timeupdate` — so captions/overlays (which key off
+    // `store.currentTime`) lagged the cut by up to ~250 ms. Snap them here.
+    store.currentTime = t;
     for (const el of [systemAudioEl, micAudioEl]) {
       if (el) el.currentTime = t;
     }
@@ -954,7 +993,13 @@
         speed: store.exportSpeed,
         // GIF carries fps in gifSettings; MP4/WebM use the picker (null = source).
         fps: store.exportFormat === "gif" ? undefined : store.exportFps,
-        onState: handleExportState,
+        // No-op unless a transcript exists and caption options are enabled.
+        captions: buildCaptionExport(store),
+        // Drop stray events from a run the user already cancelled or replaced,
+        // so a background teardown can't disturb the current flow (or re-toast).
+        onState: (e) => {
+          if (activeExportId === exportId) handleExportState(e);
+        },
       });
       // Fall back to the Promise result if the success event was missed.
       if (!exportResult) {
@@ -982,26 +1027,33 @@
         }
       }
     } finally {
+      // Only tear down shared export state if THIS run still owns the flow.
+      // After an optimistic cancel the user may have already kicked off a new
+      // export; this (old) run completing in the background must not clobber the
+      // new one's isExporting/progress.
       if (activeExportId === exportId) {
         activeExportId = null;
+        store.isExporting = false;
+        store.exportProgress = null;
+        exportHasProgress = false;
+        exportCancelling = false;
+        exportFinalizing = false;
       }
-      store.isExporting = false;
-      store.exportProgress = null;
-      exportHasProgress = false;
-      exportCancelling = false;
-      exportFinalizing = false;
     }
   }
 
   async function handleCancelExport() {
-    if (!store.isExporting || exportCancelling || !activeExportId) return;
-    exportCancelling = true;
-    try {
-      await cancelExport(activeExportId);
-    } catch (err) {
-      toast.error(`Could not cancel: ${err}`);
-      exportCancelling = false;
-    }
+    if (!store.isExporting || !activeExportId) return;
+    const id = activeExportId;
+    // Optimistic cancel: signal the backend, then release the UI to "cancelled"
+    // immediately instead of waiting for ffmpeg to die. The pipeline still kills
+    // ffmpeg (watchdog, ≤250ms) and removes the partial file in the background;
+    // its eventual rejection is a no-op (exportResult is already set, and the
+    // finally only clears a still-matching activeExportId). This keeps cancel
+    // snappy so the user can get back to editing right away.
+    void cancelExport(id).catch((err) => console.warn("cancel_export failed", err));
+    store.isExporting = false;
+    setExportResult({ kind: "cancelled" });
   }
 
   function dismissExportResult() {
@@ -1112,10 +1164,15 @@
     const title =
       exportResult.path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "Recast";
     try {
-      const result = await cloudShare.share(exportResult.path, title);
+      const result = await cloudShare.share(
+        exportResult.path,
+        title,
+        undefined,
+        buildCloudCaptionTranscript(store),
+      );
       try {
         await navigator.clipboard.writeText(result.shareUrl);
-        toast.success("Shared — link copied to clipboard.");
+        toast.success("Shared. Link copied to clipboard.");
       } catch {
         toast.success("Shared to Recast Cloud.");
       }
@@ -1429,7 +1486,7 @@
   <ConfirmDialog
     bind:open={showMigration}
     title="Update project format"
-    description="This project was made with an older version of Recast. Update it to the current format to keep editing — a backup (.bak) is saved next to it first."
+    description="This project was made with an older version of Recast. Update it to the current format to keep editing. A backup (.bak) is saved next to it first."
     confirmLabel="Update project"
     cancelLabel="Not now"
     onConfirm={confirmMigration}
@@ -1448,7 +1505,7 @@
       <span class="min-w-0 flex-1 truncate">
         This project has {silenceCutCount} silence cut{silenceCutCount === 1
           ? ""
-          : "s"} — currently hidden and skipped on export. Enable
+          : "s"}, currently hidden and skipped on export. Enable
         <span class="font-semibold">Silence detection</span> to use them.
       </span>
       <Button
@@ -1703,7 +1760,7 @@
           {:else if isPreparing}
             Getting frames and effects ready…
           {:else}
-            This can take a moment — you can keep working.
+            This can take a moment. You can keep working.
           {/if}
         </p>
       </div>
@@ -2123,7 +2180,7 @@
           Export cancelled
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          Stopped before finishing — no file was written. Your settings are
+          Stopped before finishing, so no file was written. Your settings are
           kept, so you can pick up right where you left off.
         </p>
       </div>
@@ -2168,7 +2225,7 @@
           Export failed
         </h3>
         <p class="mt-0.5 text-[11px] text-muted-foreground">
-          Something went wrong while encoding. Your settings are kept — try
+          Something went wrong while encoding. Your settings are kept, so try
           again, or adjust them first.
         </p>
       </div>

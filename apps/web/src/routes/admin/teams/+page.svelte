@@ -11,7 +11,7 @@
 		{#await data.teams then teams}
 			{teams.length} {teams.length === 1 ? "team" : "teams"} total.
 		{/await}
-		Plan changes here are the only way to upgrade — there's no self-serve checkout.
+		Plan changes here are the only way to upgrade. There's no self-serve checkout.
 	</p>
 </header>
 

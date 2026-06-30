@@ -52,10 +52,10 @@ const templates: {
 				preheader: "One-tap sign-in link, expires in 10 minutes.",
 				body:
 					heading("Sign in to Recast") +
-					paragraph(`${hello.replace(",", "")} — tap below to sign in. The link expires in <strong>10 minutes</strong>.`) +
+					paragraph(`${hello.replace(",", "")}, tap below to sign in. The link expires in <strong>10 minutes</strong>.`) +
 					ctaButton("Sign in to Recast", url) +
 					muted(
-						"If you didn't request this, ignore the email — no account changes were made.",
+						"If you didn't request this, you can ignore the email. No account changes were made.",
 					) +
 					fallbackLink(url),
 			}),
@@ -78,12 +78,12 @@ const templates: {
 				body:
 					heading("Confirm your email") +
 					paragraph(
-						`${helloHtml.replace(",", "")} — tap below to confirm <strong>this</strong> is your email. ` +
+						`${helloHtml.replace(",", "")}, tap below to confirm <strong>this</strong> is your email. ` +
 							`Until you verify, your Recast dashboard stays read-only.`,
 					) +
 					ctaButton("Verify email", url, "accent") +
 					muted(
-						"Link valid for 24 hours. Didn't sign up for Recast? Ignore the email — no account changes were made.",
+						"Link valid for 24 hours. Didn't sign up for Recast? You can ignore this email. No account changes were made.",
 					) +
 					fallbackLink(url),
 			}),
@@ -106,7 +106,7 @@ const templates: {
 				body:
 					heading("Reset your password") +
 					paragraph(
-						`${hello.replace(",", "")} — someone (hopefully you) asked to reset your Recast password.`,
+						`${hello.replace(",", "")}, someone (hopefully you) asked to reset your Recast password.`,
 					) +
 					ctaButton("Set a new password", url) +
 					muted(
@@ -130,7 +130,7 @@ const templates: {
 				`can ignore the email.`,
 			html: wrap({
 				subject,
-				preheader: `Join ${teamName} on Recast — invite expires in 7 days.`,
+				preheader: `Join ${teamName} on Recast. Invite expires in 7 days.`,
 				body:
 					heading(`You're invited to ${teamName}`) +
 					paragraph(
@@ -139,7 +139,7 @@ const templates: {
 					) +
 					ctaButton("Accept invitation", url) +
 					muted(
-						"Wasn't expecting this? Ignore the email — you won't be added to anything.",
+						"Wasn't expecting this? You can ignore the email. You won't be added to anything.",
 					) +
 					fallbackLink(url),
 			}),

@@ -33,6 +33,7 @@
 	import AnnotationOverlay from "./_components/AnnotationOverlay.svelte";
 	import AnnotationStatusRail from "./_components/AnnotationStatusRail.svelte";
 	import CameraOverlay from "./_components/CameraOverlay.svelte";
+	import CaptionOverlay from "./_components/CaptionOverlay.svelte";
 	import FocusOverlay from "./_components/FocusOverlay.svelte";
 	import TextAnnotationLayer from "./_components/TextAnnotationLayer.svelte";
 
@@ -1736,8 +1737,8 @@ void main() {
 					Preview unavailable on this device
 				</div>
 				<p class="max-w-md text-xs leading-relaxed text-muted-foreground">
-					Your graphics driver doesn't expose WebGL2, which Recast's preview compositor needs.
-					Updating your GPU driver (NVIDIA / AMD / Intel) usually fixes this. Export still works — the editor uses FFmpeg directly.
+					Your graphics driver doesn't expose WebGL2, which Recast's preview needs.
+					Updating your GPU driver (NVIDIA / AMD / Intel) usually fixes this. Export still works, since it uses FFmpeg directly.
 				</p>
 			</div>
 		{/if}
@@ -1810,6 +1811,7 @@ void main() {
 			targetEl={previewRectEl}
 		/>
 		{/if}
+		<CaptionOverlay {store} />
 	</div>
 
 	{#if videoSrc}

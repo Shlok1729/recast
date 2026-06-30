@@ -38,7 +38,7 @@
 				eyebrow: "404 · Lost in the timeline",
 				title: "We can't find that frame.",
 				body:
-					"The link is broken, the page moved, or the URL has a typo. Nothing on your end — let's get you back to something useful.",
+					"The link is broken, the page moved, or the URL has a typo. Let's get you back to something useful.",
 				accent: "primary",
 			},
 			403: {
@@ -58,7 +58,7 @@
 				eyebrow: "500 · Recast tripped",
 				title: "Something broke on our end.",
 				body:
-					"Not your code — that's on us. The error was logged. Try the page again in a moment, or head back to where you were.",
+					"That's on us, not you. The error was logged. Try the page again in a moment, or head back to where you were.",
 				accent: "destructive",
 			},
 			default: {

@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::ffmpeg::{
     append_camera_overlay_to_complex, append_cursor_overlay_to_complex,
-    append_output_filters_to_complex, build_annotation_blur_complex,
+    append_output_filters_to_complex, append_subtitles_to_complex, build_annotation_blur_complex,
     build_gif_palette_prepass_filter, build_gif_paletteuse_external_complex,
     build_output_scale_filter, has_audio, probe_video_metadata, resolve_export_profile,
     summarize_ffmpeg_error, BlurRegion, CameraOverlayParams, ExportSpeed, GifFilterOptions,
@@ -955,11 +955,27 @@ fn has_speed_change(segs: &[SpeedSegment]) -> bool {
 }
 
 /// Warped output duration — the value the export and the frontend time-map must
-/// agree on. Only the parity test reads it (the FFmpeg pipeline expresses the
-/// same warp via `setpts`/`atempo`), so it's test-scoped.
-#[cfg(test)]
+/// agree on. The FFmpeg pipeline expresses the same warp via `setpts`/`atempo`;
+/// this also drives the output-side `-t` cap so the encode stops at the real
+/// post-edit content length (cuts dropped + speed warped), not the raw trimmed
+/// span — otherwise the infinite background generators freeze the last frame
+/// past content-end. Parity-tested against the frontend time-map.
 fn warped_output_duration(segs: &[SpeedSegment]) -> f64 {
     segs.iter().map(|s| (s.end - s.start) / s.speed).sum()
+}
+
+/// Output-side `-t` cap (seconds): the real post-edit content length. Non-GIF
+/// exports run cuts + per-segment speed through select/setpts, so the stream is
+/// the warped duration — capping at the raw trimmed span would freeze the last
+/// frame over the infinite background for the cut/sped-away time (and truncate
+/// slow-motion, where warped > raw). GIF uses a separate cut/palette path and
+/// loops, so it keeps the raw trimmed span.
+fn output_duration_cap(format: &str, duration: f64, speed_segments: &[SpeedSegment]) -> f64 {
+    if format == "gif" {
+        duration
+    } else {
+        warped_output_duration(speed_segments)
+    }
 }
 
 /// `setpts` seconds-expression mapping a survivor frame's post-trim source time
@@ -1567,6 +1583,50 @@ pub async fn export_video(
         video_map_after_cursor = new_map;
     }
 
+    // Burn-in captions (overlay) via libass. The transcript + style ride along
+    // in the render-state passthrough; styled into an ASS script and composited
+    // here on the trimmed-but-uncut axis, so the cut/speed stage below re-times
+    // the burned pixels with the rest. No-op without a transcript; GIF skips it
+    // (its paletteuse tail can't take another filter stage).
+    if request.burn_captions && request.format != "gif" {
+        let transcript: Option<crate::transcription::Transcript> = request
+            .render_state
+            .passthrough
+            .get("transcript")
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        if let Some(transcript) = transcript.filter(|t| !t.segments.is_empty()) {
+            let style: crate::transcription::CaptionStyle = request
+                .render_state
+                .passthrough
+                .get("captionStyle")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            let ass = crate::transcription::subtitles::to_ass(
+                &transcript,
+                &style,
+                canvas_width,
+                canvas_height,
+                trim_start,
+                duration,
+            );
+            let ass_path =
+                std::env::temp_dir().join(format!("recast-captions-{}.ass", request.export_id));
+            match std::fs::write(&ass_path, ass) {
+                Ok(()) => {
+                    let (new_complex, new_map) = append_subtitles_to_complex(
+                        filter_complex_after_cursor.as_deref(),
+                        &video_map_after_cursor,
+                        &ass_path.to_string_lossy(),
+                    );
+                    filter_complex_after_cursor = Some(new_complex);
+                    video_map_after_cursor = new_map;
+                }
+                Err(e) => log::warn!("caption burn-in: failed to write ASS script: {e}"),
+            }
+        }
+    }
+
     // For GIF, route through a 2-pass pipeline. Pass 1 here (synchronous,
     // before the main spawn_blocking) generates the palette PNG so the main
     // pass can use a paletteuse-only chain. The single-pass alternative
@@ -1838,8 +1898,18 @@ pub async fn export_video(
     // generators such as `color=...` are infinite by default. Add an
     // output-side duration cap so background/composite exports stop after the
     // requested timeline duration instead of encoding forever.
-    if duration > 0.0 {
-        args.extend(["-t".to_string(), format!("{duration:.3}")]);
+    //
+    // Cap at the REAL post-edit length: cuts drop frames and per-segment speed
+    // warps them, so the edited stream is shorter (or, for slow-motion, longer)
+    // than the raw trimmed span. Because the background generators are infinite
+    // and `overlay` repeats the video's last frame past content-end, capping at
+    // the raw span would bake a frozen tail (the cut/sped-away time) onto the
+    // end — and would truncate a slowed clip. `warped_output_duration` is the
+    // length the select+setpts/atempo stage actually produces. GIF keeps the
+    // trimmed span (its cut/palette path differs and it loops).
+    let output_cap = output_duration_cap(&request.format, duration, &speed_segments);
+    if output_cap > 0.0 {
+        args.extend(["-t".to_string(), format!("{output_cap:.3}")]);
     }
 
     if duration <= 0.0 && (!export_plan.extra_inputs.is_empty() || cursor_overlay_path.is_some()) {
@@ -2756,9 +2826,66 @@ pub async fn suggest_zoom_regions(
 mod cut_export_tests {
     use super::{
         atempo_chain, build_cut_select_expr, build_speed_segments, build_speed_setpts_expr,
-        collect_export_cuts, warped_output_duration,
+        clamp_segment_speed, collect_export_cuts, output_duration_cap, warped_output_duration,
+        SpeedSegment,
     };
     use crate::render::graph::{CutRange, RenderState, SegmentSpeed};
+
+    fn seg(start: f64, end: f64, speed: f64) -> SpeedSegment {
+        SpeedSegment { start, end, speed }
+    }
+
+    #[test]
+    fn output_cap_uses_warped_length_for_video_and_raw_for_gif() {
+        // Two kept segments, the second sped 2× → raw span 8s, warped 4 + 2 = 6s.
+        let segs = vec![seg(0.0, 4.0, 1.0), seg(4.0, 8.0, 2.0)];
+        // Non-GIF caps at the real content length — this is the frozen-tail fix.
+        assert!((output_duration_cap("mp4", 8.0, &segs) - 6.0).abs() < 1e-9);
+        assert!((output_duration_cap("webm", 8.0, &segs) - 6.0).abs() < 1e-9);
+        // GIF keeps the raw trimmed span (its own cut/palette path).
+        assert!((output_duration_cap("gif", 8.0, &segs) - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn output_cap_unchanged_without_edits() {
+        let segs = vec![seg(0.0, 10.0, 1.0)];
+        assert!((output_duration_cap("mp4", 10.0, &segs) - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn output_cap_extends_for_slow_motion_so_it_is_not_truncated() {
+        // 0.5× → warped 20s > raw 10s; the cap must grow, not clip the slow-mo.
+        let segs = vec![seg(0.0, 10.0, 0.5)];
+        assert!((output_duration_cap("mp4", 10.0, &segs) - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn setpts_expr_edge_cases() {
+        // No segments → identity remap.
+        assert_eq!(build_speed_setpts_expr(&[]), "T");
+        // Single segment → flat affine map, no nested if().
+        let one = build_speed_setpts_expr(&[seg(0.0, 4.0, 2.0)]);
+        assert_eq!(one, "0.000000+(T-0.000000)/2.000000");
+        assert!(!one.contains("if("));
+        // Two segments → exactly one branch boundary at the first segment's end.
+        let two = build_speed_setpts_expr(&[seg(0.0, 4.0, 1.0), seg(4.0, 8.0, 2.0)]);
+        assert_eq!(two.matches("if(lt(T,").count(), 1);
+        assert!(two.contains("if(lt(T,4.000000)"));
+    }
+
+    #[test]
+    fn clamp_segment_speed_guards_bad_values_and_clamps_range() {
+        // Non-positive / non-finite collapse to 1× (never 0 → no atempo hang or
+        // setpts divide-by-zero downstream).
+        assert_eq!(clamp_segment_speed(0.0), 1.0);
+        assert_eq!(clamp_segment_speed(-2.0), 1.0);
+        assert_eq!(clamp_segment_speed(f64::NAN), 1.0);
+        assert_eq!(clamp_segment_speed(f64::INFINITY), 1.0);
+        // In-range passes through; out-of-range clamps to [0.25, 4.0].
+        assert_eq!(clamp_segment_speed(1.5), 1.5);
+        assert_eq!(clamp_segment_speed(0.1), 0.25);
+        assert_eq!(clamp_segment_speed(99.0), 4.0);
+    }
 
     fn cut(start: f64, end: f64) -> CutRange {
         CutRange {

@@ -34,7 +34,7 @@
 				})(),
 				{
 					loading: "Sending verification email…",
-					success: "Sent — check your inbox.",
+					success: "Sent. Check your inbox.",
 					error: (err) => (err as Error)?.message ?? "Couldn't send the verification email.",
 				},
 			);
@@ -80,7 +80,7 @@
 
 	<div class="w-full max-w-md" in:fly={{ y: 16, duration: 520, easing: cubicOut }}>
 		<div class="flex flex-col items-center text-center">
-			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast — home">
+			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast home">
 				<span
 					class="grid size-9 place-items-center rounded-xl bg-foreground p-1 text-background shadow-craft-sm transition-transform group-hover/logo:rotate-[-4deg]"
 				>
@@ -100,7 +100,7 @@
 			<p class="text-pretty mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
 				We sent a confirmation link to
 				<span class="font-mono font-medium text-foreground">{data.email}</span>.
-				Click it and you'll be redirected to your dashboard — until then your
+				Click it and you'll land on your dashboard. Until then, your
 				dashboard stays read-only.
 			</p>
 		</div>

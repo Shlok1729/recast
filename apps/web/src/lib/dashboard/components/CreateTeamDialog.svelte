@@ -74,8 +74,8 @@
 				Create a team
 			</Dialog.Title>
 			<Dialog.Description>
-				You'll be the owner. The team starts on the free plan with 3 seats —
-				an admin can upgrade it later.
+				You'll be the owner. The team starts on the free plan with 3 seats.
+				An admin can upgrade it later.
 			</Dialog.Description>
 		</Dialog.Header>
 		<form class="space-y-3" onsubmit={submit}>

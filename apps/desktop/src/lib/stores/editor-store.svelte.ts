@@ -3,6 +3,8 @@
  * Uses Svelte 5 runes ($state) for granular reactivity.
  */
 
+import type { Transcript } from '../ipc';
+import { type CaptionAnimation, DEFAULT_CAPTION_ANIMATION } from '../captions/animation';
 import type { CursorSampleLike } from '../cursor/smoothing';
 import { EASE, type Easing } from '../easing/cubic-bezier';
 import { log } from '../logger';
@@ -452,6 +454,10 @@ export interface EditorRenderState {
 	/** Frame padding as percent of the shorter source edge (0..20). */
 	padding: number;
 	borderRadius: number;
+	/** Generated captions (transcript) + how they render. Optional — projects
+	 *  saved before captions landed simply omit these. */
+	transcript?: Transcript | null;
+	captionStyle?: CaptionStyle;
 	cursorEnabled: boolean;
 	cursorSize: number;
 	/**
@@ -593,7 +599,7 @@ export function aspectRatio(a: OutputAspect): number | null {
 
 export type EditorWindowBehavior = 'navigate' | 'new-window';
 
-export type PanelTab = 'clip' | 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'extensions' | 'info';
+export type PanelTab = 'clip' | 'background' | 'focus' | 'annotations' | 'cursor' | 'camera' | 'audio' | 'captions' | 'extensions' | 'info';
 
 // Wallpapers 19–23 were moved into the installable "Waves" extension pack
 // (extensions/packs/waves-wallpapers) — keep the built-in default set at 18 so
@@ -716,6 +722,303 @@ function generateId(): string {
  * Creates an editor store instance.
  * Call once per editor page mount, or use a singleton.
  */
+/** How generated captions render over the preview / export. */
+export interface CaptionStyle {
+	enabled: boolean;
+	/** CSS font-family stack. */
+	fontFamily: string;
+	/** Font weight (400–800). */
+	fontWeight: number;
+	/** Font size as a percent of the preview/video height. */
+	fontSizePct: number;
+	position: 'bottom' | 'center' | 'top';
+	/** Horizontal alignment of the caption block. */
+	align: 'left' | 'center' | 'right';
+	/** Distance from the chosen edge, as a percent of preview height. */
+	offsetPct: number;
+	/** Text colour (hex). */
+	color: string;
+	/** Render text in uppercase. */
+	uppercase: boolean;
+	/** Letter spacing, in em (can be negative). */
+	letterSpacing: number;
+	/** Backing behind the text: none, soft shadow, or a solid box. */
+	background: 'none' | 'soft' | 'box';
+	/** Box backing colour (hex), used when `background` is `box`. */
+	backgroundColor: string;
+	/** Box backing opacity (0–100), used when `background` is `box`. */
+	backgroundOpacity: number;
+	/** Outline / stroke thickness as a percent of font size (0 = none). */
+	outlineWidth: number;
+	/** Outline / stroke colour (hex). */
+	outlineColor: string;
+	/** Max lines shown at once before clamping. */
+	maxLines: number;
+	/** Word-by-word animation. Absent = static (today's behaviour). */
+	animation?: CaptionAnimation;
+}
+
+export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
+	enabled: true,
+	fontFamily: 'system-ui, sans-serif',
+	fontWeight: 700,
+	fontSizePct: 5,
+	position: 'bottom',
+	align: 'center',
+	offsetPct: 6,
+	color: '#ffffff',
+	uppercase: false,
+	letterSpacing: 0,
+	background: 'soft',
+	backgroundColor: '#000000',
+	backgroundOpacity: 65,
+	outlineWidth: 0,
+	outlineColor: '#000000',
+	maxLines: 2,
+	animation: DEFAULT_CAPTION_ANIMATION,
+};
+
+/** A named caption look — the visual half of {@link CaptionStyle}. Applied
+ *  wholesale; users then tweak. Built-ins ship a few; extension packs add more
+ *  via the asset registry (`captionPreset` kind). */
+export interface CaptionPreset {
+	id: string;
+	label: string;
+	description?: string;
+	style: Omit<CaptionStyle, 'enabled'>;
+}
+
+/** Shipped caption themes. The first mirrors {@link DEFAULT_CAPTION_STYLE}. */
+export const CAPTION_PRESETS: CaptionPreset[] = [
+	{
+		id: 'clean',
+		label: 'Clean',
+		description: 'Soft shadow',
+		style: {
+			fontFamily: 'system-ui, sans-serif',
+			fontWeight: 700,
+			fontSizePct: 5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 6,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'soft',
+			backgroundColor: '#000000',
+			backgroundOpacity: 65,
+			outlineWidth: 0,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+	{
+		id: 'boxed',
+		label: 'Boxed',
+		description: 'Solid bar',
+		style: {
+			fontFamily: 'system-ui, sans-serif',
+			fontWeight: 700,
+			fontSizePct: 4.5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 8,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'box',
+			backgroundColor: '#000000',
+			backgroundOpacity: 82,
+			outlineWidth: 0,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+	{
+		id: 'bold',
+		label: 'Bold',
+		description: 'Thick outline',
+		style: {
+			fontFamily: "'Inter', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 6,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 10,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 6,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+	{
+		id: 'pop',
+		label: 'Pop',
+		description: 'Yellow caps',
+		style: {
+			fontFamily: "'Anton', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 6.5,
+			position: 'center',
+			align: 'center',
+			offsetPct: 0,
+			color: '#facc15',
+			uppercase: true,
+			letterSpacing: 0.02,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 7,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+	{
+		id: 'karaoke',
+		label: 'Karaoke highlight',
+		description: 'Active word colors',
+		style: {
+			fontFamily: "'Inter', sans-serif",
+			fontWeight: 800,
+			fontSizePct: 5.5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 10,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'soft',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 5,
+			outlineColor: '#000000',
+			maxLines: 2,
+			animation: {
+				chunk: 'line',
+				chunkSize: 4,
+				emphasis: 'color',
+				emphasisColor: '#facc15',
+				entrance: 'none',
+				entranceMs: 0,
+				holdGaps: true,
+			},
+		},
+	},
+	{
+		id: 'word-pop',
+		label: 'Word-by-word pop',
+		description: 'One word, pops in',
+		style: {
+			fontFamily: "'Anton', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 8,
+			position: 'center',
+			align: 'center',
+			offsetPct: 0,
+			color: '#ffffff',
+			uppercase: true,
+			letterSpacing: 0.02,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 8,
+			outlineColor: '#000000',
+			maxLines: 1,
+			animation: {
+				chunk: 'word',
+				chunkSize: 1,
+				emphasis: 'scale',
+				emphasisColor: '#facc15',
+				entrance: 'pop',
+				entranceMs: 180,
+				holdGaps: true,
+			},
+		},
+	},
+	{
+		id: 'chunk-fade',
+		label: 'Chunk reveal',
+		description: 'Phrases fade in',
+		style: {
+			fontFamily: 'system-ui, sans-serif',
+			fontWeight: 600,
+			fontSizePct: 5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 8,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'soft',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 0,
+			outlineColor: '#000000',
+			maxLines: 2,
+			animation: {
+				chunk: 'phrase',
+				chunkSize: 3,
+				emphasis: 'none',
+				emphasisColor: '#facc15',
+				entrance: 'fade',
+				entranceMs: 240,
+				holdGaps: true,
+			},
+		},
+	},
+	{
+		id: 'big-bold',
+		label: 'Big bold',
+		description: 'Hormozi style',
+		style: {
+			fontFamily: "'Anton', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 7.5,
+			position: 'center',
+			align: 'center',
+			offsetPct: 0,
+			color: '#ffffff',
+			uppercase: true,
+			letterSpacing: 0.02,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 8,
+			outlineColor: '#000000',
+			maxLines: 2,
+			animation: {
+				chunk: 'phrase',
+				chunkSize: 3,
+				emphasis: 'color',
+				emphasisColor: '#22c55e',
+				entrance: 'pop',
+				entranceMs: 160,
+				holdGaps: true,
+			},
+		},
+	},
+];
+
+/** What to do with generated captions on export. Independent choices — you can
+ *  burn captions into the pixels AND keep a sidecar file. The sidecar is also
+ *  what Cloud uploads as a selectable caption track. */
+export interface CaptionExportOptions {
+	/** Burn the captions into the video (overlay). Ignored for GIF. */
+	burnIn: boolean;
+	/** Write a separate subtitle file next to the export ('none' to skip). */
+	sidecar: 'none' | 'vtt' | 'srt';
+}
+
+export const DEFAULT_CAPTION_EXPORT: CaptionExportOptions = {
+	burnIn: false,
+	sidecar: 'vtt',
+};
+
 export function createEditorStore() {
 	// Video source
 	let videoPath = $state('');
@@ -725,6 +1028,10 @@ export function createEditorStore() {
 	let recordingPath = $state<string | null>(null);
 	let audioPath = $state<string | null>(null);
 	let microphonePath = $state<string | null>(null);
+	// Captions: the generated transcript (session-only for now; project-format
+	// persistence is deferred) + how it renders over the preview.
+	let transcript = $state.raw<Transcript | null>(null);
+	let captionStyle = $state<CaptionStyle>({ ...DEFAULT_CAPTION_STYLE });
 	let metadata = $state<VideoMetadata | null>(null);
 	// `$state.raw` for large replace-only arrays: swapped wholesale, never
 	// mutated element-wise, so deep-proxying thousands of entries is pure
@@ -736,6 +1043,11 @@ export function createEditorStore() {
 	// Playback
 	let currentTime = $state(0);
 	let isPlaying = $state(false);
+	// The component that owns the <video>/picture-clock registers a transport
+	// seek here. `seek()` moves the playhead AND the transport in lockstep, so a
+	// seek from a panel (e.g. a transcript line) lands even mid-playback — setting
+	// `currentTime` alone is overwritten by the next playback time publish.
+	let seekHandler: ((time: number) => void) | null = null;
 
 	// Trim
 	let trimStart = $state(0);
@@ -899,6 +1211,9 @@ export function createEditorStore() {
 	// has its own fps control in `gifSettings`.
 	let exportFps = $state<number | null>(null);
 	let gifSettings = $state<GifSettings>({ ...DEFAULT_GIF_SETTINGS });
+	// How captions are emitted on export (burn-in / sidecar). Session-only, like
+	// the other export prefs.
+	let captionExport = $state<CaptionExportOptions>({ ...DEFAULT_CAPTION_EXPORT });
 	let exportProgress = $state<number | null>(null);
 	let isExporting = $state(false);
 
@@ -1789,6 +2104,8 @@ export function createEditorStore() {
 			annotations: annotations.map((annotation) => ({ ...annotation })),
 			shadow: { ...shadow },
 			audioSettings: { ...audioSettings },
+			transcript,
+			captionStyle: { ...captionStyle },
 			watermarkSettings: { ...watermarkSettings },
 			cameraOverlay: {
 				...cameraOverlay,
@@ -1876,6 +2193,10 @@ export function createEditorStore() {
 		}
 		shadow = state.shadow ?? shadow;
 		audioSettings = state.audioSettings ?? audioSettings;
+		transcript = state.transcript ?? null;
+		captionStyle = state.captionStyle
+			? { ...DEFAULT_CAPTION_STYLE, ...state.captionStyle }
+			: { ...DEFAULT_CAPTION_STYLE };
 		watermarkSettings = state.watermarkSettings ?? watermarkSettings;
 		// Camera overlay defaults match the Phase 1 spec: bottom-right at
 		// 16% size. Older projects stored top-right at 22%; the explicit
@@ -1970,6 +2291,22 @@ export function createEditorStore() {
 
 		get currentTime() { return currentTime; },
 		set currentTime(v: number) { currentTime = v; },
+
+		/** Register the transport seek (the <video>/clock owner). Returns an
+		 *  unsubscribe to call on teardown. */
+		registerSeekHandler(fn: (time: number) => void) {
+			seekHandler = fn;
+			return () => {
+				if (seekHandler === fn) seekHandler = null;
+			};
+		},
+		/** Move the playhead AND the playback transport to `time`. Use this for
+		 *  any seek that originates outside the player (transcript, chapters, …)
+		 *  so it lands whether paused or playing. */
+		seek(time: number) {
+			currentTime = time;
+			seekHandler?.(time);
+		},
 
 		get isPlaying() { return isPlaying; },
 		set isPlaying(v: boolean) { isPlaying = v; },
@@ -2095,6 +2432,15 @@ export function createEditorStore() {
 		get audioSettings() { return audioSettings; },
 		set audioSettings(v: AudioSettings) { audioSettings = v; },
 
+		get transcript() { return transcript; },
+		set transcript(v: Transcript | null) { transcript = v; isDirty = true; },
+		get captionStyle() { return captionStyle; },
+		set captionStyle(v: CaptionStyle) { captionStyle = v; isDirty = true; },
+		updateCaptionStyle(updates: Partial<CaptionStyle>) {
+			captionStyle = { ...captionStyle, ...updates };
+			isDirty = true;
+		},
+
 		get watermarkSettings() { return watermarkSettings; },
 		set watermarkSettings(v: WatermarkSettings) { watermarkSettings = v; },
 
@@ -2112,6 +2458,12 @@ export function createEditorStore() {
 
 		get exportFps() { return exportFps; },
 		set exportFps(v: number | null) { exportFps = v; },
+
+		get captionExport() { return captionExport; },
+		set captionExport(v: CaptionExportOptions) { captionExport = v; },
+		updateCaptionExport(updates: Partial<CaptionExportOptions>) {
+			captionExport = { ...captionExport, ...updates };
+		},
 
 		get gifSettings() { return gifSettings; },
 		set gifSettings(v: GifSettings) { gifSettings = v; },

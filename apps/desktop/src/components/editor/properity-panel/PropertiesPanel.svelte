@@ -3,22 +3,22 @@
   import type { EditorStore, PanelTab } from "$lib/stores/editor-store.svelte";
   import {
     Blocks,
+    Captions,
     ImageIcon,
     Info,
     MousePointer,
     Pencil,
-    SquareSplitHorizontal,
     Target,
     Video,
-    Volume2,
+    Volume2
   } from "@lucide/svelte";
   import * as Tabs from "@recast/ui/tabs";
-  import * as Tooltip from "@recast/ui/tooltip";
   import { cn } from "@recast/ui/utils";
   import AnnotationsPanel from "./AnnotationsPanel.svelte";
   import AudioPanel from "./AudioPanel.svelte";
   import BackgroundPicker from "./BackgroundPicker.svelte";
   import CameraPanel from "./CameraPanel.svelte";
+  import CaptionsPanel from "./CaptionsPanel.svelte";
   import ClipPanel from "./ClipPanel.svelte";
   import CursorPanel from "./CursorPanel.svelte";
   import ExtensionsPanel from "./ExtensionsPanel.svelte";
@@ -48,6 +48,7 @@
       ? [{ id: "camera" as PanelTab, label: "Camera", icon: Video }]
       : []),
     { id: "audio", label: "Audio", icon: Volume2 },
+    { id: "captions", label: "Captions", icon: Captions },
     { id: "extensions", label: "Extensions", icon: Blocks },
     { id: "info", label: "Info", icon: Info },
   ];
@@ -103,12 +104,12 @@
         {#each tabs as tab}
           {@const Icon = tab.icon}
           {@const active = store.activePanel === tab.id}
-          <Tooltip.Root>
-            <Tooltip.Trigger>
               <Tabs.Trigger
                 value={tab.id}
+                title={tab.label}
+                aria-label={tab.label}
                 class={cn(
-                  "cursor-pointer flex size-6 items-center justify-center rounded-md transition-all duration-150",
+                  "after:hidden cursor-pointer flex size-6 items-center justify-center rounded-md transition-all duration-150",
                   active
                     ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
                     : "text-muted-foreground hover:text-foreground",
@@ -117,9 +118,6 @@
                 <Icon class="size-3.5" />
                 <span class="sr-only">{tab.label}</span>
               </Tabs.Trigger>
-            </Tooltip.Trigger>
-            <Tooltip.Content side="bottom">{tab.label}</Tooltip.Content>
-          </Tooltip.Root>
         {/each}
       </Tabs.List>
       <span
@@ -157,6 +155,10 @@
 
     <Tabs.Content value="audio" class={tabContentClass}>
       <AudioPanel {store} />
+    </Tabs.Content>
+
+    <Tabs.Content value="captions" class={tabContentClass}>
+      <CaptionsPanel {store} />
     </Tabs.Content>
 
     <Tabs.Content value="extensions" class={tabContentClass}>

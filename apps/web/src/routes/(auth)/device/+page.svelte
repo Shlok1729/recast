@@ -129,7 +129,7 @@
 -->
 <div class="w-full max-w-md" in:fly={{ y: 16, duration: 520, easing: cubicOut }}>
 		<div class="flex flex-col items-center text-center">
-			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast — home">
+			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast home">
 				<span
 					class="grid size-9 place-items-center rounded-xl bg-foreground p-1 text-background shadow-craft-sm transition-transform group-hover/logo:rotate-[-4deg]"
 				>
@@ -164,7 +164,7 @@
 				{:else if data.error}
 					{data.error}
 				{:else if deviceStatus === "approved"}
-					Your Recast Desktop is signed in. Hop back over — cloud sync is ready.
+					Your Recast Desktop is signed in. Hop back over; cloud sync is ready.
 				{:else if deviceStatus === "denied"}
 					The desktop request was rejected. Start a new sign-in from the app if this was a mistake.
 				{:else}

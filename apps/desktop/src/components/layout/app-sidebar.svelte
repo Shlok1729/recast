@@ -63,7 +63,8 @@
           "flex h-10 items-center gap-2.5 overflow-hidden rounded-lg transition-opacity hover:opacity-80",
           open ? "px-2 pr-9" : "justify-center px-0",
         )}
-        aria-label="Recast — home"
+        data-tauri-drag-region
+        aria-label="Recast home"
       >
         <Logo
           size="24"

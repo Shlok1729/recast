@@ -195,6 +195,38 @@ pub fn append_cursor_overlay_to_complex(
     (new_complex, out_label.to_string())
 }
 
+/// Append an `ass` (libass) subtitle burn-in stage. `ass_path` is a local .ass
+/// file; libass renders the styled captions straight into the frame. Injected
+/// before the cut/speed stage so the later select/setpts re-times the burned
+/// pixels along with everything else.
+pub fn append_subtitles_to_complex(
+    filter_complex: Option<&str>,
+    current_video_map: &str,
+    ass_path: &str,
+) -> (String, String) {
+    let out_label = "[vcap]";
+    let normalized_current = if current_video_map.starts_with('[') {
+        current_video_map.to_string()
+    } else {
+        format!("[{current_video_map}]")
+    };
+    // Escape the filename for FFmpeg's TWO-level filtergraph parse:
+    //   1. Single quotes protect the value at the filterchain level (so it isn't
+    //      split on `,`/`;`/`[`).
+    //   2. The drive colon must ALSO survive the filter-OPTION parse, which
+    //      splits options on `:` — single quotes alone don't stop that (hence the
+    //      original "No option name near '/Users/...'"). Backslash-escape it so
+    //      that level unescapes `\:` back to `:` for libass.
+    // Forward slashes work for libass and dodge backslash-escaping of separators.
+    let safe = ass_path.replace('\\', "/").replace(':', "\\:");
+    let stage = format!("{normalized_current}ass=filename='{safe}'{out_label}");
+    let new_complex = match filter_complex {
+        Some(existing) if !existing.is_empty() => format!("{existing};{stage}"),
+        _ => stage,
+    };
+    (new_complex, out_label.to_string())
+}
+
 /// Parameters for `append_camera_overlay_to_complex`.
 ///
 /// All pixel values are in **canvas pixels** (= source + padding × 2 with

@@ -166,7 +166,10 @@ function validateContributions(res, contributes) {
 	};
 
 	const c = contributes ?? {};
-	const kinds = ["cursors", "backgrounds", "gradients", "colors", "easings", "smoothings"];
+	const kinds = [
+		"cursors", "backgrounds", "gradients", "colors", "easings", "smoothings",
+		"captionPresets",
+	];
 	for (const u of Object.keys(c).filter((k) => !kinds.includes(k))) {
 		res.err(`contributes.${u}: unknown contribution kind`);
 	}
@@ -234,6 +237,41 @@ function validateContributions(res, contributes) {
 		if (typeof s?.snapToClicks !== "boolean") res.err(`${w}: snapToClicks must be boolean`);
 		if (typeof s?.snapWindowMs !== "number" || s.snapWindowMs < 0) {
 			res.err(`${w}: snapWindowMs must be a non-negative number`);
+		}
+	}
+
+	// Caption themes carry their whole style in the manifest and reference no
+	// assets — validate the fields + ranges (mirrors the JSON schema). Kept in
+	// sync with `CaptionPresetValue` in apps/desktop/src/lib/registry/types.ts.
+	const isHex = (v) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v ?? "");
+	const inRange = (v, lo, hi) => typeof v === "number" && v >= lo && v <= hi;
+	for (const p of c.captionPresets ?? []) {
+		total++;
+		const w = `captionPreset "${p?.id}"`;
+		claimId("captionPresets", p?.id, w);
+		if (!isStr(p?.label)) res.err(`${w}: label is required`);
+		if (!isStr(p?.fontFamily)) res.err(`${w}: fontFamily is required`);
+		if (!inRange(p?.fontWeight, 100, 900)) res.err(`${w}: fontWeight must be 100..900`);
+		if (!inRange(p?.fontSizePct, 1, 20)) res.err(`${w}: fontSizePct must be 1..20`);
+		if (!["top", "center", "bottom"].includes(p?.position)) {
+			res.err(`${w}: position must be top|center|bottom`);
+		}
+		if (!["left", "center", "right"].includes(p?.align)) {
+			res.err(`${w}: align must be left|center|right`);
+		}
+		if (!inRange(p?.offsetPct, 0, 40)) res.err(`${w}: offsetPct must be 0..40`);
+		if (!isHex(p?.color)) res.err(`${w}: color must be a hex colour`);
+		if (typeof p?.uppercase !== "boolean") res.err(`${w}: uppercase must be boolean`);
+		if (!inRange(p?.letterSpacing, -0.2, 1)) res.err(`${w}: letterSpacing must be -0.2..1`);
+		if (!["none", "soft", "box"].includes(p?.background)) {
+			res.err(`${w}: background must be none|soft|box`);
+		}
+		if (!isHex(p?.backgroundColor)) res.err(`${w}: backgroundColor must be a hex colour`);
+		if (!inRange(p?.backgroundOpacity, 0, 100)) res.err(`${w}: backgroundOpacity must be 0..100`);
+		if (!inRange(p?.outlineWidth, 0, 20)) res.err(`${w}: outlineWidth must be 0..20`);
+		if (!isHex(p?.outlineColor)) res.err(`${w}: outlineColor must be a hex colour`);
+		if (!Number.isInteger(p?.maxLines) || p.maxLines < 1 || p.maxLines > 6) {
+			res.err(`${w}: maxLines must be an integer 1..6`);
 		}
 	}
 

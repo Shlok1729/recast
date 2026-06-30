@@ -37,6 +37,8 @@ export type ResolvedShare =
 				description: string;
 				src: string;
 				poster: string | null;
+				/** WebVTT captions track (signed URL), or null when none. */
+				captions: string | null;
 				durationSec: number;
 				/** Intrinsic pixel dimensions of the source video, when known.
 				 *  The player reserves this exact aspect ratio before metadata
@@ -126,6 +128,7 @@ export async function resolveShareAccess(
 			title: recast.title,
 			videoUrl: recast.videoUrl,
 			posterUrl: recast.posterUrl,
+			captionsUrl: recast.captionsUrl,
 			durationSec: recast.durationSec,
 			width: recast.width,
 			height: recast.height,
@@ -206,6 +209,7 @@ export async function resolveShareAccess(
 			description: "",
 			src: row.videoUrl,
 			poster: row.posterUrl,
+			captions: row.captionsUrl,
 			durationSec: row.durationSec,
 			width: row.width,
 			height: row.height,

@@ -11,6 +11,8 @@ import {
 	type ExportGifSettings,
 	type ExportSpeed,
 	type ExportStateEvent,
+	type Transcript,
+	exportCaptions,
 	exportVideo,
 	listenToExportState,
 } from "$lib/ipc";
@@ -20,6 +22,7 @@ import {
 	type VideoMetadata,
 	framePaddingPixels,
 } from "$lib/stores/editor-store.svelte";
+import { originalToOutput } from "$lib/timeline/time-map";
 
 /** Optional progress hooks for the hybrid-raster "Preparing…" phase. Each fires
  *  as its lane starts/finishes so the UI can show sub-stage progress. Omit for
@@ -104,6 +107,63 @@ export async function buildExportRenderState(
 	return { renderState: finalRenderState, metadata: meta };
 }
 
+/** What to emit for generated captions on export. Built from the store via
+ *  {@link buildCaptionExport}; `null`/empty when there's no transcript. */
+export interface CaptionExportPayload {
+	/** Burn captions into the video pixels. */
+	burnCaptions: boolean;
+	/** Subtitle sidecar to write next to the export (output-time), or null. */
+	sidecar: { format: "vtt" | "srt"; transcript: Transcript } | null;
+}
+
+/** Map a transcript onto the OUTPUT timeline (trim + cuts + per-segment speed)
+ *  so sidecar timings line up with the exported video, not the raw recording. */
+function toOutputTimeTranscript(store: EditorStore, src: Transcript): Transcript {
+	const map = store.timeMap;
+	const at = (t: number) => originalToOutput(map, t);
+	const segments = src.segments
+		.map((seg) => ({
+			...seg,
+			start: at(seg.start),
+			end: at(seg.end),
+			words: seg.words.map((w) => ({ ...w, start: at(w.start), end: at(w.end) })),
+		}))
+		// Drop segments that collapse to nothing (fully inside a removed range).
+		.filter((seg) => seg.end - seg.start > 0.01);
+	return { ...src, segments };
+}
+
+/**
+ * Resolve the caption export plan from the store's transcript + export options.
+ * Returns no-ops when no transcript has been generated, so callers can pass it
+ * unconditionally ("only export captions when there are captions").
+ */
+export function buildCaptionExport(store: EditorStore): CaptionExportPayload {
+	const transcript = store.transcript;
+	const opts = store.captionExport;
+	if (!transcript || transcript.segments.length === 0) {
+		return { burnCaptions: false, sidecar: null };
+	}
+	return {
+		burnCaptions: opts.burnIn && store.exportFormat !== "gif",
+		sidecar:
+			opts.sidecar === "none"
+				? null
+				: { format: opts.sidecar, transcript: toOutputTimeTranscript(store, transcript) },
+	};
+}
+
+/**
+ * Output-time transcript for Cloud's caption track, regenerated from the stored
+ * transcript regardless of the export sidecar choice (Cloud always offers a
+ * selectable track when captions exist). Null when there's no transcript.
+ */
+export function buildCloudCaptionTranscript(store: EditorStore): Transcript | null {
+	const t = store.transcript;
+	if (!t || t.segments.length === 0) return null;
+	return toOutputTimeTranscript(store, t);
+}
+
 export interface RunExportOptions {
 	/** Source media path (the recording file or project path). */
 	inputPath: string;
@@ -116,9 +176,16 @@ export interface RunExportOptions {
 	speed?: ExportSpeed;
 	/** Output frame rate for MP4/WebM; `null`/omitted keeps source rate. */
 	fps?: number | null;
+	/** Caption emission (burn-in + sidecar). Built via {@link buildCaptionExport}. */
+	captions?: CaptionExportPayload;
 	/** Progress/lifecycle events from the Rust pipeline. The service manages
 	 *  listener registration and teardown around the export call. */
 	onState?(event: ExportStateEvent): void;
+}
+
+/** Swap a file path's extension, e.g. `foo.mp4` → `foo.vtt`. */
+function withExtension(path: string, ext: string): string {
+	return path.replace(/\.[^./\\]+$/, "") + "." + ext;
 }
 
 /**
@@ -132,7 +199,7 @@ export async function runExport(opts: RunExportOptions): Promise<string> {
 		? await listenToExportState(opts.exportId, opts.onState)
 		: null;
 	try {
-		return await exportVideo(
+		const path = await exportVideo(
 			opts.inputPath,
 			opts.format,
 			opts.quality,
@@ -141,7 +208,24 @@ export async function runExport(opts: RunExportOptions): Promise<string> {
 			opts.gifSettings,
 			opts.speed ?? "balanced",
 			opts.fps,
+			opts.captions?.burnCaptions ?? false,
 		);
+		// Sidecar subtitle file next to the export, on the output timeline so it
+		// lines up with the rendered video. Best-effort — a sidecar failure must
+		// not fail an otherwise-good export.
+		const sidecar = opts.captions?.sidecar;
+		if (sidecar) {
+			try {
+				await exportCaptions(
+					sidecar.transcript,
+					sidecar.format,
+					withExtension(path, sidecar.format),
+				);
+			} catch (e) {
+				console.warn("caption sidecar write failed", e);
+			}
+		}
+		return path;
 	} finally {
 		unlisten?.();
 	}

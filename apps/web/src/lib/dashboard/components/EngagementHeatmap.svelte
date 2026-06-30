@@ -34,7 +34,7 @@
 
 	{#if heat.max === 0}
 		<p class="mt-4 text-xs text-muted-foreground">
-			No reactions or comments yet — they'll show here pinned to the moment they happened.
+			No reactions or comments yet. They'll show up here, pinned to when they happened.
 		</p>
 	{:else}
 		<div class="mt-5 flex h-28 items-end gap-px">

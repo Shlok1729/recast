@@ -1,0 +1,1 @@
+ALTER TABLE "recast" ADD COLUMN "captions_url" text;

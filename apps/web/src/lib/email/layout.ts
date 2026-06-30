@@ -77,7 +77,7 @@ export function wrap({ subject, preheader = "", body }: LayoutOptions): string {
 				<tr>
 					<td style="padding:20px 8px 0; font-size:12px; line-height:1.6; color:${EMAIL_COLORS.muted};">
 						<p style="margin:0;">Recast · the founder-friendly screen recorder.</p>
-						<p style="margin:6px 0 0;">Didn't expect this email? It's safe to ignore — we won't email you again.</p>
+						<p style="margin:6px 0 0;">Didn't expect this email? It's safe to ignore. We won't email you again.</p>
 						<p style="margin:6px 0 0; color:#999996;">© ${year} Recast</p>
 					</td>
 				</tr>

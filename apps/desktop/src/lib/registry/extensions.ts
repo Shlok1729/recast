@@ -166,6 +166,36 @@ export async function registerExtension(ext: InstalledExtension): Promise<number
 		});
 	}
 
+	// Caption themes — the whole style payload travels in the manifest (no
+	// hydrated asset), so this maps the contribution fields straight across.
+	for (const p of contributes.captionPresets ?? []) {
+		entries.push({
+			id: extEntryId(extId, p.id),
+			kind: "captionPreset",
+			label: p.label,
+			description: p.description,
+			source: { kind: "extension", extId },
+			value: {
+				fontFamily: p.fontFamily,
+				fontWeight: p.fontWeight,
+				fontSizePct: p.fontSizePct,
+				position: p.position,
+				align: p.align,
+				offsetPct: p.offsetPct,
+				color: p.color,
+				uppercase: p.uppercase,
+				letterSpacing: p.letterSpacing,
+				background: p.background,
+				backgroundColor: p.backgroundColor,
+				backgroundOpacity: p.backgroundOpacity,
+				outlineWidth: p.outlineWidth,
+				outlineColor: p.outlineColor,
+				maxLines: p.maxLines,
+				animation: p.animation,
+			},
+		});
+	}
+
 	if (entries.length > 0) registry.registerMany(entries);
 	return entries.length;
 }

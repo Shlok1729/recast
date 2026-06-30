@@ -4,6 +4,7 @@
  */
 
 import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
+import type { CaptionAnimation } from "$lib/captions/animation";
 import { analytics } from "$lib/analytics/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -375,8 +376,15 @@ export function recastCloudUpload(
 	path: string,
 	title: string,
 	workspaceId?: string,
+	/** Output-time transcript to publish as a selectable caption track. */
+	captionsTranscript?: Transcript | null,
 ): Promise<CloudShareResult> {
-	return invoke<CloudShareResult>("recast_cloud_upload", { path, title, workspaceId });
+	return invoke<CloudShareResult>("recast_cloud_upload", {
+		path,
+		title,
+		workspaceId,
+		captionsTranscript: captionsTranscript ?? null,
+	});
 }
 
 /**
@@ -506,10 +514,22 @@ export function exportVideo(
 	speed: ExportSpeed = "balanced",
 	/** Output frame rate for MP4/WebM. `null`/omitted keeps the source rate. */
 	fps?: number | null,
+	/** Burn the generated captions into the video. No-op without a transcript. */
+	burnCaptions = false,
 ): Promise<string> {
 	analytics.capture("export_started", { format, quality, speed, fps: fps ?? "source" });
 	return invoke<string>("export_video", {
-		request: { exportId, inputPath, format, quality, speed, renderState, gifSettings, fps: fps ?? null },
+		request: {
+			exportId,
+			inputPath,
+			format,
+			quality,
+			speed,
+			renderState,
+			gifSettings,
+			fps: fps ?? null,
+			burnCaptions,
+		},
 	});
 }
 
@@ -603,6 +623,117 @@ export function extractWaveform(
 		audioPath: audioPath ?? null,
 		microphonePath: microphonePath ?? null,
 		buckets: buckets ?? null,
+	});
+}
+
+// Captions / transcription commands (offline ASR — M1 foundation)
+
+export type CaptionEngine = "parakeet" | "whisper";
+
+export interface CaptionModelInfo {
+	id: string;
+	displayName: string;
+	engine: CaptionEngine;
+	/** Display group for the picker, e.g. "Parakeet" / "Whisper". */
+	family: string;
+	languages: string[];
+	approxSizeBytes: number | null;
+	isDefault: boolean;
+	installed: boolean;
+	/** False until the model's files are defined (Parakeet V3 is pending). */
+	downloadable: boolean;
+	requiresGpu: boolean;
+	prefersGpu: boolean;
+	minRamBytes: number | null;
+	/** False → this device can't run the model (hard-disabled in the UI). */
+	runnable: boolean;
+	/** Non-blocking caveat for this device (slow on CPU, low RAM, …). */
+	warning: string | null;
+}
+
+export interface GpuInfo {
+	available: boolean;
+	/** "metal" | "cuda" | null (CPU mode). */
+	backend: string | null;
+	name: string | null;
+}
+
+export interface DeviceCapabilities {
+	os: string;
+	arch: string;
+	totalRamBytes: number | null;
+	gpu: GpuInfo;
+}
+
+/** OS / arch / RAM / GPU probe used to gate which caption models are offered. */
+export function captionCapabilities(): Promise<DeviceCapabilities> {
+	return invoke<DeviceCapabilities>("caption_capabilities");
+}
+
+/** Download (once) + cache a Google Font's woff2 on device; returns its path. */
+export function ensureGoogleFont(family: string, weight: number): Promise<string> {
+	return invoke<string>("ensure_google_font", { family, weight });
+}
+
+/** Write a transcript to a subtitle sidecar at `destPath`. */
+export function exportCaptions(
+	transcript: Transcript,
+	format: "srt" | "vtt",
+	destPath: string,
+): Promise<void> {
+	return invoke("export_captions", { transcript, format, destPath });
+}
+
+export interface TranscriptWord {
+	start: number;
+	end: number;
+	text: string;
+}
+
+export interface TranscriptSegment {
+	id: string;
+	start: number;
+	end: number;
+	text: string;
+	words: TranscriptWord[];
+}
+
+export interface Transcript {
+	engine: string;
+	modelId: string;
+	language: string | null;
+	segments: TranscriptSegment[];
+}
+
+/** Catalog of caption models with per-model install state. */
+export function listCaptionModels(): Promise<CaptionModelInfo[]> {
+	return invoke<CaptionModelInfo[]>("list_caption_models");
+}
+
+/** Download a model's files. Emits `captions:download-progress` events. */
+export function downloadCaptionModel(id: string): Promise<void> {
+	return invoke("download_caption_model", { id });
+}
+
+export function deleteCaptionModel(id: string): Promise<void> {
+	return invoke("delete_caption_model", { id });
+}
+
+/**
+ * Transcribe a recording's audio with the chosen model. Emits
+ * `captions:transcribe-progress` ("extracting" | "transcribing" | "done").
+ */
+export function transcribeProject(args: {
+	audioPath?: string | null;
+	microphonePath?: string | null;
+	modelId: string;
+	language?: string | null;
+}): Promise<Transcript> {
+	return invoke<Transcript>("transcribe_project", {
+		audioPath: args.audioPath ?? null,
+		microphonePath: args.microphonePath ?? null,
+		modelId: args.modelId,
+		language: args.language ?? null,
 	});
 }
 
@@ -727,6 +858,30 @@ export interface ExtSmoothingContribution {
 	snapToClicks: boolean;
 	snapWindowMs: number;
 }
+/** A caption theme contributed by a pack — the visual fields of a caption
+ *  style. Mirrors the built-in `CaptionPreset.style` shape. */
+export interface ExtCaptionPresetContribution {
+	id: string;
+	label: string;
+	description?: string;
+	fontFamily: string;
+	fontWeight: number;
+	fontSizePct: number;
+	position: "top" | "center" | "bottom";
+	align: "left" | "center" | "right";
+	offsetPct: number;
+	color: string;
+	uppercase: boolean;
+	letterSpacing: number;
+	background: "none" | "soft" | "box";
+	backgroundColor: string;
+	backgroundOpacity: number;
+	outlineWidth: number;
+	outlineColor: string;
+	maxLines: number;
+	/** Optional word-by-word animation. */
+	animation?: CaptionAnimation;
+}
 
 export interface ExtensionContributions {
 	cursors?: ExtCursorContribution[];
@@ -735,6 +890,7 @@ export interface ExtensionContributions {
 	colors?: ExtColorContribution[];
 	easings?: ExtEasingContribution[];
 	smoothings?: ExtSmoothingContribution[];
+	captionPresets?: ExtCaptionPresetContribution[];
 }
 
 export interface ExtensionManifest {

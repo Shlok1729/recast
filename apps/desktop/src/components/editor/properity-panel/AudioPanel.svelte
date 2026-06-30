@@ -318,7 +318,7 @@
   <!-- Honest summary of what's in the mix. Per-track gain is not built yet. -->
   <PanelSection
     title="Sources"
-    hint="System audio and microphone are captured together and share the master gain. Per-track levels land in the next audio pass."
+    hint="System audio and mic share one master gain. Per-track levels come in a later audio pass."
     flush
   >
     <div

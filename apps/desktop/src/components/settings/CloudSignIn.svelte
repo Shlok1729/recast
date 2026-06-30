@@ -378,7 +378,7 @@
 				</div>
 				<div class="text-[11px] text-muted-foreground">
 					Send a Loom-style share link with viewer analytics, comments, and
-					password protection. The app itself never needs an account —
+					password protection. The app itself never needs an account;
 					Cloud is opt-in.
 				</div>
 			</div>

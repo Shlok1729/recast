@@ -22,7 +22,7 @@
 		<a
 			href="/"
 			class="group/logo flex items-center gap-2.5"
-			aria-label="Recast — home"
+			aria-label="Recast home"
 		>
 			<span
 				class="grid size-9 place-items-center rounded-xl bg-foreground p-1 text-background shadow-craft-sm transition-transform group-hover/logo:rotate-[-4deg]"

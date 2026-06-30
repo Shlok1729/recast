@@ -48,7 +48,7 @@
 	import { analytics } from "$lib/analytics/client";
 	import { authClient } from "$lib/auth/client";
 	import { mode as themeMode, toggleMode } from "@recast/ui/theme";
-	import { RecastPlayer, type RecastPlayerApi } from "@recast/player";
+	import { RecastPlayer, type RecastPlayerApi, type RecastPlayerTrack } from "@recast/player";
 	import { Button } from "@recast/ui/button";
 	import * as Dialog from "@recast/ui/dialog";
 	import * as DropdownMenu from "@recast/ui/dropdown-menu";
@@ -84,6 +84,21 @@
 	const okAccess = $derived(access.ok ? access : null);
 	const deniedAccess = $derived(access.ok ? null : access);
 	const recast = $derived(okAccess?.recast);
+
+	// Caption track for the player, when this recast has a captions sidecar.
+	const captionTracks = $derived<RecastPlayerTrack[]>(
+		recast?.captions
+			? [
+					{
+						src: recast.captions,
+						kind: "captions",
+						label: "English",
+						srclang: "en",
+						default: true,
+					},
+				]
+			: [],
+	);
 
 	// ── Account-less invitee claim (selected shares) ──────────────────────
 	// A denied viewer of a `selected` share can request an email access link.
@@ -685,7 +700,7 @@
 					<h1 class="text-lg font-semibold tracking-tight">You don't have access</h1>
 					<p class="mt-1 text-sm text-muted-foreground">
 						{#if deniedAccess.visibility === "selected"}
-							This recording is shared with specific people. Enter your email to get a one-time access link — no account needed.
+							This recording is shared with specific people. Enter your email to get a one-time access link. No account needed.
 						{:else if deniedAccess.visibility === "team"}
 							This recast is shared with a specific team. Ask the owner to add you, or sign in with an account that's a member.
 						{:else if deniedAccess.visibility === "private"}
@@ -1068,6 +1083,8 @@
 							poster={recast.poster}
 							title={recast.title}
 							aspectRatio={playerAspect}
+							tracks={captionTracks}
+							controls={{ captions: captionTracks.length > 0 }}
 							onengagement={onEngagement}
 						/>
 					{:else}
@@ -1255,7 +1272,7 @@
 
 							<!-- Thread -->
 							{#if comments.length === 0}
-								<p class="mt-4 px-1 text-sm text-muted-foreground">No comments yet — be the first.</p>
+								<p class="mt-4 px-1 text-sm text-muted-foreground">No comments yet. Be the first.</p>
 							{:else}
 								<ul class="mt-2">
 									{#each comments as c (c.id)}
@@ -1352,7 +1369,7 @@
 						Call-to-action
 					</Dialog.Title>
 					<Dialog.Description>
-						The next step you want viewers to take — shown as a button below the video and when it ends.
+						The next step you want viewers to take. Shown as a button below the video and when it ends.
 					</Dialog.Description>
 				</Dialog.Header>
 				<form class="space-y-3" onsubmit={saveCta}>

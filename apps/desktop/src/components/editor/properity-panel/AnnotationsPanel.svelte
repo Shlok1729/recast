@@ -1,11 +1,7 @@
 <script lang="ts">
   import { kindIcon, kindLabel } from "$lib/annotations/kind-label";
   import { clockCentis as fmtTime } from "$lib/format/time";
-  import {
-    FONT_FAMILIES,
-    FONT_WEIGHTS,
-    STROKE_SWATCHES,
-  } from "$lib/annotations/palette";
+  import { FONT_WEIGHTS, STROKE_SWATCHES } from "$lib/annotations/palette";
   import {
     getRecentColors,
     pushRecentColor,
@@ -35,7 +31,7 @@
   import { Kbd } from "@recast/ui/kbd";
   import { Segmented } from "@recast/ui/segmented";
   import { SegmentedToggle } from "@recast/ui/segmented";
-  import * as Select from "@recast/ui/select";
+  import FontPicker from "./FontPicker.svelte";
   import { SliderControl } from "@recast/ui/slider-control";
   import { Textarea } from "@recast/ui/textarea";
   import { cn } from "@recast/ui/utils";
@@ -141,7 +137,7 @@
       case "text":
         return "Drag a box on the preview, then type.";
       case "blur":
-        return "Drag a region to obscure — applied at export.";
+        return "Drag a region to obscure. Applied at export.";
       default:
         return "";
     }
@@ -154,7 +150,7 @@
 <div class="flex flex-col gap-4 animate-in fade-in duration-200">
   <PanelSection
     title="Tools"
-    hint="Pick a tool, then drag on the preview. Annotations are anchored in video-space so they follow zoom and crop. Press Esc to cancel placement; hold Alt while dragging to bypass snap."
+    hint="Pick a tool, then drag on the preview. Annotations follow zoom and crop. Esc cancels placement; hold Alt to bypass snap."
     flush
   >
     {#snippet action()}
@@ -258,8 +254,6 @@
 
       {#if a.kind.kind === "text"}
         {@const k = a.kind}
-        {@const currentFont =
-          FONT_FAMILIES.find((f) => f.value === k.fontFamily)?.label ?? "Font"}
         <PanelSection title="Text">
           <div class="flex flex-col gap-1">
             <span class="text-[10px] text-muted-foreground">Content</span>
@@ -282,36 +276,15 @@
 
           <div class="flex items-center justify-between gap-2">
             <span class="text-[10px] text-muted-foreground">Font</span>
-            <Select.Root
-              type="single"
+            <FontPicker
               value={k.fontFamily}
-              onValueChange={(v: string) => {
+              weight={k.fontWeight}
+              onChange={(v) => {
                 if (a.kind.kind !== "text") return;
                 store.pushUndoState();
                 updateSelected({ kind: { ...a.kind, fontFamily: v } });
               }}
-            >
-              <Select.Trigger
-                size="sm"
-                class="h-7 w-40 gap-1 rounded-md border-border/60 px-2 text-[11px]"
-                aria-label="Font family"
-              >
-                <span data-slot="select-value" style="font-family: {k.fontFamily}">
-                  {currentFont}
-                </span>
-              </Select.Trigger>
-              <Select.Content align="end" sideOffset={6} class="w-44 p-1">
-                {#each FONT_FAMILIES as font (font.value)}
-                  <Select.Item
-                    value={font.value}
-                    label={font.label}
-                    class="text-[11.5px]"
-                  >
-                    <span style="font-family: {font.value}">{font.label}</span>
-                  </Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
+            />
           </div>
 
           <SliderControl

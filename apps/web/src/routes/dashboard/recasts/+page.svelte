@@ -172,7 +172,7 @@
 			}
 			toast.success(
 				copied
-					? `“${file.name}” uploaded — share link copied to clipboard.`
+					? `“${file.name}” uploaded. Share link copied to clipboard.`
 					: `“${file.name}” uploaded and shared.`,
 			);
 		} catch (err) {
@@ -403,7 +403,7 @@
 <input bind:this={fileInput} type="file" accept={UPLOAD_ACCEPT} class="hidden" onchange={onFilePicked} />
 <input bind:this={posterInput} type="file" accept={POSTER_ACCEPT} class="hidden" onchange={onPosterPicked} />
 
-<PageHeader icon={Library} title="Recasts" subtitle="All your recasts — captured, uploaded, shared.">
+<PageHeader icon={Library} title="Recasts" subtitle="Everything you've captured, uploaded, and shared.">
 	<Button class="gap-2" disabled={uploading} onclick={() => fileInput?.click()}>
 		{#if uploading}<LoaderCircle class="size-4 animate-spin" />{:else}<Upload class="size-4" />{/if}
 		{uploading ? uploadLabel : "Upload recast"}
@@ -548,9 +548,9 @@
 	<div class="mt-6" in:fly={{ y: 12, duration: 480, delay: 80, easing: cubicOut }}>
 		{#if archived.length > 0}
 			<p class="mb-5 max-w-2xl text-sm text-muted-foreground">
-				Recasts here lost their cloud file after 14 days without views — only the
-				details remain. Re-share from the Recast desktop app to bring one back, or
-				delete it for good. Each is purged automatically 16 days after archiving.
+				These recasts lost their cloud file after 14 days without views, so only
+				the details remain. Re-share from the Recast desktop app to bring one back,
+				or delete it for good. Each is purged automatically 16 days after archiving.
 			</p>
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
 				{#each archived as rec (rec.id)}
@@ -567,7 +567,7 @@
 			<EmptyState
 				icon={Archive}
 				title="Nothing archived"
-				description="Unwatched recasts on the Free plan are archived after 14 days. Anything parked here shows up so you can restore or remove it."
+				description="Unwatched recasts on the Free plan are archived after 14 days. They'll show up here to restore or remove."
 			/>
 		{/if}
 	</div>

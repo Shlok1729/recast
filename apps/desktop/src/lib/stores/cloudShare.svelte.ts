@@ -9,6 +9,7 @@ import {
 	type CloudShareResult,
 	type CloudUploadRecord,
 	type CloudWorkspace,
+	type Transcript,
 } from "$lib/ipc";
 
 export type { CloudWorkspace };
@@ -228,6 +229,7 @@ function createCloudShareStore() {
 		path: string,
 		title: string,
 		workspaceId?: string,
+		captionsTranscript?: Transcript | null,
 	): Promise<CloudShareResult> {
 		// Seed SYNCHRONOUSLY (before any await) so the "Preparing…" card renders
 		// the instant Share is clicked — the awaits below would otherwise leave
@@ -247,7 +249,7 @@ function createCloudShareStore() {
 		// lets Rust fall back to the server profile's defaultWorkspaceId.
 		const target = workspaceId ?? resolveActiveWorkspaceId() ?? undefined;
 		try {
-			return await recastCloudUpload(path, title, target);
+			return await recastCloudUpload(path, title, target, captionsTranscript);
 		} catch (e) {
 			// Rust emitted `recast-cloud:error`; ensure the card reflects it even
 			// if the event was missed, then re-throw.

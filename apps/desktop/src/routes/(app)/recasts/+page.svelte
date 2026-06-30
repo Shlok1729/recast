@@ -627,7 +627,7 @@
               {#if entry.needsMigration}
                 <span
                   class="mt-1 inline-flex w-fit items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] font-medium text-warning"
-                  title="Older project format — update to keep editing"
+                  title="Older project format. Update to keep editing."
                 >
                   <History size={9} /> Older format
                 </span>

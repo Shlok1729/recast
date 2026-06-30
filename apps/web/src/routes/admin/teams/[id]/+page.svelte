@@ -48,9 +48,9 @@
 	<section class="glass-card rounded-xl p-5">
 		<h2 class="mb-3 text-sm font-semibold tracking-tight">Plan</h2>
 		<p class="mb-4 text-xs text-muted-foreground">
-			Member cap updates apply immediately. Existing members over the cap aren't
-			kicked — but no new invites or accepts will land until you raise the plan
-			or remove members.
+			Member cap updates apply immediately. Members already over the cap stay,
+			but no new invites or accepts land until you raise the plan or remove
+			members.
 		</p>
 		<form
 			method="POST"

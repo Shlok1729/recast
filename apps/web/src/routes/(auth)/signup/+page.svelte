@@ -63,7 +63,7 @@
 				})(),
 				{
 					loading: "Creating your account…",
-					success: "Account created — welcome to Recast.",
+					success: "Account created. Welcome to Recast.",
 					error: (err) => (err as Error)?.message ?? "Couldn't create your account.",
 				},
 			);

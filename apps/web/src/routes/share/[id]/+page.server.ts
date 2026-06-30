@@ -43,6 +43,7 @@ const DEMO: DemoOrResolved = {
 		src: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
 		poster:
 			"https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg",
+		captions: null,
 		durationSec: 596,
 		width: 1280,
 		height: 720,
@@ -144,6 +145,10 @@ export const load: PageServerLoad = async ({ params, request, cookies }) => {
 	// and the hero is just a black box until the first frame decodes).
 	// `resolvePlaybackUrl` no-ops on empty/absolute values and never throws.
 	access.recast.poster = await resolvePlaybackUrl(access.recast.poster, 60 * 60);
+
+	// Captions track is a bare key too — sign it the same way so the player can
+	// load it as a `<track>` (no-ops on null/absolute, never throws).
+	access.recast.captions = await resolvePlaybackUrl(access.recast.captions, 60 * 60);
 
 	return { access, customSeo: true };
 };

@@ -18,6 +18,7 @@ const EMPTY = (): Record<AssetKind, RegistryEntry[]> => ({
 	color: [],
 	easing: [],
 	smoothing: [],
+	captionPreset: [],
 });
 
 class Registry {
@@ -59,9 +60,18 @@ class Registry {
 		}
 	}
 
-	/** All entries of a kind (built-ins first, then extensions in install order). */
+	/** All entries of a kind, with built-ins ALWAYS first and extension
+	 *  contributions appended after (each group stable in registration order).
+	 *  Guarantees the defaults show first and enabling a pack appends its assets
+	 *  to the end, regardless of hydration/registration timing. */
 	list<K extends AssetKind>(kind: K): RegistryEntry<K>[] {
-		return this.#entries[kind] as RegistryEntry<K>[];
+		const all = this.#entries[kind] as RegistryEntry<K>[];
+		// Common case (no extensions registered for this kind): return as-is so
+		// we don't allocate or churn picker reactivity.
+		if (!all.some((e) => e.source.kind === "extension")) return all;
+		const builtins = all.filter((e) => e.source.kind !== "extension");
+		const extensions = all.filter((e) => e.source.kind === "extension");
+		return [...builtins, ...extensions];
 	}
 
 	/** Look up a single entry by storage id within a kind. */

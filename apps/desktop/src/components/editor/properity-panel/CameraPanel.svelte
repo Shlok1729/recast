@@ -194,7 +194,7 @@
 
     <PanelSection
       title="Size"
-      hint="Bubble width as a percentage of the frame. Height matches width — Phase 1 ships 1:1 only."
+      hint="Bubble width as a percentage of the frame. Height matches width (1:1 only for now)."
     >
       <SliderControl
         label="Bubble size"

@@ -41,8 +41,8 @@
 		</h2>
 		<p class="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
 			Recast is offline-first. Nothing about your recordings ever leaves this
-			machine. You choose what diagnostics we may collect — change this any time
-			in Settings → General.
+			machine. You choose what diagnostics we may collect, and can change this
+			any time in Settings → General.
 		</p>
 
 		<div class="mt-5 flex flex-col gap-2">

@@ -149,7 +149,7 @@
 				<span class="mb-1 block text-xs font-semibold text-foreground/85">Email</span>
 				<Input value={t.email} readonly disabled class="h-9 font-mono" />
 				<span class="mt-1 block text-[11px] text-muted-foreground">
-					Email changes go through the user's own settings — admins can't edit it.
+					Email changes go through the user's own settings. Admins can't edit it.
 				</span>
 			</Label>
 			<Button type="submit" size="sm" disabled={savingProfile} class="gap-2">

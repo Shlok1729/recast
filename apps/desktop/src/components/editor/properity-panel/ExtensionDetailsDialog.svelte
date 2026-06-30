@@ -12,6 +12,7 @@
   import {
     Blend,
     Blocks,
+    Captions,
     Download,
     FileBox,
     Image,
@@ -100,6 +101,7 @@
       { key: "colors", label: "Colors", icon: Palette },
       { key: "easings", label: "Easing presets", icon: Spline },
       { key: "smoothings", label: "Smoothing presets", icon: Waves },
+      { key: "captionPresets", label: "Caption themes", icon: Captions },
     ];
     return defs
       .map((d) => ({

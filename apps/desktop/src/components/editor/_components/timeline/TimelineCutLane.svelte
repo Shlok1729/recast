@@ -196,7 +196,7 @@
         type="button"
         onpointerdown={(e) => e.stopPropagation()}
         onclick={(e) => remove(e, cut.id)}
-        title="Removed {(cut.end - cut.start).toFixed(2)}s — click to restore"
+        title="Removed {(cut.end - cut.start).toFixed(2)}s. Click to restore."
         aria-label="Restore this section"
         class="group/seam absolute top-1.5 bottom-1.5 z-6 w-3 -translate-x-1/2 cursor-pointer"
         style="left: {cutLeft}px;"

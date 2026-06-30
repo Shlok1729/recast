@@ -99,7 +99,7 @@
 				})(),
 				{
 					loading: "Sending sign-in link…",
-					success: "Check your inbox — the link expires in 10 minutes.",
+					success: "Check your inbox. The link expires in 10 minutes.",
 					error: (err) => (err as Error)?.message ?? "Couldn't send the sign-in link.",
 				},
 			);
@@ -184,7 +184,7 @@
 					</p>
 					<p class="mt-0.5 text-muted-foreground">
 						<span class="font-mono">{preflight.email}</span> is queued. We'll
-						email you a sign-in link the moment access opens — no need to
+						email you a sign-in link the moment access opens. No need to
 						retry here.
 					</p>
 				{/if}
@@ -258,7 +258,7 @@
 						{/if}
 					</Button>
 					<p class="text-center text-[11px] text-muted-foreground">
-						No password needed — we'll email you a one-time link.
+						No password needed. We'll email you a one-time link.
 					</p>
 				</form>
 			</Tabs.Content>

@@ -55,7 +55,7 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [0.2.8] — 2026-06-28
 
 ### Highlights
-- **Camera and microphone work on macOS again** — fixed a permissions problem that stopped macOS from capturing your camera and mic.
+- **Camera and microphone work on macOS again.** Fixed a permissions problem that stopped macOS from capturing your camera and mic.
 
 ### Changed
 - Tightened copy across the desktop app and website. Removed em dashes and over-explanation from settings, experimental-feature, and editor-panel descriptions, and from a few marketing sections, so the text says what a feature does without explaining how it works internally.
@@ -68,11 +68,11 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [0.2.7] — 2026-06-28
 
 ### Highlights
-- **Editing feels faster on every new recording** — recordings now capture a keyframe about twice a second, so seeking, scrubbing, and cutting in the editor no longer pause to re-decode several seconds of video.
-- **Free in-browser video tools on the web** — convert, trim, compress, and extract from a video right in your browser, with nothing uploaded.
+- **Editing feels faster on every new recording.** Recordings now capture a keyframe about twice a second, so seeking, scrubbing, and cutting no longer pause to re-decode several seconds of video.
+- **Free in-browser video tools on the web.** Convert, trim, compress, and extract from a video right in your browser, with nothing uploaded.
 
 ### Added
-- Free client-side video tools on the Recast website (`/tools`): MP4 to GIF, trim, mute, MP4 to MP3, extract audio, video to images, MOV to MP4, MP4 ↔ WebM, compress, and resize. Everything runs in the browser through WebCodecs — files are never uploaded, and over-sized files are pointed at the desktop app, which has no limit. Each tool is its own page with a drag-and-drop upload, an input and output preview, and a download.
+- Free client-side video tools on the Recast website (`/tools`): MP4 to GIF, trim, mute, MP4 to MP3, extract audio, video to images, MOV to MP4, MP4 ↔ WebM, compress, and resize. Everything runs in the browser through WebCodecs. Files are never uploaded, and over-sized files are pointed at the desktop app, which has no limit. Each tool is its own page with a drag-and-drop upload, an input and output preview, and a download.
 - Experimental WebCodecs preview engine improvements (Settings → Experimental → "WebCodecs preview"): playback now crosses cuts without freezing, audio stays sample-accurate across cuts via a new Web Audio engine, the decoded-frame cache sizes itself to the recording's resolution so 4K/5K clips don't stall the decoder, and very large recordings stream in over byte-ranges instead of loading the whole file into memory.
 
 ### Changed
@@ -84,9 +84,9 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [0.2.6] — 2026-06-10
 
 ### Highlights
-- **Recording quality and frame rate are yours to set** — capture at Balanced, High, or Pristine fidelity and pick a frame rate your display can actually deliver, instead of the previous fixed defaults.
-- **Export frame rate is configurable too** — keep the source rate or step down for a smaller file, and a long-standing export "shake" on high-frame-rate clips is fixed.
-- **More extension packs** — new cursor, easing, smoothing, gradient, and wallpaper packs, and installed packs now appear right in the editor's preset pickers.
+- **Recording quality and frame rate are yours to set.** Capture at Balanced, High, or Pristine fidelity and pick a frame rate your display can actually deliver, instead of the previous fixed defaults.
+- **Export frame rate is configurable too.** Keep the source rate or step down for a smaller file. A long-standing export "shake" on high-frame-rate clips is also fixed.
+- **More extension packs.** New cursor, easing, smoothing, gradient, and wallpaper packs, and installed packs now appear right in the editor's preset pickers.
 
 ### Added
 - Recording quality tiers (Balanced / High / Pristine) in Settings → Recording. Balanced reproduces the previous output exactly, so existing recordings are unchanged; High and Pristine trade real-time headroom for higher fidelity.
@@ -100,25 +100,25 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 - The export progress, success, cancelled, and error screens now share a consistent spec recap (format · quality · frame rate · duration) and width with the export options step.
 
 ### Fixed
-- Exports of high-frame-rate recordings no longer judder or "shake" — a generated background (solid colour, gradient, or image) defaulted FFmpeg to 25 fps and dragged the whole export down to it, frame-dropping 60 fps footage into juddery motion (most visible under a zoom). Generated backgrounds and looped image inputs are now pinned to the recording's frame rate.
+- Exports of high-frame-rate recordings no longer judder or "shake". A generated background (solid colour, gradient, or image) defaulted FFmpeg to 25 fps and dragged the whole export down to it, frame-dropping 60 fps footage into juddery motion (most visible under a zoom). Generated backgrounds and looped image inputs are now pinned to the recording's frame rate.
 
 ## [0.2.5] — 2026-06-09
 
 ### Fixed
-- Exported videos no longer open to a black screen stuck on "media loading" in the in-app player on release builds — the player now streams the file from the start instead of waiting on a tail fetch that never completed, so exports play back immediately.
-- macOS and Linux: the app no longer freezes after a recording finishes. Saving a recording — flushing the encoder, finalizing the file, and the camera pause-trim re-encode — ran on the UI thread and locked the whole window until it completed. It now runs off the main thread. (Windows was unaffected because it renders the UI in a separate process.)
-- macOS and Linux: starting a recording, listing recordings/exports, picking a microphone, and "reveal in file manager" no longer briefly freeze the window — these all moved off the UI thread for the same reason.
+- Exported videos no longer open to a black screen stuck on "media loading" in the in-app player on release builds. The player now streams the file from the start instead of waiting on a tail fetch that never completed, so exports play back immediately.
+- macOS and Linux: the app no longer freezes after a recording finishes. Saving a recording (flushing the encoder, finalizing the file, and the camera pause-trim re-encode) ran on the UI thread and locked the whole window until it completed. It now runs off the main thread. (Windows was unaffected because it renders the UI in a separate process.)
+- macOS and Linux: starting a recording, listing recordings/exports, picking a microphone, and "reveal in file manager" no longer briefly freeze the window. These all moved off the UI thread for the same reason.
 - Long recordings could freeze mid-capture: the encoder's FFmpeg progress output filled an OS pipe buffer that was never drained, stalling the encoder and the recording. Its output is now drained continuously.
 - A recording that fails to start partway through no longer leaves orphaned capture/encoder processes running in the background.
 
 ## [0.2.4] — 2026-06-07
 
 ### Highlights
-- **Extensions arrive** — browse and install community asset packs (cursors, backgrounds, gradients, colours, and easing/smoothing presets) from a new Extensions tab. Packs are code-free and verified by HTTPS-only downloads with per-asset SHA-256 pinning.
-- **Editor polishing pass continues** — the preset picker gains richer visual previews and predictable keyboard navigation, while the Info panel is reshaped into a more actionable, jump-to-tab summary.
+- **Extensions arrive.** Browse and install community asset packs (cursors, backgrounds, gradients, colours, and easing/smoothing presets) from a new Extensions tab. Packs are code-free and verified by HTTPS-only downloads with per-asset SHA-256 pinning.
+- **Editor polishing pass continues.** The preset picker gains richer visual previews and predictable keyboard navigation, while the Info panel is reshaped into a more actionable, jump-to-tab summary.
 
 ### Added
-- Extensions: browse and install community asset packs — cursors, backgrounds, gradients, colours, and easing/smoothing presets — from a new Extensions tab, with a local dev-registry server for authoring packs.
+- Extensions: browse and install community asset packs (cursors, backgrounds, gradients, colours, and easing/smoothing presets) from a new Extensions tab, with a local dev-registry server for authoring packs.
 
 ### Changed
 - Preset picker refresh: the current preset is pinned and visibly marked, categories gain icons, wallpaper presets render real thumbnail previews, and arrow-key navigation now moves across the 2-column grid predictably instead of walking raw DOM order.
@@ -131,8 +131,8 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [0.2.3] — 2026-06-06
 
 ### Highlights
-- **Desktop diagnostics are now first-class** — a user-facing verbose-logging toggle plus log-management controls capture real diagnostic data on demand instead of asking users to reproduce issues blind.
-- **Editor polish** — the audio panel was reshaped around segmented fade presets and a clearer control hierarchy, and a centralized keyboard-shortcut registry now powers a dedicated shortcuts dialog.
+- **Desktop diagnostics are now first-class.** A user-facing verbose-logging toggle plus log-management controls capture real diagnostic data on demand instead of asking users to reproduce issues blind.
+- **Editor polish.** The audio panel was reshaped around segmented fade presets and a clearer control hierarchy, and a centralized keyboard-shortcut registry now powers a dedicated shortcuts dialog.
 
 ### Added
 - Diagnostic logging controls in the desktop app: a feature flag / UI toggle for verbose logs, plus log management plumbing so debugging information can be turned on when needed instead of asking users to reproduce issues blind.
@@ -148,9 +148,9 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [0.2.2] — 2026-06-05
 
 ### Highlights
-- **Recast Cloud management got broader and sharper** — uploads, shares, poster replacement, engagement tracking, and dashboard-side performance views all moved forward together.
-- **Desktop playback and editing feel faster on real projects** — thumbnail and waveform data can now be cached on disk instead of being recomputed every session.
-- **Capture setup is more defensive** — camera capability gating and browser-side device enumeration reduce bad hardware choices before recording starts.
+- **Recast Cloud management got broader and sharper.** Uploads, shares, poster replacement, engagement tracking, and dashboard-side performance views all moved forward together.
+- **Desktop playback and editing feel faster on real projects.** Thumbnail and waveform data can now be cached on disk instead of being recomputed every session.
+- **Capture setup is more defensive.** Camera capability gating and browser-side device enumeration reduce bad hardware choices before recording starts.
 
 ### Added
 - Poster replacement for recasts, plus engagement tracking and supporting shares / performance surfaces on the dashboard so cloud-hosted recordings are easier to manage after upload.
@@ -169,9 +169,9 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [0.2.1] — 2026-06-03
 
 ### Highlights
-- **Recast Cloud arrived in earnest** — uploads, share links, password protection, expiry, workspace-aware routing, and self-host configuration all landed across web and desktop.
-- **Library organization got real tools** — tags, archives, and tag-management UI make larger recast collections manageable instead of flat lists.
-- **Recording startup became more controllable** — countdown support, per-profile delay overrides, and Windows aspect-ratio locking smooth out capture setup.
+- **Recast Cloud arrived in earnest.** Uploads, share links, password protection, expiry, workspace-aware routing, and self-host configuration all landed across web and desktop.
+- **Library organization got real tools.** Tags, archives, and tag-management UI make larger recast collections manageable instead of flat lists.
+- **Recording startup became more controllable.** Countdown support, per-profile delay overrides, and Windows aspect-ratio locking smooth out capture setup.
 
 ### Added
 - Recast Cloud upload and share flows across the app, including workspace-aware upload routing and broader share-management plumbing for cloud-hosted recasts.
@@ -190,34 +190,34 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ## [0.2.0] — 2026-05-30
 
 ### Highlights
-- A single **morphing export dialog** that flows Options → Encoding → Success / Cancelled / Error without ever closing — width and height ease between phases, content cross-fades on top.
-- **Sliding tab indicator** behind every `Tabs.List` (Settings, properties panel, source select) — the active pill slides between tabs instead of snapping.
+- A single **morphing export dialog** that flows Options → Encoding → Success / Cancelled / Error without ever closing. Width and height ease between phases, and content cross-fades on top.
+- **Sliding tab indicator** behind every `Tabs.List` (Settings, properties panel, source select): the active pill slides between tabs instead of snapping.
 - Export Options redesigned end-to-end against `DESIGN.md`: GIF extras open as a smooth side panel on wide screens, fall back to an inline accordion on narrow ones, and the dialog auto-morphs its width as you switch formats.
 
 ### Added
-- `ExportFlowDialog` wrapper component that owns the dialog chrome (portal, backdrop, scale-in, focus + Esc routing) and auto-morphs its width and height to whatever the active phase declares via a `ResizeObserver`. A custom out-transition absolute-positions the leaving phase so its fade-out can't drag the wrapper size around — the new phase mounts in normal flow, the wrapper Tweens to match, the old phase fades on top.
+- `ExportFlowDialog` wrapper component that owns the dialog chrome (portal, backdrop, scale-in, focus + Esc routing) and auto-morphs its width and height to whatever the active phase declares via a `ResizeObserver`. A custom out-transition absolute-positions the leaving phase so its fade-out can't drag the wrapper size around. The new phase mounts in normal flow, the wrapper Tweens to match, and the old phase fades on top.
 - Per-phase Esc and backdrop routing: Esc cancels a running export, dismisses a finished one, or closes the options picker; the backdrop never cancels an in-flight encode (too easy to misclick mid-render).
 - Share button on the export success card (when `navigator.share` is available), with sensible fallback messaging when the platform doesn't support sharing files but a Drive link is on hand.
-- Sliding active-tab indicator inside `Tabs.List` (shared `@recast/ui` component). Driven by a Svelte 5 `Tween` plus a `MutationObserver` watching `data-state` changes, so it stays decoupled from `bits-ui` internals. Variant-aware visual — `soft` uses `bg-card + shadow-craft-inset`, `default` uses `bg-background + shadow-sm`, `line` slides a 2 px `bg-foreground` bar. Works in both horizontal and vertical orientations and snaps on first measure so it doesn't grow from `(0,0)`.
+- Sliding active-tab indicator inside `Tabs.List` (shared `@recast/ui` component). Driven by a Svelte 5 `Tween` plus a `MutationObserver` watching `data-state` changes, so it stays decoupled from `bits-ui` internals. Variant-aware visual: `soft` uses `bg-card + shadow-craft-inset`, `default` uses `bg-background + shadow-sm`, `line` slides a 2 px `bg-foreground` bar. Works in both horizontal and vertical orientations and snaps on first measure so it doesn't grow from `(0,0)`.
 
 ### Changed
-- Export UI consolidated into one surface across three previously-separate states (options dialog, inline progress overlay, inline result overlay) — eliminates the close/reopen flash between picking a format and seeing encode progress, and again between encode finishing and the success card.
+- Export UI consolidated into one surface across three previously-separate states (options dialog, inline progress overlay, inline result overlay). This eliminates the close/reopen flash between picking a format and seeing encode progress, and again between encode finishing and the success card.
 - Export Options dialog redesigned against `DESIGN.md` dialog rhythm: header `px-5 py-4` with title + description, section dividers softened to `border-border/40`, footer `bg-muted/30 py-2.5`, stat strip inlined with a single divider instead of nested glass cards, section labels paired with a one-line description per the design vocabulary. Buttons use the canonical glass surface (`bg-card/40 + border-border/40`) with `bg-primary/8 + ring-primary/25` for selection.
-- GIF extras (frame rate, color richness, gradients, loop) now reveal as a side panel on wide screens — the dialog grows from 440 px to 760 px through the flow dialog's morph rather than animating an internal collapse — and stack as an inline accordion when the viewport is narrower than 720 px.
+- GIF extras (frame rate, color richness, gradients, loop) now reveal as a side panel on wide screens (the dialog grows from 440 px to 760 px through the flow dialog's morph rather than animating an internal collapse) and stack as an inline accordion when the viewport is narrower than 720 px.
 - Export Options dialog is now responsive: container clamps to `min(820px, calc(100vw - 2rem))` and the body picks its own natural width that the wrapper auto-morphs to.
 - `EditorToolbar` no longer mounts its own `ExportDialog`; the toolbar's Export button now bubbles a single `onexport` callback up to the editor page, which owns the flow phase.
-- Progress, Success, Cancelled, and Error views adopted the same chrome and spacing rhythm as the Options view — `size-10 rounded-xl` status icon badges, consistent footer padding, primary actions on the right.
+- Progress, Success, Cancelled, and Error views adopted the same chrome and spacing rhythm as the Options view: `size-10 rounded-xl` status icon badges, consistent footer padding, primary actions on the right.
 
 ### Fixed
-- No more visual "snap" when switching the export format between MP4/WebM and GIF — the GIF settings panel mounts inline and the wrapper morphs to the new natural size in one motion.
+- No more visual "snap" when switching the export format between MP4/WebM and GIF. The GIF settings panel mounts inline and the wrapper morphs to the new natural size in one motion.
 - Focus is re-routed back into the dialog on every phase change, so screen readers re-announce and keyboard navigation stays inside the modal as content swaps under the user.
 
 ## [0.1.10] — 2026-05-28
 
 ### Highlights
-- **Google Drive uploads** straight from the export success card, with per-upload progress, history, and cancel/retry — the first "send it somewhere" target after local files.
+- **Google Drive uploads** straight from the export success card, with per-upload progress, history, and cancel/retry. The first "send it somewhere" target after local files.
 - **Account and authentication** across desktop and web: device-authorization OAuth flow on the app, magic-link + password sign-in on the web, plus a templated transactional-email system behind both.
-- **Hardware-accelerated exports** on NVIDIA / AMD / Intel where available, with startup probing so the app picks the right encoder once and remembers — and multi-threaded VP9 + camera pause-trim on the recording path.
+- **Hardware-accelerated exports** on NVIDIA / AMD / Intel where available, with startup probing so the app picks the right encoder once and remembers. Multi-threaded VP9 and camera pause-trim land on the recording path too.
 - **macOS feature parity work**: native `ScreenCaptureKit` audio loopback, cross-platform cursor sampling, and the macOS / Linux audio + camera platform modules wired through the recorder.
 - **Tabbed Settings** layout (General / Local / Cloud) and a **frame snapshot → clipboard** action in the editor.
 
@@ -225,7 +225,7 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 - Google Drive integration: connect from Settings → Cloud, upload exports from the success card, watch live upload progress with a per-upload progress bar, cancel in flight, retry failures, copy or open the Drive link once it's done, and review a per-file upload history that survives dismissals.
 - OAuth 2.0 Device Authorization Grant flow for the desktop app, with the matching UI components (device code display, polling state, success card), so the app can sign in without ever embedding a browser window.
 - Magic-link sign-in and password-reset on the web, backed by Better Auth + Drizzle, with templated transactional emails (layout + transport abstraction so future templates plug in cleanly).
-- Cross-window panel error routing through sonner toasts — Rust-side errors from the recording panel now surface as proper toasts in the main window instead of vanishing into the panel's own console.
+- Cross-window panel error routing through sonner toasts. Rust-side errors from the recording panel now surface as proper toasts in the main window instead of vanishing into the panel's own console.
 - Admin surface for the web: user management, waitlist approvals, teams management, and impersonation with transaction-safe team creation / switching.
 - `NavProgress` component for a top-of-page navigation indicator, with a generation token so stale completion callbacks from cancelled navigations can't flash the bar.
 - macOS-only `ScreenCaptureKit` audio loopback gated behind an opt-in `sckit-loopback` feature flag, and a cross-platform cursor sampler that finally unblocks the macOS / Linux recording paths.
@@ -248,7 +248,7 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 - Updater manifest generation now runs even when one of the per-platform build legs fails, so a partial release no longer leaves the auto-updater pointing at the previous version forever.
 - MSIX builds now stage the FFmpeg sidecars correctly (and stop uploading internal `.deb` payloads as release artifacts).
 - FFmpeg / ffprobe spawn audit completed: every spawn site uses `configure_silent_command` on Windows, so console-flash focus theft no longer reads as "the whole window froze".
-- "Recording stop" failures no longer get blamed on FFmpeg by default — the UI now resets client-side state cleanly on stop-failure and reports the actual cause when there is one.
+- "Recording stop" failures no longer get blamed on FFmpeg by default. The UI now resets client-side state cleanly on stop-failure and reports the actual cause when there is one.
 - Diagnostics: file logging stays enabled in release builds and surfaces the full `anyhow` cause chain, so support reports actually contain the root error.
 - Pinned `apple-metal` to `0.6.1` for CI compatibility so macOS leg builds don't break on transitive bumps.
 - Contact email updated to the new address in Footer and Navbar.
@@ -305,8 +305,8 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
   ("the lightest editor you've used") instead of pretending it doesn't
   exist; new editor-tour rail showcases the auto and manual tools side by
   side. Features, gamers, pricing pages refreshed too.
-- Recordings library cards (web + desktop) picked up techy framing —
-  dot-grid placeholders, primary glow, CRT-style corner brackets — so an
+- Recordings library cards (web + desktop) picked up techy framing
+  (dot-grid placeholders, primary glow, CRT-style corner brackets) so an
   empty thumbnail reads as "ready for a frame" instead of an empty hole.
 
 ### Fixed
@@ -322,7 +322,7 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 - Bulk-select mode for recordings and exports, with a floating action bar
   for delete and a single-tap "select all".
 - Morph animations when toggling between grid and list views on the
-  recordings and exports pages — same items, no jarring re-flow.
+  recordings and exports pages, with no jarring re-flow.
 - One-shot setup scripts (`setup.ps1` / `setup.sh`) so first-time
   contributors can bring the whole monorepo up with a single command on
   Windows or macOS/Linux.
@@ -348,8 +348,8 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 ### Changed
 - Dialog and Sheet components default `preventScroll={false}` so a closed
   dialog can no longer leak `pointer-events: none` onto the document body
-  inside Tauri — the root cause of the earlier "the whole window is dead"
-  reports.
+  inside Tauri. This was the root cause of the earlier "the whole window
+  is dead" reports.
 
 ### Fixed
 - Resolved an intermittent pointer-blockage bug in the Dialog component
@@ -367,7 +367,7 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
   combinations, device awareness, and a management UI in Settings.
 - Command palette (⌘K) extracted into a global `CommandPaletteHost`
   mounted at the root layout, so the shortcut and dialog work on every
-  route — including the editor — not only on routes that render the
+  route (including the editor), not only on routes that render the
   sidebar.
 - Web download page redesigned with new platform icons and a feature
   grid.

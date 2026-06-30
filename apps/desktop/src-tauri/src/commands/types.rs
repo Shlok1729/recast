@@ -264,6 +264,11 @@ pub struct ExportRequest {
     /// `gif_settings.fps`.
     #[serde(default)]
     pub fps: Option<f64>,
+    /// Burn the generated captions into the video (overlay). The transcript +
+    /// style come from the render state's `transcript`/`captionStyle`
+    /// passthrough; this is a no-op when there's no transcript. Ignored for GIF.
+    #[serde(default)]
+    pub burn_captions: bool,
 }
 
 #[derive(Clone, Copy)]

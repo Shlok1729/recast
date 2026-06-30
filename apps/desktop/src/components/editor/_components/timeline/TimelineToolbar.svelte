@@ -168,7 +168,7 @@
         type="button"
         onclick={onToggleRazor}
         aria-pressed={razorActive}
-        title="Cut tool (C) — click two points on the timeline to remove a section; Esc or click again to exit"
+        title="Cut tool (C). Click two points to remove a section. Esc to exit."
         class={cn(SEG, razorActive && SEG_ACTIVE)}
       >
         <Scissors class="size-3" />
@@ -201,7 +201,7 @@
       <button
         type="button"
         onclick={onResetTrim}
-        title="Restore the full recording — undo all trims"
+        title="Restore the full recording (undo all trims)"
         class={SOLO}
       >
         <Expand class="size-3" />

@@ -81,6 +81,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The `macos-latest` image ships several Xcode versions; the default
+      # selection (16.4) has a clang resource dir that doesn't match the LLVM
+      # the stable rustc was built against, so the final link fails with
+      # `library 'clang_rt.osx' not found` (clang/17/lib/darwin missing).
+      # Pin the newest fully-installed stable Xcode so the compiler-rt path
+      # rustc emits actually exists on the runner.
+      - name: Select Xcode (macOS)
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:

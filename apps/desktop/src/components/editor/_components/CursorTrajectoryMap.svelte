@@ -90,7 +90,7 @@
       viewBox="0 0 1 1"
       preserveAspectRatio="none"
       role="img"
-      aria-label="Cursor trajectory — raw vs. smoothed"
+      aria-label="Cursor trajectory: raw vs. smoothed"
       class="block h-full w-full"
     >
       <!-- Raw path: dashed, low-contrast so it reads as "before". -->

@@ -12,6 +12,7 @@
 		ArrowRight,
 		Blend,
 		Blocks,
+		Captions,
 		Check,
 		Download,
 		Hash,
@@ -26,13 +27,14 @@
 	} from "@lucide/svelte";
 	import { GithubBrand } from "@recast/ui/brand-icons";
 
-	// The six contribution kinds a pack can add. These map 1:1 to the editor's
+	// The contribution kinds a pack can add. These map 1:1 to the editor's
 	// pickers, so the page reads as "this shows up where you already work".
 	const kinds = [
 		{ icon: MousePointer2, title: "Cursors", description: "New pointer styles with rest and click states, plus precise hotspots, right in the cursor picker." },
 		{ icon: ImageIcon, title: "Backgrounds", description: "Wallpapers that drop straight into the canvas background picker." },
 		{ icon: Blend, title: "Gradients", description: "Curated gradient sets, rendered live in both the preview and the export." },
 		{ icon: Palette, title: "Colors", description: "Solid color swatches for the canvas, ready to click." },
+		{ icon: Captions, title: "Caption themes", description: "Ready-made caption looks — font, color, outline and backing — applied in one click to overlay and burned-in captions." },
 		{ icon: Spline, title: "Easing presets", description: "Named motion curves for zoom and cursor animation." },
 		{ icon: Waves, title: "Smoothing presets", description: "Cursor smoothing recipes, strength plus click snap, that you can share as packs." },
 	];

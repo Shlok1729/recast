@@ -31,7 +31,7 @@
 		{:then pending}
 			{pending.length} pending {pending.length === 1 ? "user" : "users"}.
 		{/await}
-		Approving flips status → active so they can sign in via magic link or password reset.
+		Approving sets their status to active so they can sign in via magic link or password reset.
 	</p>
 </header>
 

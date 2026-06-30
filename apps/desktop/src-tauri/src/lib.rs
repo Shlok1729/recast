@@ -9,12 +9,14 @@ mod commands;
 mod cursor;
 mod encoder;
 pub mod ffmpeg;
+mod fonts;
 mod permissions;
 mod project;
 mod recording;
 mod render;
 mod silence;
 mod telemetry;
+mod transcription;
 mod tray;
 mod window_aspect;
 
@@ -338,6 +340,13 @@ pub fn run() {
             commands::suggest_zoom_regions,
             silence::detect_silence,
             silence::extract_waveform,
+            transcription::list_caption_models,
+            transcription::caption_capabilities,
+            transcription::download_caption_model,
+            transcription::delete_caption_model,
+            transcription::transcribe_project,
+            transcription::export_captions,
+            fonts::ensure_google_font,
             commands::ensure_assets_installed,
             commands::get_cached_asset_path,
             commands::hydrate_cached_assets,

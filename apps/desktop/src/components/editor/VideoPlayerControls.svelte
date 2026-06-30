@@ -51,7 +51,7 @@
 		try {
 			const blob = await captureFrame();
 			if (!blob) {
-				toast.error("Couldn't capture frame — preview not ready.");
+				toast.error("Couldn't capture frame. Preview isn't ready yet.");
 				return;
 			}
 			await navigator.clipboard.write([

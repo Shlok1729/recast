@@ -24,7 +24,7 @@
 		<p class="text-sm font-medium">We respect your privacy</p>
 		<p class="mt-1 text-sm text-muted-foreground">
 			We collect anonymous, cookieless usage metrics to improve Recast. Allow
-			cookies to enable session replay and a saved profile — or keep it minimal.
+			cookies to enable session replay and a saved profile, or keep it minimal.
 		</p>
 		<div class="mt-3 flex justify-end gap-2">
 			<Button variant="ghost" size="sm" onclick={decline}>Keep minimal</Button>

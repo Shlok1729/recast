@@ -18,7 +18,7 @@
     {
       icon: MousePointerClick,
       title: "Pick a tool",
-      body: "Convert, trim, compress, mute — each tool is a single focused page.",
+      body: "Convert, trim, compress, or mute. Each tool is a single focused page.",
     },
     {
       icon: Upload,
@@ -197,7 +197,7 @@
         </h2>
         <p class="mt-3 text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
           These tools are the quick path. Recast for desktop records, polishes,
-          and exports a finished demo — offline, in one app.
+          and exports a finished demo, offline and in one app.
         </p>
         <a
           href="/download"
