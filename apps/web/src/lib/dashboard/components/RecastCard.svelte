@@ -259,7 +259,7 @@
 						<DropdownMenu.SubContent class="max-h-72 w-56 overflow-y-auto">
 							{#if tags.length === 0}
 								<div class="px-2 py-2 text-xs text-muted-foreground">
-									No tags yet — create one from the filter bar.
+									No tags yet. Create one from the filter bar.
 								</div>
 							{:else}
 								{#each tags as t (t.id)}

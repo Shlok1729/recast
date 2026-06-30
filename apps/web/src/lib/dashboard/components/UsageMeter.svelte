@@ -58,7 +58,7 @@
 			{storageLimit == null
 				? "Unlimited"
 				: storagePct >= 100
-					? "Cap reached — archive or upgrade"
+					? "Cap reached. Archive or upgrade"
 					: `${100 - storagePct}% free`}
 		</p>
 	</div>

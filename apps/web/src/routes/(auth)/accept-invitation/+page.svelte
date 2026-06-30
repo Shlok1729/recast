@@ -99,7 +99,7 @@
 				})(),
 				{
 					loading: "Sending sign-in link…",
-					success: "Check your inbox — the link expires in 10 minutes.",
+					success: "Check your inbox. The link expires in 10 minutes.",
 					error: (err) => (err as Error)?.message ?? "Couldn't send the sign-in link.",
 				},
 			);
@@ -128,7 +128,7 @@
 
 	<div class="w-full max-w-md" in:fly={{ y: 16, duration: 520, easing: cubicOut }}>
 		<div class="flex flex-col items-center text-center">
-			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast — home">
+			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast home">
 				<span
 					class="grid size-9 place-items-center rounded-xl bg-foreground p-1 text-background shadow-craft-sm transition-transform group-hover/logo:rotate-[-4deg]"
 				>
@@ -191,7 +191,7 @@
 						<p class="text-muted-foreground">
 							Sign in as
 							<span class="font-mono font-semibold text-foreground">{data.invite.email}</span>
-							to accept this invitation. We'll email you a one-time link — no
+							to accept this invitation. We'll email you a one-time link, no
 							password needed.
 						</p>
 						<Button onclick={sendSignInLink} disabled={sendingLink} class="group/cta w-full gap-2">

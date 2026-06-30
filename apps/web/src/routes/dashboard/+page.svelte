@@ -78,7 +78,7 @@
 			}
 			toast.success(
 				copied
-					? `“${file.name}” uploaded — share link copied to clipboard.`
+					? `“${file.name}” uploaded. Share link copied to clipboard.`
 					: `“${file.name}” uploaded and shared.`,
 			);
 		} catch (err) {

@@ -41,7 +41,7 @@
 				})(),
 				{
 					loading: "Updating your password…",
-					success: "Password updated — sign in with your new password.",
+					success: "Password updated. Sign in with your new password.",
 					error: (err) => (err as Error)?.message ?? "Couldn't reset your password.",
 				},
 			);

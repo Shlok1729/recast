@@ -110,7 +110,7 @@
 		in:fly={{ y: 16, duration: 600, easing: cubicOut }}
 	>
 		<div class="flex flex-col items-center text-center">
-			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast — home">
+			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast home">
 				<span
 					class="grid size-9 place-items-center rounded-xl bg-foreground p-1 text-background shadow-craft-sm transition-transform group-hover/logo:rotate-[-4deg]"
 				>
@@ -124,7 +124,7 @@
 			</h1>
 			<p class="text-pretty mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
 				Recast Cloud organizes recordings around teams. Create one to start, or
-				accept a pending invite below.
+				accept an invite below.
 			</p>
 		</div>
 

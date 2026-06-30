@@ -25,7 +25,7 @@
 		if (!cloudinaryReady) return;
 		cloud.connected = true;
 		settingsStore.save();
-		toast.success("Cloudinary connected — credentials saved on this device.");
+		toast.success("Cloudinary connected. Credentials saved on this device.");
 	}
 
 	function disconnect() {
@@ -120,7 +120,7 @@
 							Connect Cloudinary
 						</Button>
 						<span class="text-xs text-muted-foreground">
-							Credentials stay in this browser — nothing is sent anywhere.
+							Credentials stay in this browser. Nothing is sent anywhere.
 						</span>
 					</div>
 				</form>
@@ -160,7 +160,7 @@
 				<button
 					type="button"
 					class="font-semibold text-primary hover:underline"
-					onclick={() => toast.info("Noted — S3 is on the roadmap.")}
+					onclick={() => toast.info("Noted. S3 is on the roadmap.")}
 				>
 					Let us know.
 				</button>

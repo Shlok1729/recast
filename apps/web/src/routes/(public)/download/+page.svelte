@@ -196,12 +196,12 @@
 	const installSteps: Record<Exclude<OS, "Unknown">, PlatformGuide> = {
 		macOS: {
 			intro:
-				"macOS is in beta. The smoothest path is Homebrew (step 1): one line that grabs the right build for your chip and clears Gatekeeper for you. Prefer the .dmg? Steps 2–5 cover the manual install, and macOS just needs one Terminal command on first launch until we're Apple-notarized.",
+				"macOS is in beta. The smoothest path is Homebrew (step 1): one line that grabs the right build for your chip and clears Gatekeeper for you. Prefer the .dmg? Steps 2–5 cover the manual install, with one Terminal command on first launch until we're Apple-notarized.",
 			steps: [
 				{
 					title: "Fastest: install with Homebrew",
 					body:
-						"One line installs the right build for your Mac and removes the Gatekeeper quarantine automatically, so there's no \"is damaged\" error, and brew keeps it updated. Tap once if you'd rather use the short name: brew tap kanakkholwal/recast, then brew install --cask recast.",
+						"One line installs the right build for your Mac and clears the Gatekeeper quarantine, so there's no \"is damaged\" error, and brew keeps it updated. Prefer the short name? Run brew tap kanakkholwal/recast, then brew install --cask recast.",
 					code: "brew install --cask kanakkholwal/recast/recast",
 					hint: "Installed this way? You're done. Skip the manual .dmg steps below.",
 				},

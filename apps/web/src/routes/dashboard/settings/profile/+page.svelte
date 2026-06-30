@@ -50,7 +50,7 @@
 				})(),
 				{
 					loading: "Sending verification email…",
-					success: "Sent — check your inbox.",
+					success: "Sent. Check your inbox.",
 					error: (err) => (err as Error)?.message ?? "Couldn't send the verification email.",
 				},
 			);
@@ -101,7 +101,7 @@
 		<SettingsSection
 			icon={MailWarning}
 			title="Email verification pending"
-			description="Confirm {accountEmail} to unlock dashboard actions."
+			description="Confirm {accountEmail} to use dashboard actions."
 		>
 			<div class="flex flex-wrap items-center gap-3">
 				<Button onclick={resendVerification} disabled={resending} size="sm" class="gap-2">

@@ -685,7 +685,7 @@
 					<h1 class="text-lg font-semibold tracking-tight">You don't have access</h1>
 					<p class="mt-1 text-sm text-muted-foreground">
 						{#if deniedAccess.visibility === "selected"}
-							This recording is shared with specific people. Enter your email to get a one-time access link — no account needed.
+							This recording is shared with specific people. Enter your email to get a one-time access link. No account needed.
 						{:else if deniedAccess.visibility === "team"}
 							This recast is shared with a specific team. Ask the owner to add you, or sign in with an account that's a member.
 						{:else if deniedAccess.visibility === "private"}
@@ -1255,7 +1255,7 @@
 
 							<!-- Thread -->
 							{#if comments.length === 0}
-								<p class="mt-4 px-1 text-sm text-muted-foreground">No comments yet — be the first.</p>
+								<p class="mt-4 px-1 text-sm text-muted-foreground">No comments yet. Be the first.</p>
 							{:else}
 								<ul class="mt-2">
 									{#each comments as c (c.id)}
@@ -1352,7 +1352,7 @@
 						Call-to-action
 					</Dialog.Title>
 					<Dialog.Description>
-						The next step you want viewers to take — shown as a button below the video and when it ends.
+						The next step you want viewers to take. Shown as a button below the video and when it ends.
 					</Dialog.Description>
 				</Dialog.Header>
 				<form class="space-y-3" onsubmit={saveCta}>

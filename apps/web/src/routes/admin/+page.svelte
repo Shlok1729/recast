@@ -42,7 +42,7 @@
 <header class="mb-8">
 	<h1 class="text-2xl font-semibold tracking-tight">Overview</h1>
 	<p class="mt-1 text-sm text-muted-foreground">
-		High-level health of your user base, billing, and recent admin activity.
+		Users, billing, and recent admin activity at a glance.
 	</p>
 </header>
 
