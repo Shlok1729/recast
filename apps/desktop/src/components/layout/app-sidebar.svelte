@@ -63,28 +63,22 @@
           "flex h-10 items-center gap-2.5 overflow-hidden rounded-lg transition-opacity hover:opacity-80",
           open ? "px-2 pr-9" : "justify-center px-0",
         )}
-        data-tauri-drag-region
         aria-label="Recast — home"
       >
         <Logo
           size="24"
-          // color="var(--foreground)"
-          // fill="var(--background)"
           class="shrink-0"
-          data-tauri-drag-region
         />
         {#if open}
           <span
             in:fly={{ x: -8, duration: 240, easing: cubicOut, delay: 60 }}
             out:fade={{ duration: 220, easing: cubicOut }}
             class="truncate text-[15px] font-semibold tracking-tight text-foreground"
-            data-tauri-drag-region
           >
             Recast
           </span>
         {/if}
       </a>
-
     </Sidebar.MenuItem>
 
     <Sidebar.MenuItem>

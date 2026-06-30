@@ -207,20 +207,20 @@
   <!-- Header -->
   <header
     class="group/header flex items-center justify-between border-b border-border-subtle px-4 h-10 shrink-0"
-    data-tauri-drag-region
   >
-    <div class="flex items-center gap-2">
-      <span
-        class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-      >
+    <div class="flex items-center gap-2" data-tauri-drag-region>
+      <span class="pointer-events-none text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         Choose source
       </span>
     </div>
+    
+    <!-- Empty space for dragging -->
+    <div class="flex-1 h-full" data-tauri-drag-region></div>
+
     <Button
       variant="ghost"
       size="icon-sm"
       onclick={closeWindow}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
       class="opacity-0 group-hover/root:opacity-100 transition-opacity"
       title="Close (Esc)"
     >
@@ -292,7 +292,7 @@
         <button
           type="button"
           onclick={openAreaPicker}
-          onmousedown={(e) => e.stopPropagation()}
+          // onmousedown={(e) => e.stopPropagation()}
           class="group/draw flex h-28 w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-card/40 hover:bg-muted/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
         >
           <Crop size={20} class="text-muted-foreground" />
@@ -313,7 +313,7 @@
                 selectedSource = lastRegion;
               }
             }}
-            onmousedown={(e) => e.stopPropagation()}
+            // onmousedown={(e) => e.stopPropagation()}
             class="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 py-2 text-left hover:bg-muted/50 transition-colors"
           >
             <div class="flex flex-col">
@@ -336,7 +336,7 @@
             type="button"
             onclick={() => (selectedSource = source)}
             ondblclick={confirmSelection}
-            onmousedown={(e) => e.stopPropagation()}
+            // onmousedown={(e) => e.stopPropagation()}
             class={cn(
               "flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left transition-colors focus:outline-none focus:ring-1 focus:ring-ring",
               selected
@@ -389,7 +389,7 @@
             type="button"
             onclick={() => (selectedSource = source)}
             ondblclick={confirmSelection}
-            onmousedown={(e) => e.stopPropagation()}
+            // onmousedown={(e) => e.stopPropagation()}
             class={cn(
               "group/tile relative flex flex-col overflow-hidden rounded-md border text-left transition-colors",
               "focus:outline-none focus:ring-1 focus:ring-ring",
@@ -464,7 +464,7 @@
     <Button
       onclick={fetchSources}
       disabled={isFetching}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
+      // onmousedown={(e: MouseEvent) => e.stopPropagation()}
       variant="ghost"
       size="xs"
       class="gap-1.5"
@@ -476,7 +476,7 @@
     <div class="flex items-center gap-1.5">
       <Button
         onclick={closeWindow}
-        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        // onmousedown={(e: MouseEvent) => e.stopPropagation()}
         variant="ghost"
         size="xs"
       >
@@ -485,7 +485,7 @@
       <Button
         onclick={confirmSelection}
         disabled={!selectedSource}
-        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        // onmousedown={(e: MouseEvent) => e.stopPropagation()}
         variant="default"
         size="xs"
       >
