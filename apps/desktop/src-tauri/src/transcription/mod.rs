@@ -15,6 +15,7 @@ mod capabilities;
 mod engine;
 mod models;
 pub(crate) mod subtitles;
+mod words;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -56,6 +57,42 @@ pub struct Transcript {
     pub segments: Vec<TranscriptSegment>,
 }
 
+/// Word-by-word animation spec — mirrors the frontend `CaptionAnimation`. Drives
+/// the per-word ASS markup in the burn-in path. Absent (`None`) = static.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionAnimation {
+    pub chunk: String, // "line" | "phrase" | "word"
+    pub chunk_size: u32,
+    pub emphasis: String, // "none" | "color" | "scale"
+    pub emphasis_color: String,
+    pub entrance: String, // "none" | "fade" | "pop" | "slide"
+    pub entrance_ms: f64,
+    pub hold_gaps: bool,
+}
+
+impl Default for CaptionAnimation {
+    fn default() -> Self {
+        Self {
+            chunk: "line".into(),
+            chunk_size: 3,
+            emphasis: "none".into(),
+            emphasis_color: "#facc15".into(),
+            entrance: "none".into(),
+            entrance_ms: 220.0,
+            hold_gaps: true,
+        }
+    }
+}
+
+impl CaptionAnimation {
+    /// True when the spec has no visible effect — the generator can take the
+    /// static (one Dialogue per line) path.
+    pub fn is_static(&self) -> bool {
+        self.chunk == "line" && self.emphasis == "none" && self.entrance == "none"
+    }
+}
+
 /// How captions render over the video — mirrors the frontend `CaptionStyle`.
 /// Used by the export burn-in (ASS) path; deserialized from the render state's
 /// `captionStyle` passthrough field.
@@ -78,6 +115,9 @@ pub struct CaptionStyle {
     pub outline_width: f64,
     pub outline_color: String,
     pub max_lines: u32,
+    /// Word-by-word animation; `None` (or absent in JSON) = static.
+    #[serde(default)]
+    pub animation: Option<CaptionAnimation>,
 }
 
 impl Default for CaptionStyle {
@@ -99,6 +139,7 @@ impl Default for CaptionStyle {
             outline_width: 0.0,
             outline_color: "#000000".into(),
             max_lines: 2,
+            animation: None,
         }
     }
 }

@@ -10,6 +10,7 @@
  */
 
 import type { Easing } from "$lib/easing/cubic-bezier";
+import type { CaptionAnimation } from "$lib/captions/animation";
 
 export type AssetKind =
 	| "cursor"
@@ -93,6 +94,8 @@ export interface CaptionPresetValue {
 	outlineWidth: number;
 	outlineColor: string;
 	maxLines: number;
+	/** Word-by-word animation. Absent = static. */
+	animation?: CaptionAnimation;
 }
 
 export type RegistryValueFor<K extends AssetKind> = K extends "cursor"

@@ -179,7 +179,23 @@
         "backgroundOpacity": { "type": "number", "minimum": 0, "maximum": 100 },
         "outlineWidth": { "type": "number", "minimum": 0, "maximum": 20, "description": "Percent of font size." },
         "outlineColor": { "$ref": "#/$defs/hexColor" },
-        "maxLines": { "type": "integer", "minimum": 1, "maximum": 6 }
+        "maxLines": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "animation": { "$ref": "#/$defs/captionAnimation" }
+      }
+    },
+    "captionAnimation": {
+      "type": "object",
+      "description": "Word-by-word animation spec. Absent = static caption.",
+      "additionalProperties": false,
+      "required": ["chunk", "chunkSize", "emphasis", "emphasisColor", "entrance", "entranceMs", "holdGaps"],
+      "properties": {
+        "chunk": { "enum": ["line", "phrase", "word"] },
+        "chunkSize": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "emphasis": { "enum": ["none", "color", "scale"] },
+        "emphasisColor": { "$ref": "#/$defs/hexColor" },
+        "entrance": { "enum": ["none", "fade", "pop", "slide"] },
+        "entranceMs": { "type": "number", "minimum": 0, "maximum": 2000 },
+        "holdGaps": { "type": "boolean" }
       }
     }
   }

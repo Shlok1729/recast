@@ -191,6 +191,7 @@ export async function registerExtension(ext: InstalledExtension): Promise<number
 				outlineWidth: p.outlineWidth,
 				outlineColor: p.outlineColor,
 				maxLines: p.maxLines,
+				animation: p.animation,
 			},
 		});
 	}

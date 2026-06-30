@@ -4,6 +4,7 @@
  */
 
 import type { Transcript } from '../ipc';
+import { type CaptionAnimation, DEFAULT_CAPTION_ANIMATION } from '../captions/animation';
 import type { CursorSampleLike } from '../cursor/smoothing';
 import { EASE, type Easing } from '../easing/cubic-bezier';
 import { log } from '../logger';
@@ -753,6 +754,8 @@ export interface CaptionStyle {
 	outlineColor: string;
 	/** Max lines shown at once before clamping. */
 	maxLines: number;
+	/** Word-by-word animation. Absent = static (today's behaviour). */
+	animation?: CaptionAnimation;
 }
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
@@ -772,6 +775,7 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
 	outlineWidth: 0,
 	outlineColor: '#000000',
 	maxLines: 2,
+	animation: DEFAULT_CAPTION_ANIMATION,
 };
 
 /** A named caption look — the visual half of {@link CaptionStyle}. Applied
@@ -872,6 +876,130 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
 			outlineWidth: 7,
 			outlineColor: '#000000',
 			maxLines: 2,
+		},
+	},
+	{
+		id: 'karaoke',
+		label: 'Karaoke highlight',
+		description: 'Active word colors',
+		style: {
+			fontFamily: "'Inter', sans-serif",
+			fontWeight: 800,
+			fontSizePct: 5.5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 10,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'soft',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 5,
+			outlineColor: '#000000',
+			maxLines: 2,
+			animation: {
+				chunk: 'line',
+				chunkSize: 4,
+				emphasis: 'color',
+				emphasisColor: '#facc15',
+				entrance: 'none',
+				entranceMs: 0,
+				holdGaps: true,
+			},
+		},
+	},
+	{
+		id: 'word-pop',
+		label: 'Word-by-word pop',
+		description: 'One word, pops in',
+		style: {
+			fontFamily: "'Anton', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 8,
+			position: 'center',
+			align: 'center',
+			offsetPct: 0,
+			color: '#ffffff',
+			uppercase: true,
+			letterSpacing: 0.02,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 8,
+			outlineColor: '#000000',
+			maxLines: 1,
+			animation: {
+				chunk: 'word',
+				chunkSize: 1,
+				emphasis: 'scale',
+				emphasisColor: '#facc15',
+				entrance: 'pop',
+				entranceMs: 180,
+				holdGaps: true,
+			},
+		},
+	},
+	{
+		id: 'chunk-fade',
+		label: 'Chunk reveal',
+		description: 'Phrases fade in',
+		style: {
+			fontFamily: 'system-ui, sans-serif',
+			fontWeight: 600,
+			fontSizePct: 5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 8,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'soft',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 0,
+			outlineColor: '#000000',
+			maxLines: 2,
+			animation: {
+				chunk: 'phrase',
+				chunkSize: 3,
+				emphasis: 'none',
+				emphasisColor: '#facc15',
+				entrance: 'fade',
+				entranceMs: 240,
+				holdGaps: true,
+			},
+		},
+	},
+	{
+		id: 'big-bold',
+		label: 'Big bold',
+		description: 'Hormozi style',
+		style: {
+			fontFamily: "'Anton', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 7.5,
+			position: 'center',
+			align: 'center',
+			offsetPct: 0,
+			color: '#ffffff',
+			uppercase: true,
+			letterSpacing: 0.02,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 8,
+			outlineColor: '#000000',
+			maxLines: 2,
+			animation: {
+				chunk: 'phrase',
+				chunkSize: 3,
+				emphasis: 'color',
+				emphasisColor: '#22c55e',
+				entrance: 'pop',
+				entranceMs: 160,
+				holdGaps: true,
+			},
 		},
 	},
 ];

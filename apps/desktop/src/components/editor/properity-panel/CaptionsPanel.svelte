@@ -14,6 +14,10 @@
     type DeviceCapabilities,
   } from "$lib/ipc";
   import { registry } from "$lib/registry";
+  import {
+    resolveCaptionAnimation,
+    type CaptionAnimation,
+  } from "$lib/captions/animation";
   import type { CaptionStyle, EditorStore } from "$lib/stores/editor-store.svelte";
   import {
     AlertTriangle,
@@ -202,6 +206,33 @@
     { value: "soft", label: "Shadow" },
     { value: "box", label: "Box" },
   ];
+
+  const chunkOptions = [
+    { value: "line", label: "Line" },
+    { value: "phrase", label: "Phrase" },
+    { value: "word", label: "Word" },
+  ];
+  const emphasisOptions = [
+    { value: "none", label: "None" },
+    { value: "color", label: "Color" },
+    { value: "scale", label: "Size" },
+  ];
+  const entranceOptions = [
+    { value: "none", label: "None" },
+    { value: "fade", label: "Fade" },
+    { value: "pop", label: "Pop" },
+    { value: "slide", label: "Slide" },
+  ];
+  const holdOptions = [
+    { value: "hold", label: "Hold" },
+    { value: "clear", label: "Clear" },
+  ];
+
+  /** Merge a partial animation change into the current (resolved) spec. */
+  function updateAnimation(patch: Partial<CaptionAnimation>) {
+    const cur = resolveCaptionAnimation(store.captionStyle.animation);
+    store.updateCaptionStyle({ animation: { ...cur, ...patch } });
+  }
 
   const CAPTION_SWATCHES = ["#ffffff", "#000000", "#facc15", "#22d3ee", "#f472b6"];
 
@@ -652,6 +683,106 @@
           onchange={(next) => store.updateCaptionStyle({ maxLines: next })}
           formatValue={(v) => `${v}`}
         />
+      </div>
+    </PanelSection>
+
+    <PanelSection
+      title="Animation"
+      hint="Word-by-word reveal and highlight, synced to speech. Needs word timing — pick a Parakeet model for the tightest sync."
+      flush
+      collapsible
+      defaultOpen={false}
+    >
+      {@const ca = resolveCaptionAnimation(cs.animation)}
+      <div class="flex flex-col gap-3" class:opacity-50={!cs.enabled}>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] text-muted-foreground">Show</span>
+          <Segmented
+            size="xs"
+            fill={false}
+            aria-label="Words shown at once"
+            value={ca.chunk}
+            options={chunkOptions}
+            onValueChange={(v) => updateAnimation({ chunk: v as CaptionAnimation["chunk"] })}
+          />
+        </div>
+
+        {#if ca.chunk === "phrase"}
+          <SliderControl
+            label="Words per chunk"
+            value={ca.chunkSize}
+            min={1}
+            max={8}
+            step={1}
+            unit=""
+            onchange={(next) => updateAnimation({ chunkSize: next })}
+            formatValue={(v) => `${v}`}
+          />
+        {/if}
+
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] text-muted-foreground">Active word</span>
+          <Segmented
+            size="xs"
+            fill={false}
+            aria-label="Active word emphasis"
+            value={ca.emphasis}
+            options={emphasisOptions}
+            onValueChange={(v) => updateAnimation({ emphasis: v as CaptionAnimation["emphasis"] })}
+          />
+        </div>
+
+        {#if ca.emphasis === "color"}
+          <ColorField
+            label="Highlight color"
+            value={ca.emphasisColor}
+            swatches={CAPTION_SWATCHES}
+            {recents}
+            oncommit={(c) => {
+              updateAnimation({ emphasisColor: c });
+              rememberColor(c);
+            }}
+          />
+        {/if}
+
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] text-muted-foreground">Entrance</span>
+          <Segmented
+            size="xs"
+            fill={false}
+            aria-label="Entrance animation"
+            value={ca.entrance}
+            options={entranceOptions}
+            onValueChange={(v) => updateAnimation({ entrance: v as CaptionAnimation["entrance"] })}
+          />
+        </div>
+
+        {#if ca.entrance !== "none"}
+          <SliderControl
+            label="Entrance speed"
+            value={ca.entranceMs}
+            min={80}
+            max={600}
+            step={20}
+            unit="ms"
+            onchange={(next) => updateAnimation({ entranceMs: next })}
+            formatValue={(v) => `${v}ms`}
+          />
+        {/if}
+
+        {#if ca.emphasis !== "none"}
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] text-muted-foreground">In pauses</span>
+            <Segmented
+              size="xs"
+              fill={false}
+              aria-label="Highlight behavior during pauses"
+              value={ca.holdGaps ? "hold" : "clear"}
+              options={holdOptions}
+              onValueChange={(v) => updateAnimation({ holdGaps: v === "hold" })}
+            />
+          </div>
+        {/if}
       </div>
     </PanelSection>
 

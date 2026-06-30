@@ -4,6 +4,7 @@
  */
 
 import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
+import type { CaptionAnimation } from "$lib/captions/animation";
 import { analytics } from "$lib/analytics/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -878,6 +879,8 @@ export interface ExtCaptionPresetContribution {
 	outlineWidth: number;
 	outlineColor: string;
 	maxLines: number;
+	/** Optional word-by-word animation. */
+	animation?: CaptionAnimation;
 }
 
 export interface ExtensionContributions {

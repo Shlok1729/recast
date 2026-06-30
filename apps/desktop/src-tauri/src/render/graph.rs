@@ -900,7 +900,10 @@ fn fmt_term(ta: f64, va: f64, tb: f64, vb: f64, default_val: f64) -> Option<Stri
         }
         Some(format!("if(gte(t,{ta:.4})*lt(t,{tb:.4}),{offset:.4},0)"))
     } else {
-        let dt = tb - ta;
+        // Guard a degenerate (zero-width) window: without it the ramp's
+        // `(t-ta)/dt` divides by zero and bakes `inf` into the filter expression,
+        // breaking the whole zoom graph at init.
+        let dt = (tb - ta).max(1e-6);
         let dv = vb - va;
         let offset_a = va - default_val;
         Some(format!(
@@ -1070,6 +1073,53 @@ mod tests {
             hidden: false,
             extra: Default::default(),
         }
+    }
+
+    #[test]
+    fn parse_aspect_ratio_maps_known_labels() {
+        assert!((parse_aspect_ratio(Some("16:9")).unwrap() - 16.0 / 9.0).abs() < 1e-9);
+        assert!((parse_aspect_ratio(Some("9:16")).unwrap() - 9.0 / 16.0).abs() < 1e-9);
+        assert_eq!(parse_aspect_ratio(Some("1:1")), Some(1.0));
+        assert!((parse_aspect_ratio(Some("1.91:1")).unwrap() - 1.91).abs() < 1e-9);
+        // 16:9 and 9:16 must not be confused — landscape is wider than tall.
+        assert!(parse_aspect_ratio(Some("16:9")).unwrap() > 1.0);
+        assert!(parse_aspect_ratio(Some("9:16")).unwrap() < 1.0);
+        // Unknown / source / absent → None (keep source dims).
+        assert_eq!(parse_aspect_ratio(Some("4:3")), None);
+        assert_eq!(parse_aspect_ratio(Some("source")), None);
+        assert_eq!(parse_aspect_ratio(None), None);
+    }
+
+    #[test]
+    fn normalize_color_trims_and_falls_back() {
+        assert_eq!(normalize_color("  #ffcc00  "), "#ffcc00");
+        assert_eq!(normalize_color(""), "#111111");
+        assert_eq!(normalize_color("   "), "#111111");
+    }
+
+    #[test]
+    fn gradient_fallback_color_picks_first_hex() {
+        assert_eq!(
+            gradient_fallback_color("linear-gradient(90deg, #3b82f6, #9333ea)"),
+            "#3b82f6"
+        );
+        // No hex token → the neutral default.
+        assert_eq!(gradient_fallback_color("rgb(255,0,0)"), "#111111");
+        assert_eq!(gradient_fallback_color(""), "#111111");
+    }
+
+    #[test]
+    fn fmt_term_handles_degenerate_zero_width_window() {
+        // tb == ta with differing values previously divided by zero → `inf`.
+        let term = fmt_term(2.0, 1.0, 2.0, 1.5, 1.0).expect("ramp term");
+        assert!(!term.contains("inf"));
+        assert!(!term.contains("NaN"));
+    }
+
+    #[test]
+    fn fmt_term_drops_constant_at_default() {
+        // Constant segment equal to the default contributes nothing.
+        assert_eq!(fmt_term(0.0, 1.0, 1.0, 1.0, 1.0), None);
     }
 
     fn render_state_with_zoom(

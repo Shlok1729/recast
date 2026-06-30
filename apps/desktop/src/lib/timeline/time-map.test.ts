@@ -84,6 +84,16 @@ describe("originalToOutput / outputToOriginal (general map)", () => {
 		expect(outputToOriginal(map, 99)).toBeCloseTo(10);
 	});
 
+	it("maps everything to 0 when the map is empty (all cut away)", () => {
+		// A fully-cut timeline yields no kept spans; both directions degrade to 0
+		// rather than reading past an empty span list.
+		const empty = buildTimeMap([]);
+		expect(empty.spans).toHaveLength(0);
+		expect(empty.outputDuration).toBe(0);
+		expect(originalToOutput(empty, 5)).toBe(0);
+		expect(outputToOriginal(empty, 5)).toBe(0);
+	});
+
 	it("is monotonic non-decreasing in original time", () => {
 		let prev = -Infinity;
 		for (let t = 0; t <= 10; t += 0.1) {

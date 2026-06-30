@@ -39,7 +39,7 @@ pub fn transcribe(
     };
 
     match model.engine {
-        // Parakeet uses its own params to request SEGMENT-level timestamps.
+        // Parakeet requests WORD-level timestamps; we group them into lines.
         Engine::Parakeet => parakeet_transcribe(model, model_dir, samples),
         // The other ONNX engines share one path via the `SpeechModel` trait.
         Engine::Canary => {
@@ -69,19 +69,70 @@ fn parakeet_transcribe(
     model_dir: &Path,
     samples: &[f32],
 ) -> Result<Transcript, String> {
+    use super::TranscriptWord;
     use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams, TimestampGranularity};
     use transcribe_rs::onnx::Quantization;
 
     let mut pk = ParakeetModel::load(model_dir, &Quantization::Int8)
         .map_err(|e| format!("load Parakeet model: {e}"))?;
+    // `Word` granularity returns a flat stream of one-word "segments"; we own the
+    // grouping into caption lines (chunking is a caption concern, not an ASR one).
     let params = ParakeetParams {
-        timestamp_granularity: Some(TimestampGranularity::Segment),
+        timestamp_granularity: Some(TimestampGranularity::Word),
         ..Default::default()
     };
     let result = pk
         .transcribe_with(samples, &params)
         .map_err(|e| format!("Parakeet transcription failed: {e}"))?;
-    Ok(build_transcript(model, samples, result))
+
+    let words: Vec<TranscriptWord> = result
+        .segments
+        .as_ref()
+        .map(|segs| {
+            segs.iter()
+                .map(|s| TranscriptWord {
+                    start: s.start as f64,
+                    end: s.end as f64,
+                    text: s.text.trim().to_string(),
+                })
+                .filter(|w| !w.text.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let segments = if words.is_empty() {
+        whole_clip_segment(&result.text, samples)
+    } else {
+        super::words::group_words_into_segments(words)
+    };
+
+    Ok(Transcript {
+        engine: "parakeet".into(),
+        model_id: model.id.clone(),
+        language: None,
+        segments,
+    })
+}
+
+/// One caption block spanning the whole clip, used when an engine returns text
+/// but no timing. Synthesizes per-word timing so animation still has something
+/// to drive.
+#[cfg(feature = "captions")]
+fn whole_clip_segment(text: &str, samples: &[f32]) -> Vec<super::TranscriptSegment> {
+    use super::TranscriptSegment;
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut seg = TranscriptSegment {
+        id: "seg-0".into(),
+        start: 0.0,
+        end: samples.len() as f64 / 16_000.0,
+        text,
+        words: Vec::new(),
+    };
+    seg.words = super::words::synthesize_words(&seg);
+    vec![seg]
 }
 
 /// Run any engine that implements `SpeechModel` with default options, then map
@@ -108,9 +159,9 @@ fn build_transcript(
     result: transcribe_rs::TranscriptionResult,
 ) -> Transcript {
     use super::models::Engine;
-    use super::{TranscriptSegment, TranscriptWord};
+    use super::TranscriptSegment;
 
-    let segments: Vec<TranscriptSegment> = match result.segments {
+    let mut segments: Vec<TranscriptSegment> = match result.segments {
         Some(segs) if !segs.is_empty() => segs
             .into_iter()
             .enumerate()
@@ -119,24 +170,15 @@ fn build_transcript(
                 start: s.start as f64,
                 end: s.end as f64,
                 text: s.text.trim().to_string(),
-                words: Vec::<TranscriptWord>::new(),
+                words: Vec::new(),
             })
             .collect(),
-        _ => {
-            let text = result.text.trim().to_string();
-            if text.is_empty() {
-                Vec::new()
-            } else {
-                vec![TranscriptSegment {
-                    id: "seg-0".into(),
-                    start: 0.0,
-                    end: samples.len() as f64 / 16_000.0,
-                    text,
-                    words: Vec::new(),
-                }]
-            }
-        }
+        _ => whole_clip_segment(&result.text, samples),
     };
+    // These engines give sentence timing only — synthesize per-word timing so
+    // animated caption styles have something to drive (lower accuracy than real
+    // word timestamps; documented in caption-animations-plan.md).
+    super::words::fill_segment_words(&mut segments);
 
     let engine = match model.engine {
         Engine::Parakeet => "parakeet",
