@@ -575,16 +575,22 @@ mod tests {
         assert_eq!(round3(2.0 / 3.0), 0.667);
     }
 
-    // Integration guard: the bundled Silero model loads through ort and scores
-    // a frame, and digital silence reads as non-speech.
+    // Integration guard: the Silero model loads through vad-rs and scores a
+    // frame, and digital silence reads as non-speech. The model isn't bundled
+    // — it's fetched to disk at runtime — so point this at a local copy via
+    // RECAST_SILERO_PATH; the test skips when that isn't set.
     #[test]
     fn silero_model_loads_and_scores_silence_low() {
-        let mut vad = super::VoiceActivityDetector::builder()
-            .sample_rate(super::RATE)
-            .chunk_size(super::CHUNK)
-            .build()
-            .expect("build Silero VAD");
-        let p = vad.predict(vec![0i16; super::CHUNK]);
+        let Ok(model) = std::env::var("RECAST_SILERO_PATH") else {
+            eprintln!("skipping: set RECAST_SILERO_PATH to the silero_vad.onnx file");
+            return;
+        };
+        let mut vad = vad_rs::Vad::new(&model, super::RATE as usize).expect("init Silero VAD");
+        vad.reset();
+        let p = vad
+            .compute(&[0f32; super::CHUNK])
+            .expect("Silero VAD compute")
+            .prob;
         assert!((0.0..=1.0).contains(&p), "probability in range, got {p}");
         assert!(
             p < 0.5,
