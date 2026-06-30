@@ -995,7 +995,11 @@
         fps: store.exportFormat === "gif" ? undefined : store.exportFps,
         // No-op unless a transcript exists and caption options are enabled.
         captions: buildCaptionExport(store),
-        onState: handleExportState,
+        // Drop stray events from a run the user already cancelled or replaced,
+        // so a background teardown can't disturb the current flow (or re-toast).
+        onState: (e) => {
+          if (activeExportId === exportId) handleExportState(e);
+        },
       });
       // Fall back to the Promise result if the success event was missed.
       if (!exportResult) {
@@ -1023,26 +1027,33 @@
         }
       }
     } finally {
+      // Only tear down shared export state if THIS run still owns the flow.
+      // After an optimistic cancel the user may have already kicked off a new
+      // export; this (old) run completing in the background must not clobber the
+      // new one's isExporting/progress.
       if (activeExportId === exportId) {
         activeExportId = null;
+        store.isExporting = false;
+        store.exportProgress = null;
+        exportHasProgress = false;
+        exportCancelling = false;
+        exportFinalizing = false;
       }
-      store.isExporting = false;
-      store.exportProgress = null;
-      exportHasProgress = false;
-      exportCancelling = false;
-      exportFinalizing = false;
     }
   }
 
   async function handleCancelExport() {
-    if (!store.isExporting || exportCancelling || !activeExportId) return;
-    exportCancelling = true;
-    try {
-      await cancelExport(activeExportId);
-    } catch (err) {
-      toast.error(`Could not cancel: ${err}`);
-      exportCancelling = false;
-    }
+    if (!store.isExporting || !activeExportId) return;
+    const id = activeExportId;
+    // Optimistic cancel: signal the backend, then release the UI to "cancelled"
+    // immediately instead of waiting for ffmpeg to die. The pipeline still kills
+    // ffmpeg (watchdog, ≤250ms) and removes the partial file in the background;
+    // its eventual rejection is a no-op (exportResult is already set, and the
+    // finally only clears a still-matching activeExportId). This keeps cancel
+    // snappy so the user can get back to editing right away.
+    void cancelExport(id).catch((err) => console.warn("cancel_export failed", err));
+    store.isExporting = false;
+    setExportResult({ kind: "cancelled" });
   }
 
   function dismissExportResult() {

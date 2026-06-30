@@ -210,10 +210,15 @@ pub fn append_subtitles_to_complex(
     } else {
         format!("[{current_video_map}]")
     };
-    // Single-quote the filename so the drive colon / path separators aren't read
-    // as filtergraph option/segment delimiters; forward slashes avoid backslash
-    // escaping on Windows (libass accepts them).
-    let safe = ass_path.replace('\\', "/");
+    // Escape the filename for FFmpeg's TWO-level filtergraph parse:
+    //   1. Single quotes protect the value at the filterchain level (so it isn't
+    //      split on `,`/`;`/`[`).
+    //   2. The drive colon must ALSO survive the filter-OPTION parse, which
+    //      splits options on `:` — single quotes alone don't stop that (hence the
+    //      original "No option name near '/Users/...'"). Backslash-escape it so
+    //      that level unescapes `\:` back to `:` for libass.
+    // Forward slashes work for libass and dodge backslash-escaping of separators.
+    let safe = ass_path.replace('\\', "/").replace(':', "\\:");
     let stage = format!("{normalized_current}ass=filename='{safe}'{out_label}");
     let new_complex = match filter_complex {
         Some(existing) if !existing.is_empty() => format!("{existing};{stage}"),
