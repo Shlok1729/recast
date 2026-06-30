@@ -14,7 +14,7 @@ mod audio;
 mod capabilities;
 mod engine;
 mod models;
-mod subtitles;
+pub(crate) mod subtitles;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -54,6 +54,51 @@ pub struct Transcript {
     pub model_id: String,
     pub language: Option<String>,
     pub segments: Vec<TranscriptSegment>,
+}
+
+/// How captions render over the video — mirrors the frontend `CaptionStyle`.
+/// Used by the export burn-in (ASS) path; deserialized from the render state's
+/// `captionStyle` passthrough field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptionStyle {
+    pub enabled: bool,
+    pub font_family: String,
+    pub font_weight: u32,
+    pub font_size_pct: f64,
+    pub position: String,
+    pub offset_pct: f64,
+    pub color: String,
+    pub uppercase: bool,
+    pub letter_spacing: f64,
+    pub background: String,
+    pub background_color: String,
+    pub background_opacity: f64,
+    pub outline_width: f64,
+    pub outline_color: String,
+    pub max_lines: u32,
+}
+
+impl Default for CaptionStyle {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            font_family: "system-ui, sans-serif".into(),
+            font_weight: 700,
+            font_size_pct: 5.0,
+            position: "bottom".into(),
+            offset_pct: 6.0,
+            color: "#ffffff".into(),
+            uppercase: false,
+            letter_spacing: 0.0,
+            background: "soft".into(),
+            background_color: "#000000".into(),
+            background_opacity: 65.0,
+            outline_width: 0.0,
+            outline_color: "#000000".into(),
+            max_lines: 2,
+        }
+    }
 }
 
 /// Flattened model row for the UI (registry meta + on-disk install state).

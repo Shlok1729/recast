@@ -229,6 +229,14 @@ export function posterObjectKey(
 }
 
 /**
+ * Captions track key: `workspace/{workspaceId}/{recastId}.captions.vtt`.
+ * One WebVTT sidecar per recast, loaded by the player as a `<track>`.
+ */
+export function captionsObjectKey(workspaceId: string, recastId: string): string {
+	return `workspace/${workspaceId}/${recastId}.captions.vtt`;
+}
+
+/**
  * Reverse a stored `posterUrl`/`videoUrl` back into the object key we can pass
  * to `deleteObject`. Bare keys (the common case) return as-is; an absolute URL
  * is matched against the active provider's public base URL and its path

@@ -23,5 +23,6 @@ export type {
 	RecastPlayerChapter,
 	RecastPlayerFeatures,
 	RecastPlayerMarker,
+	RecastPlayerTrack,
 	RecastPlayerUtilityAction,
 } from "./types";

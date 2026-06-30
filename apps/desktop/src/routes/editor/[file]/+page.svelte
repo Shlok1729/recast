@@ -29,7 +29,12 @@
     saveProjectEdits,
   } from "$lib/ipc";
   import { generateAutoZoom } from "$lib/services/analysis";
-  import { buildExportRenderState, runExport } from "$lib/services/export";
+  import {
+    buildCaptionExport,
+    buildCloudCaptionTranscript,
+    buildExportRenderState,
+    runExport,
+  } from "$lib/services/export";
   import { isShareSupported, shareRecording } from "$lib/share";
   import { registerShortcutHandlers } from "$lib/shortcuts/registry.svelte";
   import { cloudShare } from "$lib/stores/cloudShare.svelte";
@@ -272,11 +277,18 @@
   let lastAudioTarget = -1;
   function syncAudioToClock() {
     audioSyncRaf = requestAnimationFrame(syncAudioToClock);
-    if (!store.isPlaying || !webcodecsActive) {
+    if (!store.isPlaying) {
       lastAudioTarget = -1;
       return;
     }
-    const target = store.currentTime;
+    // WebCodecs path: the gapless output clock owns time. Legacy <video> path:
+    // the <video> element is the master and ALREADY skips cuts (it jumps to
+    // cut.end at each boundary), so tracking it here makes the <audio> elements
+    // skip the same cuts within a frame. Without this, the 4 Hz `timeupdate`
+    // drift-check left audio playing the removed region for up to ~250 ms.
+    const target = webcodecsActive
+      ? store.currentTime
+      : (videoEl?.currentTime ?? store.currentTime);
     const jumped =
       lastAudioTarget < 0 || Math.abs(target - lastAudioTarget) > AUDIO_JUMP;
     lastAudioTarget = target;
@@ -384,7 +396,11 @@
         el.pause();
       }
     }
-    if (playing && wc) startAudioClockSync();
+    // Run the rAF sync whenever the <audio> elements are the audio source —
+    // both the legacy <video> path AND the engine-failed WebCodecs fallback.
+    // It keeps them locked to the master (video time / output clock) so cuts
+    // are skipped tightly, not just on the coarse `timeupdate` tick.
+    if (playing) startAudioClockSync();
     else stopAudioClockSync();
   });
 
@@ -459,6 +475,11 @@
   function handleVideoSeeked() {
     if (!videoEl || webcodecsActive) return;
     const t = videoEl.currentTime;
+    // Publish the jumped position immediately. During playback the <video>
+    // cut-skip seeks to cut.end, but `store.currentTime` otherwise only catches
+    // up on the next 4 Hz `timeupdate` — so captions/overlays (which key off
+    // `store.currentTime`) lagged the cut by up to ~250 ms. Snap them here.
+    store.currentTime = t;
     for (const el of [systemAudioEl, micAudioEl]) {
       if (el) el.currentTime = t;
     }
@@ -972,6 +993,8 @@
         speed: store.exportSpeed,
         // GIF carries fps in gifSettings; MP4/WebM use the picker (null = source).
         fps: store.exportFormat === "gif" ? undefined : store.exportFps,
+        // No-op unless a transcript exists and caption options are enabled.
+        captions: buildCaptionExport(store),
         onState: handleExportState,
       });
       // Fall back to the Promise result if the success event was missed.
@@ -1130,7 +1153,12 @@
     const title =
       exportResult.path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "Recast";
     try {
-      const result = await cloudShare.share(exportResult.path, title);
+      const result = await cloudShare.share(
+        exportResult.path,
+        title,
+        undefined,
+        buildCloudCaptionTranscript(store),
+      );
       try {
         await navigator.clipboard.writeText(result.shareUrl);
         toast.success("Shared. Link copied to clipboard.");

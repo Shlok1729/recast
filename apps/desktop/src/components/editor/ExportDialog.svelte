@@ -88,6 +88,30 @@
     store.exportFps = v;
   }
 
+  // Captions only matter once a transcript exists; the section hides otherwise.
+  const hasCaptions = $derived(
+    !!store.transcript && store.transcript.segments.length > 0,
+  );
+  const sidecarOptions: {
+    value: "none" | "vtt" | "srt";
+    label: string;
+    desc: string;
+  }[] = [
+    { value: "none", label: "None", desc: "Skip file" },
+    { value: "vtt", label: ".VTT", desc: "Web player" },
+    { value: "srt", label: ".SRT", desc: "Universal" },
+  ];
+  const burnOptions: { value: boolean; label: string; desc: string }[] = [
+    { value: true, label: "On", desc: "Baked in" },
+    { value: false, label: "Off", desc: "Clean video" },
+  ];
+  function setBurnIn(v: boolean) {
+    store.updateCaptionExport({ burnIn: v });
+  }
+  function setSidecar(v: "none" | "vtt" | "srt") {
+    store.updateCaptionExport({ sidecar: v });
+  }
+
   // Source rate plus standard lower rates only — never higher (duplicating
   // frames adds size without smoothness). A stored choice above the current
   // source falls back to Original via the Rust-side clamp.
@@ -607,6 +631,90 @@
   </section>
 {/snippet}
 
+{#snippet captionsSection()}
+  <!-- Only shown once a transcript exists. Two independent choices: burn the
+       captions into the pixels, and/or save a sidecar file (the sidecar is also
+       what Cloud uploads as a selectable track). Renders full-width below the
+       encoding grid; splits into two balanced columns when there's room. -->
+  <section
+    in:fly={{ y: 8, duration: 240, delay: 215, easing: cubicOut }}
+    class="flex flex-col gap-2.5"
+  >
+    {@render sectionLabel("Captions", "From your transcript — burn in and/or export a file.")}
+    <div
+      class={cn(
+        "grid items-start gap-x-6 gap-y-3",
+        !isGif && !isCompact ? "grid-cols-2" : "grid-cols-1",
+      )}
+    >
+      {#if !isGif}
+        <div class="flex flex-col gap-1.5">
+          {@render captionSubLabel("Burn into video")}
+          <div class="grid grid-cols-2 gap-1.5">
+            {#each burnOptions as o (o.label)}
+              {@render optionButton(
+                store.captionExport.burnIn === o.value,
+                o.label,
+                o.desc,
+                () => setBurnIn(o.value),
+              )}
+            {/each}
+          </div>
+        </div>
+      {/if}
+      <div class="flex flex-col gap-1.5">
+        {@render captionSubLabel("Separate file")}
+        <div class="grid grid-cols-3 gap-1.5">
+          {#each sidecarOptions as s (s.value)}
+            {@render optionButton(
+              store.captionExport.sidecar === s.value,
+              s.label,
+              s.desc,
+              () => setSidecar(s.value),
+            )}
+          {/each}
+        </div>
+      </div>
+    </div>
+  </section>
+{/snippet}
+
+{#snippet captionSubLabel(label: string)}
+  <span class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70">
+    {label}
+  </span>
+{/snippet}
+
+{#snippet optionButton(
+  selected: boolean,
+  label: string,
+  desc: string,
+  onclick: () => void,
+)}
+  <button
+    type="button"
+    {onclick}
+    aria-pressed={selected}
+    title={desc}
+    class={cn(
+      "group flex w-full flex-col items-center gap-0.5 rounded-xl border px-2 py-2 text-center transition-all duration-200",
+      selected
+        ? "border-primary/40 bg-primary/8 ring-1 ring-primary/25"
+        : "border-border/40 bg-card/40 hover:-translate-y-0.5 hover:border-border/70 hover:bg-card/70 hover:shadow-craft-sm",
+    )}
+  >
+    <span
+      class={cn(
+        "text-[12.5px] font-semibold tracking-tight",
+        selected ? "text-primary" : "text-foreground",
+      )}
+    >
+      {label}
+    </span>
+    <span class="truncate text-[10px] leading-tight text-muted-foreground">{desc}</span>
+  </button>
+{/snippet}
+
 <div class="flex flex-col" style="width: {bodyWidth}px;">
   <!-- Header -->
   <header
@@ -701,25 +809,33 @@
           {@render gifSettingsCard()}
         </section>
       {/if}
+      {#if hasCaptions}{@render captionsSection()}{/if}
     </div>
   {:else}
-    <!-- Two columns: left = Format/Quality, right = Frame rate/Speed (or the
-         GIF panel, which replaces the codec knobs GIF doesn't use). -->
-    <div class="grid grid-cols-2 items-start gap-x-6 gap-y-5 px-5 py-5">
-      <div class="flex min-w-0 flex-col gap-5">
-        {@render formatSection()}
-        {@render qualitySection()}
+    <!-- Two columns for the encoding knobs; Captions spans full width below so
+         the grid stays balanced no matter which caption options are shown. -->
+    <div class="flex flex-col gap-5 px-5 py-5">
+      <div class="grid grid-cols-2 items-start gap-x-6 gap-y-5">
+        <div class="flex min-w-0 flex-col gap-5">
+          {@render formatSection()}
+          {@render qualitySection()}
+        </div>
+        <div class="flex min-w-0 flex-col gap-5">
+          {#if isGif}
+            <section in:fade={{ duration: 220, delay: 160 }}>
+              {@render gifSettingsCard()}
+            </section>
+          {:else}
+            {#if showFps}{@render fpsSection()}{/if}
+            {@render speedSection()}
+          {/if}
+        </div>
       </div>
-      <div class="flex min-w-0 flex-col gap-5">
-        {#if isGif}
-          <section in:fade={{ duration: 220, delay: 160 }}>
-            {@render gifSettingsCard()}
-          </section>
-        {:else}
-          {#if showFps}{@render fpsSection()}{/if}
-          {@render speedSection()}
-        {/if}
-      </div>
+      {#if hasCaptions}
+        <div class="border-t border-border/40 pt-5">
+          {@render captionsSection()}
+        </div>
+      {/if}
     </div>
   {/if}
 

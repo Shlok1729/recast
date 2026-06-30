@@ -55,6 +55,10 @@ export const recast = pgTable(
 		fps: integer("fps"),
 		videoUrl: text("video_url").notNull(),
 		posterUrl: text("poster_url"),
+		/** WebVTT captions track object key (bare key), or null. Loaded by the
+		 *  player as a `<track>`. Written on upload/complete when the desktop
+		 *  app sent a caption track. */
+		captionsUrl: text("captions_url"),
 		source: recastSourceEnum("source").notNull().default("cloud"),
 		status: recastStatusEnum("status").notNull().default("draft"),
 		/** "cloudinary" | "r2" | "s3" | null when local. */

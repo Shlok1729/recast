@@ -771,6 +771,21 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
 	maxLines: 2,
 };
 
+/** What to do with generated captions on export. Independent choices — you can
+ *  burn captions into the pixels AND keep a sidecar file. The sidecar is also
+ *  what Cloud uploads as a selectable caption track. */
+export interface CaptionExportOptions {
+	/** Burn the captions into the video (overlay). Ignored for GIF. */
+	burnIn: boolean;
+	/** Write a separate subtitle file next to the export ('none' to skip). */
+	sidecar: 'none' | 'vtt' | 'srt';
+}
+
+export const DEFAULT_CAPTION_EXPORT: CaptionExportOptions = {
+	burnIn: false,
+	sidecar: 'vtt',
+};
+
 export function createEditorStore() {
 	// Video source
 	let videoPath = $state('');
@@ -963,6 +978,9 @@ export function createEditorStore() {
 	// has its own fps control in `gifSettings`.
 	let exportFps = $state<number | null>(null);
 	let gifSettings = $state<GifSettings>({ ...DEFAULT_GIF_SETTINGS });
+	// How captions are emitted on export (burn-in / sidecar). Session-only, like
+	// the other export prefs.
+	let captionExport = $state<CaptionExportOptions>({ ...DEFAULT_CAPTION_EXPORT });
 	let exportProgress = $state<number | null>(null);
 	let isExporting = $state(false);
 
@@ -2207,6 +2225,12 @@ export function createEditorStore() {
 
 		get exportFps() { return exportFps; },
 		set exportFps(v: number | null) { exportFps = v; },
+
+		get captionExport() { return captionExport; },
+		set captionExport(v: CaptionExportOptions) { captionExport = v; },
+		updateCaptionExport(updates: Partial<CaptionExportOptions>) {
+			captionExport = { ...captionExport, ...updates };
+		},
 
 		get gifSettings() { return gifSettings; },
 		set gifSettings(v: GifSettings) { gifSettings = v; },

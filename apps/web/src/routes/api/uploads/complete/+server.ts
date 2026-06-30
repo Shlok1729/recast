@@ -6,6 +6,7 @@ import { getDb } from "$lib/db";
 import { recast } from "$lib/db/schema";
 import { bumpUsageOnUpload, getQuotaSnapshot } from "$lib/storage/quota";
 import {
+	captionsObjectKey,
 	deleteObject,
 	isStorageConfigured,
 	posterObjectKey,
@@ -24,6 +25,8 @@ const BodySchema = z.object({
 	durationSec: z.number().int().nonnegative().max(24 * 60 * 60).optional(),
 	/** Client PUT a poster WebP to the signed URL from /init. */
 	hasPoster: z.boolean().optional(),
+	/** Client PUT a captions VTT to the signed URL from /init. */
+	hasCaptions: z.boolean().optional(),
 });
 
 /**
@@ -167,6 +170,12 @@ export const POST: RequestHandler = async ({ request }) => {
 		posterUrl = publicObjectUrl(key) ?? key;
 	}
 
+	// Captions track: persist the bare key (signed on read, like the video) so
+	// the player can load it as a `<track>`. Only when the client uploaded one.
+	const captionsUrl = body.hasCaptions
+		? captionsObjectKey(row.workspaceId, row.id)
+		: undefined;
+
 	await db.transaction(async (tx) => {
 		await tx
 			.update(recast)
@@ -177,6 +186,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				fps: body.fps,
 				durationSec: body.durationSec ?? undefined,
 				posterUrl,
+				captionsUrl,
 				status: "published",
 				updatedAt: new Date(),
 			})

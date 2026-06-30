@@ -48,7 +48,7 @@
 	import { analytics } from "$lib/analytics/client";
 	import { authClient } from "$lib/auth/client";
 	import { mode as themeMode, toggleMode } from "@recast/ui/theme";
-	import { RecastPlayer, type RecastPlayerApi } from "@recast/player";
+	import { RecastPlayer, type RecastPlayerApi, type RecastPlayerTrack } from "@recast/player";
 	import { Button } from "@recast/ui/button";
 	import * as Dialog from "@recast/ui/dialog";
 	import * as DropdownMenu from "@recast/ui/dropdown-menu";
@@ -84,6 +84,21 @@
 	const okAccess = $derived(access.ok ? access : null);
 	const deniedAccess = $derived(access.ok ? null : access);
 	const recast = $derived(okAccess?.recast);
+
+	// Caption track for the player, when this recast has a captions sidecar.
+	const captionTracks = $derived<RecastPlayerTrack[]>(
+		recast?.captions
+			? [
+					{
+						src: recast.captions,
+						kind: "captions",
+						label: "English",
+						srclang: "en",
+						default: true,
+					},
+				]
+			: [],
+	);
 
 	// ── Account-less invitee claim (selected shares) ──────────────────────
 	// A denied viewer of a `selected` share can request an email access link.
@@ -1068,6 +1083,8 @@
 							poster={recast.poster}
 							title={recast.title}
 							aspectRatio={playerAspect}
+							tracks={captionTracks}
+							controls={{ captions: captionTracks.length > 0 }}
 							onengagement={onEngagement}
 						/>
 					{:else}

@@ -11,6 +11,7 @@ import {
 	type UploadDenial,
 } from "$lib/storage/quota";
 import {
+	captionsObjectKey,
 	isStorageConfigured,
 	posterObjectKey,
 	recastObjectKey,
@@ -30,6 +31,8 @@ const BodySchema = z.object({
 	width: z.number().int().positive().optional(),
 	height: z.number().int().positive().optional(),
 	fps: z.number().int().positive().max(240).optional(),
+	/** Client has a caption track to upload → sign a captions PUT URL too. */
+	hasCaptions: z.boolean().optional(),
 });
 
 /**
@@ -145,6 +148,20 @@ export const POST: RequestHandler = async ({ request }) => {
 		posterUpload = undefined;
 	}
 
+	// Captions track PUT (WebVTT), same best-effort contract as the poster.
+	let captionsUpload;
+	if (body.hasCaptions) {
+		try {
+			captionsUpload = await signUploadUrl({
+				key: captionsObjectKey(workspaceId, recastId),
+				contentType: "text/vtt",
+			});
+		} catch (err) {
+			console.error("[uploads/init] captions sign failed (non-fatal)", err);
+			captionsUpload = undefined;
+		}
+	}
+
 	// `upload` is a discriminated union from files-sdk:
 	//   PUT  → { method: "PUT", url, headers? }
 	//   POST → { method: "POST", url, fields }
@@ -155,6 +172,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		key,
 		upload,
 		posterUpload,
+		captionsUpload,
 		expiresInSeconds: 15 * 60,
 	});
 };

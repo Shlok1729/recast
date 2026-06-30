@@ -375,8 +375,15 @@ export function recastCloudUpload(
 	path: string,
 	title: string,
 	workspaceId?: string,
+	/** Output-time transcript to publish as a selectable caption track. */
+	captionsTranscript?: Transcript | null,
 ): Promise<CloudShareResult> {
-	return invoke<CloudShareResult>("recast_cloud_upload", { path, title, workspaceId });
+	return invoke<CloudShareResult>("recast_cloud_upload", {
+		path,
+		title,
+		workspaceId,
+		captionsTranscript: captionsTranscript ?? null,
+	});
 }
 
 /**
@@ -506,10 +513,22 @@ export function exportVideo(
 	speed: ExportSpeed = "balanced",
 	/** Output frame rate for MP4/WebM. `null`/omitted keeps the source rate. */
 	fps?: number | null,
+	/** Burn the generated captions into the video. No-op without a transcript. */
+	burnCaptions = false,
 ): Promise<string> {
 	analytics.capture("export_started", { format, quality, speed, fps: fps ?? "source" });
 	return invoke<string>("export_video", {
-		request: { exportId, inputPath, format, quality, speed, renderState, gifSettings, fps: fps ?? null },
+		request: {
+			exportId,
+			inputPath,
+			format,
+			quality,
+			speed,
+			renderState,
+			gifSettings,
+			fps: fps ?? null,
+			burnCaptions,
+		},
 	});
 }
 

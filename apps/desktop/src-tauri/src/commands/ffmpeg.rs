@@ -195,6 +195,33 @@ pub fn append_cursor_overlay_to_complex(
     (new_complex, out_label.to_string())
 }
 
+/// Append an `ass` (libass) subtitle burn-in stage. `ass_path` is a local .ass
+/// file; libass renders the styled captions straight into the frame. Injected
+/// before the cut/speed stage so the later select/setpts re-times the burned
+/// pixels along with everything else.
+pub fn append_subtitles_to_complex(
+    filter_complex: Option<&str>,
+    current_video_map: &str,
+    ass_path: &str,
+) -> (String, String) {
+    let out_label = "[vcap]";
+    let normalized_current = if current_video_map.starts_with('[') {
+        current_video_map.to_string()
+    } else {
+        format!("[{current_video_map}]")
+    };
+    // Single-quote the filename so the drive colon / path separators aren't read
+    // as filtergraph option/segment delimiters; forward slashes avoid backslash
+    // escaping on Windows (libass accepts them).
+    let safe = ass_path.replace('\\', "/");
+    let stage = format!("{normalized_current}ass=filename='{safe}'{out_label}");
+    let new_complex = match filter_complex {
+        Some(existing) if !existing.is_empty() => format!("{existing};{stage}"),
+        _ => stage,
+    };
+    (new_complex, out_label.to_string())
+}
+
 /// Parameters for `append_camera_overlay_to_complex`.
 ///
 /// All pixel values are in **canvas pixels** (= source + padding × 2 with

@@ -214,6 +214,9 @@ struct InitResp {
     /// Optional PUT envelope for a poster WebP. Absent if the server couldn't
     /// sign one; the uploader then skips the poster.
     poster_upload: Option<UploadEnvelope>,
+    /// Optional PUT envelope for a captions VTT track. Present only when the
+    /// init request signalled `hasCaptions`.
+    captions_upload: Option<UploadEnvelope>,
 }
 
 #[derive(Deserialize)]
@@ -247,6 +250,9 @@ pub async fn recast_cloud_upload(
     path: String,
     title: String,
     workspace_id: Option<String>,
+    // Output-time transcript to publish as a selectable caption track. None /
+    // empty → no track uploaded. Serialized to VTT here.
+    captions_transcript: Option<crate::transcription::Transcript>,
 ) -> Result<CloudShareResult, String> {
     let token = token_or_err().map_err(|e| fail(&app, &path, e))?;
     let client = cloud_client().map_err(|e| fail(&app, &path, e))?;
@@ -288,6 +294,15 @@ pub async fn recast_cloud_upload(
     // zod treats workspaceId as optional-string — omit (not null) when absent.
     if let Some(ws) = resolved_workspace.as_ref().filter(|s| !s.is_empty()) {
         init_body.insert("workspaceId".into(), ws.clone().into());
+    }
+    // Serialize the caption track up front so we can both tell init to sign a
+    // captions PUT URL and reuse the body for the upload below.
+    let captions_vtt = captions_transcript
+        .as_ref()
+        .filter(|t| !t.segments.is_empty())
+        .map(crate::transcription::subtitles::to_vtt);
+    if captions_vtt.is_some() {
+        init_body.insert("hasCaptions".into(), true.into());
     }
 
     let init_resp = client
@@ -420,6 +435,31 @@ pub async fn recast_cloud_upload(
         }
     }
 
+    // ── PUT the captions VTT (best-effort) ──────────────────────────────
+    // Like the poster: a failure here never fails the upload; the recast just
+    // ships without a selectable caption track.
+    let mut has_captions = false;
+    if let (Some(vtt), Some(cenv)) = (captions_vtt.as_ref(), init.captions_upload.as_ref()) {
+        if cenv.method.eq_ignore_ascii_case("PUT") {
+            let cheaders = cenv.headers.clone().unwrap_or_default();
+            let cheader_has_ct = cheaders
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case("content-type"));
+            let mut creq = client.put(&cenv.url).body(vtt.clone().into_bytes());
+            for (k, v) in &cheaders {
+                creq = creq.header(k.as_str(), v.as_str());
+            }
+            if !cheader_has_ct {
+                creq = creq.header(header::CONTENT_TYPE, "text/vtt");
+            }
+            has_captions = creq
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+        }
+    }
+
     // ── complete ──────────────────────────────────────────────────────
     emit_progress(&app, &path, "finalizing");
     let complete_resp = client
@@ -432,6 +472,7 @@ pub async fn recast_cloud_upload(
             "fps": fps,
             "durationSec": duration_sec,
             "hasPoster": has_poster,
+            "hasCaptions": has_captions,
         }))
         .send()
         .await

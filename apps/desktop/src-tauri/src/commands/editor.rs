@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::ffmpeg::{
     append_camera_overlay_to_complex, append_cursor_overlay_to_complex,
-    append_output_filters_to_complex, build_annotation_blur_complex,
+    append_output_filters_to_complex, append_subtitles_to_complex, build_annotation_blur_complex,
     build_gif_palette_prepass_filter, build_gif_paletteuse_external_complex,
     build_output_scale_filter, has_audio, probe_video_metadata, resolve_export_profile,
     summarize_ffmpeg_error, BlurRegion, CameraOverlayParams, ExportSpeed, GifFilterOptions,
@@ -1565,6 +1565,50 @@ pub async fn export_video(
         );
         filter_complex_after_cursor = Some(new_complex);
         video_map_after_cursor = new_map;
+    }
+
+    // Burn-in captions (overlay) via libass. The transcript + style ride along
+    // in the render-state passthrough; styled into an ASS script and composited
+    // here on the trimmed-but-uncut axis, so the cut/speed stage below re-times
+    // the burned pixels with the rest. No-op without a transcript; GIF skips it
+    // (its paletteuse tail can't take another filter stage).
+    if request.burn_captions && request.format != "gif" {
+        let transcript: Option<crate::transcription::Transcript> = request
+            .render_state
+            .passthrough
+            .get("transcript")
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        if let Some(transcript) = transcript.filter(|t| !t.segments.is_empty()) {
+            let style: crate::transcription::CaptionStyle = request
+                .render_state
+                .passthrough
+                .get("captionStyle")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            let ass = crate::transcription::subtitles::to_ass(
+                &transcript,
+                &style,
+                canvas_width,
+                canvas_height,
+                trim_start,
+                duration,
+            );
+            let ass_path =
+                std::env::temp_dir().join(format!("recast-captions-{}.ass", request.export_id));
+            match std::fs::write(&ass_path, ass) {
+                Ok(()) => {
+                    let (new_complex, new_map) = append_subtitles_to_complex(
+                        filter_complex_after_cursor.as_deref(),
+                        &video_map_after_cursor,
+                        &ass_path.to_string_lossy(),
+                    );
+                    filter_complex_after_cursor = Some(new_complex);
+                    video_map_after_cursor = new_map;
+                }
+                Err(e) => log::warn!("caption burn-in: failed to write ASS script: {e}"),
+            }
+        }
     }
 
     // For GIF, route through a 2-pass pipeline. Pass 1 here (synchronous,
