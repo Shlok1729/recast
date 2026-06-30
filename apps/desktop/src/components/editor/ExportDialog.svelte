@@ -640,7 +640,7 @@
     in:fly={{ y: 8, duration: 240, delay: 215, easing: cubicOut }}
     class="flex flex-col gap-2.5"
   >
-    {@render sectionLabel("Captions", "From your transcript — burn in and/or export a file.")}
+    {@render sectionLabel("Captions", "From your transcript, burn in and/or export a file.")}
     <div
       class={cn(
         "grid items-start gap-x-6 gap-y-3",

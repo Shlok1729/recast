@@ -857,6 +857,28 @@ export interface ExtSmoothingContribution {
 	snapToClicks: boolean;
 	snapWindowMs: number;
 }
+/** A caption theme contributed by a pack — the visual fields of a caption
+ *  style. Mirrors the built-in `CaptionPreset.style` shape. */
+export interface ExtCaptionPresetContribution {
+	id: string;
+	label: string;
+	description?: string;
+	fontFamily: string;
+	fontWeight: number;
+	fontSizePct: number;
+	position: "top" | "center" | "bottom";
+	align: "left" | "center" | "right";
+	offsetPct: number;
+	color: string;
+	uppercase: boolean;
+	letterSpacing: number;
+	background: "none" | "soft" | "box";
+	backgroundColor: string;
+	backgroundOpacity: number;
+	outlineWidth: number;
+	outlineColor: string;
+	maxLines: number;
+}
 
 export interface ExtensionContributions {
 	cursors?: ExtCursorContribution[];
@@ -865,6 +887,7 @@ export interface ExtensionContributions {
 	colors?: ExtColorContribution[];
 	easings?: ExtEasingContribution[];
 	smoothings?: ExtSmoothingContribution[];
+	captionPresets?: ExtCaptionPresetContribution[];
 }
 
 export interface ExtensionManifest {

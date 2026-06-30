@@ -30,12 +30,14 @@
 	  LoaderCircle,
 	  Lock,
 	  Mic2,
+	  Minus,
 	  Monitor,
 	  MonitorPlay,
 	  MousePointer2,
 	  Palette,
 	  Pause,
 	  Play,
+	  Plus,
 	  Rocket,
 	  Scissors,
 	  Search,
@@ -375,6 +377,57 @@
 	// hero, so a half-produced screenshot batch never shows broken images.
 	let editorImgErrored = $state<Record<string, boolean>>({});
 
+	// FAQ. Answers map to claims made elsewhere on this page (offline, free app +
+	// paid Cloud, auto-polish, camera, platforms) so nothing here over-promises.
+	// One-open-at-a-time; first item open so the pattern reads on load.
+	const faqs: Array<{ q: string; a: string }> = [
+		{
+			q: "Is Recast a browser extension or a desktop app?",
+			a: "A desktop app for macOS, Windows, and Linux. Capture is native, so it runs fully offline with no extension to install.",
+		},
+		{
+			q: "What can I make with Recast?",
+			a: "Product demos, launch and changelog clips, onboarding and tutorial videos, support replies, and investor walkthroughs. Anything that starts as a screen recording.",
+		},
+		{
+			q: "Do I need an account or an internet connection?",
+			a: "Neither. Record, edit, and export entirely offline. Your files stay on your machine until you choose to share them.",
+		},
+		{
+			q: "How is Recast different from Loom or Screen Studio?",
+			a: "It polishes while you record. Smart zoom, cursor smoothing, and silence trimming apply as you go, and the app is free and offline instead of a hosted subscription.",
+		},
+		{
+			q: "Is it really free? What costs money?",
+			a: "The app is free forever, no account needed. Recast Cloud, a hosted sharing layer with analytics and access controls, is the paid add-on and is coming soon. Today you can share straight to your own Google Drive.",
+		},
+		{
+			q: "Can I record my camera and mic too?",
+			a: "Yes. Capture your camera, microphone, and system audio on one timeline, with a draggable webcam bubble you can shape and place.",
+		},
+		{
+			q: "Do I need video editing skills?",
+			a: "No. Auto-polish handles most of it. When you want to adjust something, the timeline is small and friendly, not a pro editor.",
+		},
+		{
+			q: "Which platforms are supported?",
+			a: "Windows is stable. macOS and Linux are in active beta. Every build is on the download page.",
+		},
+	];
+	let openFaq = $state<number | null>(0);
+
+	// FAQPage schema. Built from the same `faqs` array the section renders, so
+	// the structured data always matches the visible copy (Google requires it).
+	const faqJsonLd = JSON.stringify({
+		"@context": "https://schema.org",
+		"@type": "FAQPage",
+		mainEntity: faqs.map((f) => ({
+			"@type": "Question",
+			name: f.q,
+			acceptedAnswer: { "@type": "Answer", text: f.a },
+		})),
+	});
+
 	const kindChip: Record<FeatureKind, { label: string; dot: string; ring: string }> = {
 		auto: {
 			label: "Automatic",
@@ -394,6 +447,12 @@
 	description="Recast turns a raw screen capture into a polished, shareable demo. Smart auto-edits and a friendly timeline anyone can drive. macOS, Windows, Linux."
 	pageTitle="Recast - Record. Polish. Share."
 />
+
+<!-- FAQ rich result. Generated from the same `faqs` array rendered below, so
+     the markup never drifts from the on-page copy. -->
+<svelte:head>
+	{@html `<script type="application/ld+json">${faqJsonLd}<\/script>`}
+</svelte:head>
 
 <main class="text-foreground">
 	<Hero previewSrc={beforeAfterClips[1].src} />
@@ -1282,6 +1341,74 @@
 						</div>
 					</article>
 				</Reveal>
+			</div>
+		</Container>
+	</Section>
+
+	<!-- FAQ. Two-column: sticky title on the left, one-open accordion on the
+	     right. Answers only restate claims already made above, so the section
+	     never introduces a promise the product doesn't keep. -->
+	<Section id="faq" class="border-t border-border-low/60 bg-foreground/1.5 dark:bg-foreground/2">
+		<Container>
+			<div class="grid gap-12 lg:grid-cols-12 lg:gap-16">
+				<div class="lg:col-span-4">
+					<div class="lg:sticky lg:top-28">
+						<span class="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+							FAQ
+						</span>
+						<h2 class="text-balance mt-3 text-3xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-4xl">
+							Frequently asked questions
+						</h2>
+						<p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+							Still wondering something?
+							<a
+								href="https://github.com/kanakkholwal/recast/discussions"
+								target="_blank"
+								rel="noopener noreferrer"
+								class="font-semibold text-primary hover:underline"
+							>
+								Ask on GitHub
+							</a>.
+						</p>
+					</div>
+				</div>
+
+				<div class="lg:col-span-8">
+					<ul class="border-y border-border-low/60">
+						{#each faqs as faq, i (faq.q)}
+							{@const open = openFaq === i}
+							<li class={i < faqs.length - 1 ? "border-b border-border-low/50" : ""}>
+								<button
+									type="button"
+									onclick={() => (openFaq = open ? null : i)}
+									aria-expanded={open}
+									class="flex w-full items-start gap-4 py-5 text-left transition-colors"
+								>
+									<span class="mt-0.5 shrink-0 text-primary">
+										{#if open}
+											<Minus class="size-4" />
+										{:else}
+											<Plus class="size-4" />
+										{/if}
+									</span>
+									<span class="flex-1 text-[15px] font-semibold tracking-tight text-foreground sm:text-base">
+										{faq.q}
+									</span>
+								</button>
+								{#if open}
+									<div
+										transition:slide={{ duration: 220, easing: cubicOut }}
+										class="overflow-hidden"
+									>
+										<p class="pb-5 pl-8 pr-2 text-sm leading-relaxed text-muted-foreground">
+											{faq.a}
+										</p>
+									</div>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</div>
 			</div>
 		</Container>
 	</Section>

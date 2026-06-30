@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { clock } from "$lib/format/time";
+  import { FONT_WEIGHTS } from "$lib/annotations/palette";
+  import { getRecentColors, pushRecentColor } from "$lib/annotations/recent-colors";
   import { formatSize } from "$lib/format/files";
+  import { clock } from "$lib/format/time";
   import {
     captionCapabilities,
     deleteCaptionModel,
@@ -11,9 +13,13 @@
     type CaptionModelInfo,
     type DeviceCapabilities,
   } from "$lib/ipc";
-  import type { EditorStore } from "$lib/stores/editor-store.svelte";
+  import { registry } from "$lib/registry";
+  import type { CaptionStyle, EditorStore } from "$lib/stores/editor-store.svelte";
   import {
     AlertTriangle,
+    AlignCenter,
+    AlignLeft,
+    AlignRight,
     Check,
     ChevronsUpDown,
     Cpu,
@@ -21,15 +27,13 @@
     FileDown,
     Loader2,
     Lock,
+    Package,
     Sparkles,
     Trash2,
-    Zap,
-    Package
+    Zap
   } from "@lucide/svelte";
-  import { getRecentColors, pushRecentColor } from "$lib/annotations/recent-colors";
-  import FontPicker from "./FontPicker.svelte";
   import { Button } from "@recast/ui/button";
-  import { ColorPicker } from "@recast/ui/color-picker";
+  import { ColorField } from "@recast/ui/color-field";
   import * as Command from "@recast/ui/command";
   import * as Popover from "@recast/ui/popover";
   import { Segmented, SegmentedToggle } from "@recast/ui/segmented";
@@ -40,6 +44,7 @@
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
+  import FontPicker from "./FontPicker.svelte";
   import PanelSection from "./PanelSection.svelte";
 
   interface Props {
@@ -198,17 +203,49 @@
     { value: "box", label: "Box" },
   ];
 
-  const weightOptions = [
-    { value: "400", label: "Regular" },
-    { value: "600", label: "Semibold" },
-    { value: "800", label: "Bold" },
-  ];
   const CAPTION_SWATCHES = ["#ffffff", "#000000", "#facc15", "#22d3ee", "#f472b6"];
 
   let recents = $state<string[]>(getRecentColors());
   function rememberColor(c: string) {
     recents = pushRecentColor(c);
   }
+
+  // Caption themes from the asset registry — built-ins first, extension packs
+  // appended. Applying one overwrites the style fields but keeps `enabled`.
+  const captionPresets = $derived(registry.list("captionPreset"));
+  let themeOpen = $state(false);
+  function applyPreset(style: Partial<CaptionStyle>) {
+    store.updateCaptionStyle(style);
+    themeOpen = false;
+  }
+  // The preset matching the current style exactly (so the picker shows the
+  // active theme), or null once the user has tweaked away from any preset.
+  const activeTheme = $derived.by(() => {
+    const cs = store.captionStyle;
+    return (
+      captionPresets.find((p) => {
+        const v = p.value;
+        return (
+          v.fontFamily === cs.fontFamily &&
+          v.fontWeight === cs.fontWeight &&
+          v.fontSizePct === cs.fontSizePct &&
+          v.position === cs.position &&
+          v.align === cs.align &&
+          v.offsetPct === cs.offsetPct &&
+          v.color === cs.color &&
+          v.uppercase === cs.uppercase &&
+          v.letterSpacing === cs.letterSpacing &&
+          v.background === cs.background &&
+          v.backgroundColor === cs.backgroundColor &&
+          v.backgroundOpacity === cs.backgroundOpacity &&
+          v.outlineWidth === cs.outlineWidth &&
+          v.outlineColor === cs.outlineColor &&
+          v.maxLines === cs.maxLines
+        );
+      }) ?? null
+    );
+  });
+  const activeThemeLabel = $derived(activeTheme?.label ?? "Custom");
 
   const langLabel = (m: CaptionModelInfo) =>
     m.languages.includes("multi") ? "Multilingual" : m.languages.join(", ").toUpperCase();
@@ -467,10 +504,54 @@
       {/snippet}
 
       <div class="flex flex-col gap-3" class:opacity-50={!cs.enabled}>
+        {#if captionPresets.length > 0}
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Theme
+            </span>
+            <Popover.Root open={themeOpen} onOpenChange={(v) => (themeOpen = v)}>
+              <Popover.Trigger>
+                {#snippet child({ props })}
+                  <button
+                    {...props}
+                    class="flex h-7 w-36 items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2 text-left text-[11px] transition-colors hover:border-border hover:bg-card"
+                  >
+                    <span class="min-w-0 flex-1 truncate">{activeThemeLabel}</span>
+                    <ChevronsUpDown size={12} class="shrink-0 text-muted-foreground" />
+                  </button>
+                {/snippet}
+              </Popover.Trigger>
+              <Popover.Content align="end" sideOffset={6} class="w-56 p-0">
+                <Command.Root>
+                  <Command.Input placeholder="Search themes…" class="h-9 text-[12px]" />
+                  <Command.List class="max-h-72 scrollbar-transparent pt-2">
+                    <Command.Empty class="py-6 text-center text-[11px] text-muted-foreground">
+                      No themes found
+                    </Command.Empty>
+                    {#each captionPresets as preset (preset.id)}
+                      <Command.Item
+                        value={`${preset.label} ${preset.description ?? ""}`}
+                        onSelect={() => applyPreset(preset.value)}
+                        class="gap-2"
+                      >
+                        <span class="flex size-4 shrink-0 items-center justify-center">
+                          {#if activeTheme?.id === preset.id}<Check size={13} class="text-primary" />{/if}
+                        </span>
+                        <span class="min-w-0 flex-1 truncate text-[12px]">{preset.label}</span>
+                        {#if preset.description}
+                          <span class="shrink-0 text-[10px] text-muted-foreground">{preset.description}</span>
+                        {/if}
+                      </Command.Item>
+                    {/each}
+                  </Command.List>
+                </Command.Root>
+              </Popover.Content>
+            </Popover.Root>
+          </div>
+        {/if}
+
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Font
-          </span>
+          <span class="text-[10px] text-muted-foreground">Font</span>
           <FontPicker
             value={cs.fontFamily}
             weight={cs.fontWeight}
@@ -478,16 +559,19 @@
           />
         </div>
 
-        <div>
-          <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Weight
-          </p>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] text-muted-foreground">Weight</span>
           <Segmented
             size="xs"
+            fill={false}
             aria-label="Caption font weight"
             value={String(cs.fontWeight)}
-            options={weightOptions}
-            onValueChange={(v) => store.updateCaptionStyle({ fontWeight: parseInt(v, 10) })}
+            options={FONT_WEIGHTS.map((w) => ({
+              value: String(w.value),
+              label: w.label,
+              title: w.title,
+            }))}
+            onValueChange={(v) => store.updateCaptionStyle({ fontWeight: Number(v) })}
           />
         </div>
 
@@ -503,9 +587,7 @@
         />
 
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Uppercase
-          </span>
+          <span class="text-[10px] text-muted-foreground">Uppercase</span>
           <SegmentedToggle
             checked={cs.uppercase}
             offLabel="Off"
@@ -516,19 +598,11 @@
           />
         </div>
 
-        <div class="space-y-1.5">
-          <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Text color
-          </span>
-          {@render colorField(cs.color, (c) => store.updateCaptionStyle({ color: c }))}
-        </div>
-
-        <div>
-          <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Position
-          </p>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] text-muted-foreground">Position</span>
           <Segmented
             size="xs"
+            fill={false}
             aria-label="Caption position"
             value={cs.position}
             options={positionOptions}
@@ -536,6 +610,37 @@
               store.updateCaptionStyle({ position: v as "top" | "center" | "bottom" })}
           />
         </div>
+
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] text-muted-foreground">Align</span>
+          {#snippet alignLeftIcon()}<AlignLeft size={12} />{/snippet}
+          {#snippet alignCenterIcon()}<AlignCenter size={12} />{/snippet}
+          {#snippet alignRightIcon()}<AlignRight size={12} />{/snippet}
+          <Segmented
+            size="xs"
+            fill={false}
+            aria-label="Caption alignment"
+            value={cs.align}
+            options={[
+              { value: "left", icon: alignLeftIcon, title: "Left" },
+              { value: "center", icon: alignCenterIcon, title: "Center" },
+              { value: "right", icon: alignRightIcon, title: "Right" },
+            ]}
+            onValueChange={(v) =>
+              store.updateCaptionStyle({ align: v as "left" | "center" | "right" })}
+          />
+        </div>
+
+        <ColorField
+          label="Color"
+          value={cs.color}
+          swatches={CAPTION_SWATCHES}
+          {recents}
+          oncommit={(c) => {
+            store.updateCaptionStyle({ color: c });
+            rememberColor(c);
+          }}
+        />
 
         <SliderControl
           label="Max lines"
@@ -558,12 +663,11 @@
       defaultOpen={false}
     >
       <div class="flex flex-col gap-3" class:opacity-50={!cs.enabled}>
-        <div>
-          <p class="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Background
-          </p>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[10px] text-muted-foreground">Background</span>
           <Segmented
             size="xs"
+            fill={false}
             aria-label="Caption background"
             value={cs.background}
             options={backgroundOptions}
@@ -573,14 +677,16 @@
         </div>
 
         {#if cs.background === "box"}
-          <div class="space-y-1.5">
-            <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Box color
-            </span>
-            {@render colorField(cs.backgroundColor, (c) =>
-              store.updateCaptionStyle({ backgroundColor: c }),
-            )}
-          </div>
+          <ColorField
+            label="Box color"
+            value={cs.backgroundColor}
+            swatches={CAPTION_SWATCHES}
+            {recents}
+            oncommit={(c) => {
+              store.updateCaptionStyle({ backgroundColor: c });
+              rememberColor(c);
+            }}
+          />
 
           <SliderControl
             label="Box opacity"
@@ -606,14 +712,16 @@
         />
 
         {#if cs.outlineWidth > 0}
-          <div class="space-y-1.5">
-            <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Outline color
-            </span>
-            {@render colorField(cs.outlineColor, (c) =>
-              store.updateCaptionStyle({ outlineColor: c }),
-            )}
-          </div>
+          <ColorField
+            label="Outline color"
+            value={cs.outlineColor}
+            swatches={CAPTION_SWATCHES}
+            {recents}
+            oncommit={(c) => {
+              store.updateCaptionStyle({ outlineColor: c });
+              rememberColor(c);
+            }}
+          />
         {/if}
 
         <SliderControl
@@ -671,46 +779,3 @@
     </PanelSection>
   {/if}
 </div>
-
-{#snippet colorField(current: string, onCommit: (color: string) => void)}
-  <div class="flex flex-wrap items-center gap-1">
-    {#each CAPTION_SWATCHES as swatch (swatch)}
-      {@const isActive = current.toLowerCase() === swatch}
-      <button
-        type="button"
-        aria-label={`Color ${swatch}`}
-        aria-pressed={isActive}
-        onclick={() => onCommit(swatch)}
-        class={cn(
-          "size-5 rounded-full border-2 transition",
-          isActive ? "border-foreground shadow-sm" : "border-border/40 hover:border-border",
-        )}
-        style:background={swatch}
-      ></button>
-    {/each}
-    <Popover.Root>
-      <Popover.Trigger>
-        {#snippet child({ props })}
-          <button
-            type="button"
-            {...props}
-            aria-label="Custom color"
-            class="grid size-5 place-items-center rounded-full border-2 border-dashed border-border/60 text-[11px] leading-none text-muted-foreground transition hover:border-border hover:text-foreground"
-          >
-            +
-          </button>
-        {/snippet}
-      </Popover.Trigger>
-      <Popover.Content align="start" class="w-auto p-0">
-        <ColorPicker
-          value={current}
-          {recents}
-          oncommit={(c: string) => {
-            onCommit(c);
-            rememberColor(c);
-          }}
-        />
-      </Popover.Content>
-    </Popover.Root>
-  </div>
-{/snippet}

@@ -731,6 +731,8 @@ export interface CaptionStyle {
 	/** Font size as a percent of the preview/video height. */
 	fontSizePct: number;
 	position: 'bottom' | 'center' | 'top';
+	/** Horizontal alignment of the caption block. */
+	align: 'left' | 'center' | 'right';
 	/** Distance from the chosen edge, as a percent of preview height. */
 	offsetPct: number;
 	/** Text colour (hex). */
@@ -759,6 +761,7 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
 	fontWeight: 700,
 	fontSizePct: 5,
 	position: 'bottom',
+	align: 'center',
 	offsetPct: 6,
 	color: '#ffffff',
 	uppercase: false,
@@ -770,6 +773,108 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
 	outlineColor: '#000000',
 	maxLines: 2,
 };
+
+/** A named caption look — the visual half of {@link CaptionStyle}. Applied
+ *  wholesale; users then tweak. Built-ins ship a few; extension packs add more
+ *  via the asset registry (`captionPreset` kind). */
+export interface CaptionPreset {
+	id: string;
+	label: string;
+	description?: string;
+	style: Omit<CaptionStyle, 'enabled'>;
+}
+
+/** Shipped caption themes. The first mirrors {@link DEFAULT_CAPTION_STYLE}. */
+export const CAPTION_PRESETS: CaptionPreset[] = [
+	{
+		id: 'clean',
+		label: 'Clean',
+		description: 'Soft shadow',
+		style: {
+			fontFamily: 'system-ui, sans-serif',
+			fontWeight: 700,
+			fontSizePct: 5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 6,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'soft',
+			backgroundColor: '#000000',
+			backgroundOpacity: 65,
+			outlineWidth: 0,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+	{
+		id: 'boxed',
+		label: 'Boxed',
+		description: 'Solid bar',
+		style: {
+			fontFamily: 'system-ui, sans-serif',
+			fontWeight: 700,
+			fontSizePct: 4.5,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 8,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'box',
+			backgroundColor: '#000000',
+			backgroundOpacity: 82,
+			outlineWidth: 0,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+	{
+		id: 'bold',
+		label: 'Bold',
+		description: 'Thick outline',
+		style: {
+			fontFamily: "'Inter', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 6,
+			position: 'bottom',
+			align: 'center',
+			offsetPct: 10,
+			color: '#ffffff',
+			uppercase: false,
+			letterSpacing: 0,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 6,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+	{
+		id: 'pop',
+		label: 'Pop',
+		description: 'Yellow caps',
+		style: {
+			fontFamily: "'Anton', sans-serif",
+			fontWeight: 700,
+			fontSizePct: 6.5,
+			position: 'center',
+			align: 'center',
+			offsetPct: 0,
+			color: '#facc15',
+			uppercase: true,
+			letterSpacing: 0.02,
+			background: 'none',
+			backgroundColor: '#000000',
+			backgroundOpacity: 0,
+			outlineWidth: 7,
+			outlineColor: '#000000',
+			maxLines: 2,
+		},
+	},
+];
 
 /** What to do with generated captions on export. Independent choices — you can
  *  burn captions into the pixels AND keep a sidecar file. The sidecar is also

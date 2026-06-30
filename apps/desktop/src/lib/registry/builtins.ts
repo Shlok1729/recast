@@ -18,6 +18,7 @@ import { CURSOR_STYLES } from "$lib/cursor/styles";
 import { SMOOTHING_PRESETS } from "$lib/cursor/smoothing";
 import { EASING_PRESETS } from "$lib/easing/cubic-bezier";
 import {
+	CAPTION_PRESETS,
 	COLOR_PRESETS,
 	GRADIENT_PRESETS,
 	WALLPAPERS,
@@ -119,6 +120,19 @@ export function registerBuiltins(): void {
 					snapToClicks: p.snapToClicks,
 					snapWindowMs: p.snapWindowMs,
 				},
+			}),
+		),
+	);
+
+	registry.registerMany(
+		CAPTION_PRESETS.map(
+			(p): RegistryEntry<"captionPreset"> => ({
+				id: p.id,
+				kind: "captionPreset",
+				label: p.label,
+				description: p.description,
+				source: BUILTIN,
+				value: p.style,
 			}),
 		),
 	);

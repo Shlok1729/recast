@@ -64,11 +64,19 @@ pub fn to_ass(
         _ => (1, outline_px, 0.0),
     };
 
-    let alignment = match style.position.as_str() {
-        "top" => 8,
-        "center" => 5,
-        _ => 2,
+    // ASS numpad alignment grid: vertical band (bottom 1-3 / middle 4-6 /
+    // top 7-9) + horizontal offset (left 0 / center 1 / right 2).
+    let band = match style.position.as_str() {
+        "top" => 7,
+        "center" => 4,
+        _ => 1,
     };
+    let h_offset = match style.align.as_str() {
+        "left" => 0,
+        "right" => 2,
+        _ => 1,
+    };
+    let alignment = band + h_offset;
     let margin_v = (style.offset_pct / 100.0 * play_h as f64).round() as i32;
 
     let mut out = String::new();
@@ -91,7 +99,9 @@ Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n",
     ));
 
     out.push_str("[Events]\n");
-    out.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, Effect, Text\n");
+    out.push_str(
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+    );
     for seg in &t.segments {
         let start = (seg.start - offset).max(0.0);
         let mut end = seg.end - offset;

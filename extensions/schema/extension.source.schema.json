@@ -37,7 +37,8 @@
         "gradients": { "type": "array", "items": { "$ref": "#/$defs/gradient" } },
         "colors": { "type": "array", "items": { "$ref": "#/$defs/color" } },
         "easings": { "type": "array", "items": { "$ref": "#/$defs/easing" } },
-        "smoothings": { "type": "array", "items": { "$ref": "#/$defs/smoothing" } }
+        "smoothings": { "type": "array", "items": { "$ref": "#/$defs/smoothing" } },
+        "captionPresets": { "type": "array", "items": { "$ref": "#/$defs/captionPreset" } }
       }
     },
     "assets": {
@@ -148,6 +149,37 @@
         "smoothing": { "type": "number", "minimum": 0, "maximum": 100 },
         "snapToClicks": { "type": "boolean" },
         "snapWindowMs": { "type": "number", "minimum": 0 }
+      }
+    },
+    "hexColor": { "type": "string", "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" },
+    "captionPreset": {
+      "type": "object",
+      "description": "A caption theme — the visual half of a caption style, applied wholesale. References no assets (the style travels in the manifest).",
+      "additionalProperties": false,
+      "required": [
+        "id", "label", "fontFamily", "fontWeight", "fontSizePct", "position",
+        "align", "offsetPct", "color", "uppercase", "letterSpacing", "background",
+        "backgroundColor", "backgroundOpacity", "outlineWidth", "outlineColor", "maxLines"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "label": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "fontFamily": { "type": "string", "minLength": 1, "description": "CSS font-family stack." },
+        "fontWeight": { "type": "integer", "minimum": 100, "maximum": 900 },
+        "fontSizePct": { "type": "number", "minimum": 1, "maximum": 20, "description": "Percent of video height." },
+        "position": { "enum": ["top", "center", "bottom"] },
+        "align": { "enum": ["left", "center", "right"] },
+        "offsetPct": { "type": "number", "minimum": 0, "maximum": 40 },
+        "color": { "$ref": "#/$defs/hexColor" },
+        "uppercase": { "type": "boolean" },
+        "letterSpacing": { "type": "number", "minimum": -0.2, "maximum": 1, "description": "em." },
+        "background": { "enum": ["none", "soft", "box"] },
+        "backgroundColor": { "$ref": "#/$defs/hexColor" },
+        "backgroundOpacity": { "type": "number", "minimum": 0, "maximum": 100 },
+        "outlineWidth": { "type": "number", "minimum": 0, "maximum": 20, "description": "Percent of font size." },
+        "outlineColor": { "$ref": "#/$defs/hexColor" },
+        "maxLines": { "type": "integer", "minimum": 1, "maximum": 6 }
       }
     }
   }

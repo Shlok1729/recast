@@ -33,13 +33,19 @@
 {#if active}
   {@const s = store.captionStyle}
   <div
-    class="caption-layer pointer-events-none absolute inset-0 flex justify-center px-[6%]"
+    class="caption-layer pointer-events-none absolute inset-0 flex px-[6%]"
     class:items-end={s.position === "bottom"}
     class:items-center={s.position === "center"}
     class:items-start={s.position === "top"}
+    class:justify-start={s.align === "left"}
+    class:justify-center={s.align === "center"}
+    class:justify-end={s.align === "right"}
   >
     <span
-      class="caption-text text-center leading-tight"
+      class="caption-text leading-tight"
+      class:text-left={s.align === "left"}
+      class:text-center={s.align === "center"}
+      class:text-right={s.align === "right"}
       class:cap-soft={s.background === "soft"}
       class:cap-box={s.background === "box"}
       style="color: {s.color}; font-size: {s.fontSizePct}cqh;

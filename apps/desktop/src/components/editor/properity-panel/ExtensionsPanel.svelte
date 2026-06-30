@@ -70,7 +70,8 @@
       (c.gradients?.length ?? 0) +
       (c.colors?.length ?? 0) +
       (c.easings?.length ?? 0) +
-      (c.smoothings?.length ?? 0)
+      (c.smoothings?.length ?? 0) +
+      (c.captionPresets?.length ?? 0)
     );
   }
 
@@ -140,7 +141,7 @@
   >
     <Blocks class="size-3.5 shrink-0 text-muted-foreground" />
     <span class="text-[11px] text-muted-foreground">
-      Install asset packs to add cursors, backgrounds, gradients and presets.
+      Install asset packs to add cursors, backgrounds, gradients, caption themes and presets.
     </span>
   </div>
 

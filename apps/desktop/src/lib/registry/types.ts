@@ -17,7 +17,8 @@ export type AssetKind =
 	| "gradient"
 	| "color"
 	| "easing"
-	| "smoothing";
+	| "smoothing"
+	| "captionPreset";
 
 export type Source =
 	| { kind: "builtin" }
@@ -71,6 +72,28 @@ export interface SmoothingValue {
 	snapToClicks: boolean;
 	snapWindowMs: number;
 }
+/** A caption look — the visual half of `CaptionStyle` (everything except
+ *  `enabled`). Applied wholesale to the editor's caption style; built-ins ship
+ *  a few themes and extension packs can contribute more. Kept structurally in
+ *  sync with `CaptionStyle` in the editor store (this module can't import the
+ *  store without a cycle). */
+export interface CaptionPresetValue {
+	fontFamily: string;
+	fontWeight: number;
+	fontSizePct: number;
+	position: "top" | "center" | "bottom";
+	align: "left" | "center" | "right";
+	offsetPct: number;
+	color: string;
+	uppercase: boolean;
+	letterSpacing: number;
+	background: "none" | "soft" | "box";
+	backgroundColor: string;
+	backgroundOpacity: number;
+	outlineWidth: number;
+	outlineColor: string;
+	maxLines: number;
+}
 
 export type RegistryValueFor<K extends AssetKind> = K extends "cursor"
 	? CursorValue
@@ -84,7 +107,9 @@ export type RegistryValueFor<K extends AssetKind> = K extends "cursor"
 					? EasingValue
 					: K extends "smoothing"
 						? SmoothingValue
-						: never;
+						: K extends "captionPreset"
+							? CaptionPresetValue
+							: never;
 
 export interface RegistryEntry<K extends AssetKind = AssetKind> {
 	/** Storage id — see module docs. Unique within a kind. */
