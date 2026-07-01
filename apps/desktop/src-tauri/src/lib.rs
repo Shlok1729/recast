@@ -345,6 +345,7 @@ pub fn run() {
             transcription::download_caption_model,
             transcription::delete_caption_model,
             transcription::transcribe_project,
+            transcription::has_transcribable_audio,
             transcription::export_captions,
             fonts::ensure_google_font,
             commands::ensure_assets_installed,
