@@ -37,6 +37,23 @@ export const KIND_META: Record<
 // RELEASES:START — auto-generated, do not edit by hand
 export const RELEASES: readonly ChangelogRelease[] = [
 	{
+		version: '0.2.10',
+		date: '2026-07-01',
+		highlights: [
+			'Animated captions: highlight the word being spoken, pop words in one at a time, or reveal short phrases.',
+			'Captions sit around the padded video frame and export with their real fonts.',
+		],
+		changes: [
+			{ kind: 'added', summary: 'Animated captions. Captions can now animate in time with speech: highlight the word being spoken karaoke-style, pop each word in one at a time, or fade in short phrases. A set of modern presets (Clean, Pill, Bold, Spotlight, Wave, Punch, Hype) ships with matching fonts, colors, and animation, and the theme picker previews each one. Controls for how words are grouped, the active-word highlight, the entrance effect, and position all live in the Captions tab.' },
+			{ kind: 'added', summary: 'The Captions tab now tells you when a recording has no audio to transcribe, instead of letting you try and fail.' },
+			{ kind: 'changed', summary: 'Captions are positioned against the whole video frame. When you add padding, top and bottom captions sit in the margin instead of overlapping the footage, and the preview matches the exported video. The position control moved next to alignment and now nudges captions in either direction over a wider range.' },
+			{ kind: 'changed', summary: 'Refreshed the built-in caption styles with modern fonts and colors.' },
+			{ kind: 'changed', summary: 'On-device captions need Apple Silicon, Windows, or Linux. On Intel Macs the Captions tab explains this and the rest of the editor works normally.' },
+			{ kind: 'fixed', summary: 'Caption fonts now render in exported video, not just the preview.' },
+			{ kind: 'fixed', summary: 'Exporting a recording that has cuts or speed changes no longer holds the last frame for several seconds or produces a file longer than the edit.' },
+		],
+	},
+	{
 		version: '0.2.9',
 		date: '2026-06-29',
 		changes: [

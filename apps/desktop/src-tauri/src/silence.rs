@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use tauri::AppHandle;
-use vad_rs::Vad;
+use tract_onnx::prelude::*;
 
 use serde::{Deserialize, Serialize};
 
@@ -81,9 +81,86 @@ pub struct SilenceSegment {
 
 type Interval = (f64, f64);
 
-// Silero v5 runs at 16 kHz with a fixed 512-sample window (32 ms/frame).
+// Silero runs at 16 kHz with a fixed 512-sample window (32 ms/frame).
 const RATE: u32 = 16_000;
 const CHUNK: usize = 512;
+/// Silero's LSTM hidden/cell state size — two tensors of shape [2, 1, 64].
+const STATE: [usize; 3] = [2, 1, 64];
+
+/// Silero VAD on **tract** (pure Rust — no native ONNX Runtime, so the always-on
+/// silence path builds on every target incl. x86_64-apple-darwin). Mirrors the
+/// model I/O the app has always fed it: `input`/`sr`/`h`/`c` → `output`/`hn`/`cn`,
+/// carrying the two LSTM state tensors between windows.
+struct SileroVad {
+    plan: TypedSimplePlan<TypedModel>,
+    h: Tensor,
+    c: Tensor,
+    sr: Tensor,
+}
+
+impl SileroVad {
+    fn new(path: &Path) -> Result<Self, String> {
+        let map = |e: TractError, what: &str| format!("Silero {what}: {e}");
+        let plan = tract_onnx::onnx()
+            .model_for_path(path)
+            .map_err(|e| map(e, "load"))?
+            // Pin input/output order + shapes so tract can optimize the graph.
+            .with_input_names(["input", "sr", "h", "c"])
+            .map_err(|e| map(e, "input names"))?
+            .with_output_names(["output", "hn", "cn"])
+            .map_err(|e| map(e, "output names"))?
+            .with_input_fact(0, f32::fact([1, CHUNK]).into())
+            .map_err(|e| map(e, "input fact"))?
+            .with_input_fact(1, i64::fact([1]).into())
+            .map_err(|e| map(e, "sr fact"))?
+            .with_input_fact(2, f32::fact(STATE).into())
+            .map_err(|e| map(e, "h fact"))?
+            .with_input_fact(3, f32::fact(STATE).into())
+            .map_err(|e| map(e, "c fact"))?
+            .into_optimized()
+            .map_err(|e| map(e, "optimize"))?
+            .into_runnable()
+            .map_err(|e| map(e, "runnable"))?;
+        Ok(Self {
+            plan,
+            h: Tensor::zero::<f32>(&STATE).map_err(|e| map(e, "state"))?,
+            c: Tensor::zero::<f32>(&STATE).map_err(|e| map(e, "state"))?,
+            sr: tensor1(&[RATE as i64]),
+        })
+    }
+
+    /// Clear the LSTM state so the next window starts a fresh sequence.
+    fn reset(&mut self) -> Result<(), String> {
+        self.h = Tensor::zero::<f32>(&STATE).map_err(|e| format!("Silero reset: {e}"))?;
+        self.c = Tensor::zero::<f32>(&STATE).map_err(|e| format!("Silero reset: {e}"))?;
+        Ok(())
+    }
+
+    /// Speech probability for one 512-sample window; advances the LSTM state.
+    fn compute(&mut self, window: &[f32]) -> Result<f32, String> {
+        let input = Tensor::from_shape(&[1, window.len()], window)
+            .map_err(|e| format!("Silero window: {e}"))?;
+        let out = self
+            .plan
+            .run(tvec!(
+                input.into(),
+                self.sr.clone().into(),
+                self.h.clone().into(),
+                self.c.clone().into(),
+            ))
+            .map_err(|e| format!("Silero run: {e}"))?;
+        let prob = out[0]
+            .to_array_view::<f32>()
+            .map_err(|e| format!("Silero output: {e}"))?
+            .iter()
+            .copied()
+            .next()
+            .unwrap_or(0.0);
+        self.h = out[1].clone().into_tensor();
+        self.c = out[2].clone().into_tensor();
+        Ok(prob)
+    }
+}
 /// How far below `threshold` the score must fall to *end* a speech run. The
 /// gap is the hysteresis band: it stops a single quiet frame mid-word from
 /// fracturing speech into spurious micro-silences.
@@ -203,20 +280,16 @@ fn detect_blocking(
 
     // Per-frame speech probability. Silero is a stateful LSTM, so frames are
     // scored in order; `reset` clears that state, and the short trailing frame
-    // is zero-padded to a full window. vad-rs takes f32 in [-1, 1].
-    let mut vad =
-        Vad::new(silero_path, RATE as usize).map_err(|e| format!("init Silero VAD: {e}"))?;
-    vad.reset();
+    // is zero-padded to a full window. Samples are f32 in [-1, 1].
+    let mut vad = SileroVad::new(silero_path)?;
+    vad.reset()?;
     let mut probs: Vec<f32> = Vec::with_capacity(samples.len() / CHUNK + 1);
     let mut window = [0f32; CHUNK];
     for chunk in samples.chunks(CHUNK) {
         for (i, slot) in window.iter_mut().enumerate() {
             *slot = chunk.get(i).map(|s| *s as f32 / 32768.0).unwrap_or(0.0);
         }
-        let result = vad
-            .compute(&window)
-            .map_err(|e| format!("Silero VAD compute: {e}"))?;
-        probs.push(result.prob);
+        probs.push(vad.compute(&window)?);
     }
     let frame_dur = CHUNK as f64 / RATE as f64;
 
@@ -575,22 +648,22 @@ mod tests {
         assert_eq!(round3(2.0 / 3.0), 0.667);
     }
 
-    // Integration guard: the Silero model loads through vad-rs and scores a
+    // Integration guard: the Silero model loads through tract and scores a
     // frame, and digital silence reads as non-speech. The model isn't bundled
     // — it's fetched to disk at runtime — so point this at a local copy via
-    // RECAST_SILERO_PATH; the test skips when that isn't set.
+    // RECAST_SILERO_PATH; the test skips when that isn't set. This also verifies
+    // tract can optimize + run the model's Conv/LSTM graph (the migration off ort).
     #[test]
     fn silero_model_loads_and_scores_silence_low() {
         let Ok(model) = std::env::var("RECAST_SILERO_PATH") else {
             eprintln!("skipping: set RECAST_SILERO_PATH to the silero_vad.onnx file");
             return;
         };
-        let mut vad = vad_rs::Vad::new(&model, super::RATE as usize).expect("init Silero VAD");
-        vad.reset();
+        let mut vad = super::SileroVad::new(std::path::Path::new(&model)).expect("init Silero VAD");
+        vad.reset().expect("reset");
         let p = vad
             .compute(&[0f32; super::CHUNK])
-            .expect("Silero VAD compute")
-            .prob;
+            .expect("Silero VAD compute");
         assert!((0.0..=1.0).contains(&p), "probability in range, got {p}");
         assert!(
             p < 0.5,

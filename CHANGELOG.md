@@ -42,6 +42,25 @@ See [`.changeset/README.md`](.changeset/README.md) for the full flow.
 
 ## [Unreleased]
 
+## [0.2.10] — 2026-07-01
+
+### Highlights
+- Animated captions: highlight the word being spoken, pop words in one at a time, or reveal short phrases.
+- Captions sit around the padded video frame and export with their real fonts.
+
+### Added
+- Animated captions. Captions can now animate in time with speech: highlight the word being spoken karaoke-style, pop each word in one at a time, or fade in short phrases. A set of modern presets (Clean, Pill, Bold, Spotlight, Wave, Punch, Hype) ships with matching fonts, colors, and animation, and the theme picker previews each one. Controls for how words are grouped, the active-word highlight, the entrance effect, and position all live in the Captions tab.
+- The Captions tab now tells you when a recording has no audio to transcribe, instead of letting you try and fail.
+
+### Changed
+- Captions are positioned against the whole video frame. When you add padding, top and bottom captions sit in the margin instead of overlapping the footage, and the preview matches the exported video. The position control moved next to alignment and now nudges captions in either direction over a wider range.
+- Refreshed the built-in caption styles with modern fonts and colors.
+- On-device captions need Apple Silicon, Windows, or Linux. On Intel Macs the Captions tab explains this and the rest of the editor works normally.
+
+### Fixed
+- Caption fonts now render in exported video, not just the preview.
+- Exporting a recording that has cuts or speed changes no longer holds the last frame for several seconds or produces a file longer than the edit.
+
 ## [0.2.9] — 2026-06-29
 
 ### Added
