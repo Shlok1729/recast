@@ -1,6 +1,13 @@
 //! On-demand Google Fonts: fetch a family's woff2 once and cache it on device,
 //! so captions (and later annotations) can render any Google font offline after
 //! the first use. Returns a local path the frontend loads via the FontFace API.
+//!
+//! The export burn-in needs a different format: libass/FreeType can't read
+//! woff2, so [`ensure_caption_font_dir`] fetches the TTF (Google serves it to an
+//! older UA) into a dedicated directory that the `ass` filter's `fontsdir`
+//! points at — that's how a preset's branded font actually appears in the MP4.
+
+use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
@@ -51,20 +58,71 @@ pub async fn ensure_google_font(
         .await
         .map_err(|e| format!("font css body: {e}"))?;
 
-    let woff2 = extract_woff2(&css)
+    let woff2 = extract_font_url(&css, ".woff2")
         .ok_or_else(|| format!("no woff2 URL for '{family}' in Google Fonts CSS"))?;
 
     crate::transcription::download_file(&client, &woff2, None, &dest, |_, _| {}).await?;
     Ok(dest.to_string_lossy().to_string())
 }
 
-/// Pull the first `…woff2` URL out of a Google Fonts `css2` response
-/// (`src: url(https://fonts.gstatic.com/…woff2) format('woff2')`).
-fn extract_woff2(css: &str) -> Option<String> {
+/// Ensure the TTF for `family` at `weight` is cached under `app_data/fonts/ttf/`
+/// and return that DIRECTORY (for libass `fontsdir`). Uses an older UA so Google
+/// serves TTF instead of woff2. Called from the export burn-in path.
+pub(crate) async fn ensure_caption_font_dir(
+    app: &AppHandle,
+    family: &str,
+    weight: u32,
+) -> Result<PathBuf, String> {
+    // A per-family dir keeps `fontsdir` tiny — libass scans everything in it, so
+    // pointing at one shared dir with many fonts would slow font matching.
+    let safe: String = family
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir unavailable: {e}"))?
+        .join("fonts")
+        .join("ttf")
+        .join(&safe);
+    let dest = dir.join(format!("{safe}-{weight}.ttf"));
+    if dest.exists() {
+        return Ok(dir);
+    }
+
+    // Old UA → Google Fonts serves a TTF (FreeType-readable) instead of woff2.
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/4.0")
+        .build()
+        .map_err(|e| format!("client: {e}"))?;
+    let css_url = format!(
+        "https://fonts.googleapis.com/css2?family={}:wght@{weight}&display=swap",
+        family.replace(' ', "+")
+    );
+    let css = client
+        .get(&css_url)
+        .send()
+        .await
+        .map_err(|e| format!("font css request: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("font css http: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("font css body: {e}"))?;
+    let ttf = extract_font_url(&css, ".ttf")
+        .ok_or_else(|| format!("no ttf URL for '{family}' in Google Fonts CSS"))?;
+    crate::transcription::download_file(&client, &ttf, None, &dest, |_, _| {}).await?;
+    Ok(dir)
+}
+
+/// Pull the first font URL with `ext` out of a Google Fonts `css2` response
+/// (`src: url(https://fonts.gstatic.com/…) format(...)`).
+fn extract_font_url(css: &str, ext: &str) -> Option<String> {
     for part in css.split("url(").skip(1) {
         let end = part.find(')')?;
         let raw = part[..end].trim_matches(|c| c == '"' || c == '\'');
-        if raw.ends_with(".woff2") {
+        if raw.ends_with(ext) {
             return Some(raw.to_string());
         }
     }

@@ -3,7 +3,7 @@ pub(crate) mod auth;
 pub(crate) mod cloud;
 mod editor;
 pub(crate) mod extensions;
-mod ffmpeg;
+pub(crate) mod ffmpeg;
 pub(crate) mod files;
 pub(crate) mod gdrive;
 mod recording;

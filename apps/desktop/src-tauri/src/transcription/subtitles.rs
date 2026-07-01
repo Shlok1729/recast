@@ -32,24 +32,77 @@ pub fn to_vtt(t: &Transcript) -> String {
     out
 }
 
+/// The video rectangle inside the output canvas (source pixels). Captions are
+/// placed relative to it so they sit in the padding, not over the video.
+#[derive(Debug, Clone, Copy)]
+pub struct VideoRectPx {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+const MAX_CAP_FRAC: f64 = 0.7;
+
+/// Estimated caption block height as a fraction of frame height. Mirror of
+/// `captionHeightFrac` in $lib/captions/layout.ts — keep them in sync.
+fn caption_height_frac(font_size_pct: f64, max_lines: u32) -> f64 {
+    (font_size_pct / 100.0 * max_lines.max(1) as f64 * 1.35).min(MAX_CAP_FRAC)
+}
+
+/// Fraction-from-top of the caption block's TOP edge (grows down). `None` =
+/// centre. Mirror of `captionTopFrac` in $lib/captions/layout.ts.
+fn caption_top_frac(
+    position: &str,
+    offset_pct: f64,
+    cap: f64,
+    v_top: f64,
+    v_bottom: f64,
+) -> Option<f64> {
+    if position == "center" {
+        return None;
+    }
+    // Signed: + pushes outward into the padding, - pulls back onto the video.
+    let offset = offset_pct / 100.0;
+    let cap = cap.clamp(0.0, MAX_CAP_FRAC);
+    let max_top = (1.0 - cap).max(0.0);
+    if position == "bottom" {
+        Some((v_bottom + offset).min(max_top))
+    } else {
+        Some((v_top - offset - cap).clamp(0.0, max_top))
+    }
+}
+
 /// Render a transcript to an ASS subtitle script for FFmpeg's `ass`/`subtitles`
 /// burn-in filter, styled from `CaptionStyle`. `play_w`/`play_h` are the canvas
 /// dimensions captions are laid out against (the composite size, pre-downscale),
 /// so font size / margins resolve in the same pixel space as the preview.
-/// `offset` is the trim start (seconds): burn-in is injected before the cut /
-/// speed stage, so times are on the trimmed-but-uncut axis and the later
-/// select/setpts re-times the burned pixels. `clip_len` caps the output.
+/// `video` is the source-video rect inside that canvas — captions are placed in
+/// the padding relative to it. `offset` is the trim start (seconds): burn-in is
+/// injected before the cut/speed stage, so times are on the trimmed-but-uncut
+/// axis and the later select/setpts re-times the burned pixels. `clip_len` caps
+/// the output.
+#[allow(clippy::too_many_arguments)]
 pub fn to_ass(
     t: &Transcript,
     style: &CaptionStyle,
     play_w: u32,
     play_h: u32,
+    video: VideoRectPx,
     offset: f64,
     clip_len: f64,
+    embedded_font: bool,
 ) -> String {
     let font = ass_font_name(&style.font_family);
     let font_size = (style.font_size_pct / 100.0 * play_h as f64).max(8.0);
-    let bold = if style.font_weight >= 600 { -1 } else { 0 };
+    // An embedded font ships at its exact weight, so don't let libass synthesize
+    // bold on top of it (double-bolding). For a fallback system face, only bold
+    // from 700+ (600 = semibold should read as regular, not heavy).
+    let bold = if !embedded_font && style.font_weight >= 700 {
+        -1
+    } else {
+        0
+    };
     let spacing = style.letter_spacing * font_size;
     let outline_px = (style.outline_width / 100.0 * font_size).max(0.0);
 
@@ -64,20 +117,30 @@ pub fn to_ass(
         _ => (1, outline_px, 0.0),
     };
 
-    // ASS numpad alignment grid: vertical band (bottom 1-3 / middle 4-6 /
-    // top 7-9) + horizontal offset (left 0 / center 1 / right 2).
-    let band = match style.position.as_str() {
-        "top" => 7,
-        "center" => 4,
-        _ => 1,
-    };
+    // Place captions relative to the VIDEO rect, not the frame: top/bottom sit
+    // in the padding outside the video (mirrors `captionTopFrac` in
+    // $lib/captions/layout.ts). We anchor the caption's TOP and let it grow down,
+    // so both use the ASS top band (7-9); centre uses the middle band (4-6),
+    // which libass auto-centres on the frame == the (centred) video.
+    let v_top = video.y as f64 / play_h.max(1) as f64;
+    let v_bottom = (video.y + video.h) as f64 / play_h.max(1) as f64;
+    let cap = caption_height_frac(style.font_size_pct, style.max_lines);
     let h_offset = match style.align.as_str() {
         "left" => 0,
         "right" => 2,
         _ => 1,
     };
+    let (band, margin_v) =
+        match caption_top_frac(&style.position, style.offset_pct, cap, v_top, v_bottom) {
+            None => (4, 0),
+            Some(top_frac) => (7, (top_frac * play_h as f64).round() as i32),
+        };
     let alignment = band + h_offset;
-    let margin_v = (style.offset_pct / 100.0 * play_h as f64).round() as i32;
+    // Constrain the text box to the video's horizontal extent (+ a small inset)
+    // so captions line up with the video content, not the letterbox bars.
+    let inset = (video.w as f64 * 0.04).round() as i32;
+    let margin_l = video.x as i32 + inset;
+    let margin_r = (play_w as i32 - (video.x + video.w) as i32).max(0) + inset;
 
     let mut out = String::new();
     out.push_str("[Script Info]\n");
@@ -94,7 +157,7 @@ Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n",
     );
     out.push_str(&format!(
         "Style: Default,{font},{size:.0},{primary},{primary},{outline_col},{back_col},{bold},0,0,0,\
-100,100,{spacing:.1},0,{border_style},{outline:.1},{shadow:.1},{alignment},40,40,{margin_v},1\n\n",
+100,100,{spacing:.1},0,{border_style},{outline:.1},{shadow:.1},{alignment},{margin_l},{margin_r},{margin_v},1\n\n",
         size = font_size,
     ));
 
@@ -309,12 +372,40 @@ fn ass_primary(hex: &str) -> String {
     format!("&H{b:02X}{g:02X}{r:02X}&")
 }
 
-/// First family of a CSS stack, unquoted, with web generics mapped to a font
-/// libass can resolve on the host (`system-ui` → Arial, etc.).
+/// First family of a CSS stack, unquoted (e.g. `'Anton', sans-serif` → `Anton`).
+pub(crate) fn first_family(stack: &str) -> String {
+    stack
+        .split(',')
+        .next()
+        .unwrap_or(stack)
+        .trim()
+        .trim_matches(|c| c == '\'' || c == '"')
+        .trim()
+        .to_string()
+}
+
+/// True for a generic / built-in face we never fetch from Google (so the export
+/// path skips font embedding and lets libass use its own fallback).
+pub(crate) fn is_system_family(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "" | "system-ui"
+            | "sans-serif"
+            | "serif"
+            | "monospace"
+            | "arial"
+            | "georgia"
+            | "impact"
+            | "courier new"
+            | "times new roman"
+            | "arial narrow bold"
+    )
+}
+
+/// First family of a CSS stack, with web generics mapped to a font libass can
+/// resolve on the host (`system-ui` → Arial, etc.).
 fn ass_font_name(stack: &str) -> String {
-    let first = stack.split(',').next().unwrap_or(stack).trim();
-    let name = first.trim_matches(|c| c == '\'' || c == '"').trim();
-    match name {
+    match first_family(stack).as_str() {
         "system-ui" | "sans-serif" | "" => "Arial".to_string(),
         "serif" => "Times New Roman".to_string(),
         "monospace" => "Courier New".to_string(),
@@ -368,6 +459,16 @@ mod tests {
     use super::*;
     use crate::transcription::{CaptionAnimation, CaptionStyle, TranscriptSegment};
 
+    /// Full-frame video rect (no padding) for tests that don't exercise layout.
+    fn full_vr() -> VideoRectPx {
+        VideoRectPx {
+            x: 0,
+            y: 0,
+            w: 1920,
+            h: 1080,
+        }
+    }
+
     fn words(spec: &[(f64, f64, &str)]) -> Vec<TranscriptWord> {
         spec.iter()
             .map(|(s, e, t)| TranscriptWord {
@@ -420,7 +521,7 @@ mod tests {
             ..Default::default()
         };
         let t = transcript(words(&[(0.0, 0.5, "hello"), (0.5, 1.0, "world")]));
-        let ass = to_ass(&t, &style, 1920, 1080, 0.0, 10.0);
+        let ass = to_ass(&t, &style, 1920, 1080, full_vr(), 0.0, 10.0, false);
         assert_eq!(dialogues(&ass).len(), 1);
         assert!(ass.contains("hello world"));
     }
@@ -432,7 +533,7 @@ mod tests {
             ..Default::default()
         };
         let t = transcript(words(&[(0.0, 0.5, "a"), (0.5, 1.0, "b"), (1.0, 1.5, "c")]));
-        let ass = to_ass(&t, &style, 1920, 1080, 0.0, 10.0);
+        let ass = to_ass(&t, &style, 1920, 1080, full_vr(), 0.0, 10.0, false);
         assert_eq!(dialogues(&ass).len(), 3);
         assert!(ass.contains("\\fad("));
         assert!(ass.contains("\\t(0,"));
@@ -449,7 +550,7 @@ mod tests {
             ..Default::default()
         };
         let t = transcript(words(&[(0.0, 0.5, "one"), (0.5, 1.0, "two")]));
-        let ass = to_ass(&t, &style, 1920, 1080, 0.0, 10.0);
+        let ass = to_ass(&t, &style, 1920, 1080, full_vr(), 0.0, 10.0, false);
         // One line chunk, but colour emphasis splits it per word → 2 sub-events.
         assert_eq!(dialogues(&ass).len(), 2);
         // #facc15 → BGR &H15CCFA& accent, resetting to white base.
@@ -473,7 +574,7 @@ mod tests {
             (1.5, 2.0, "d"),
             (2.0, 2.5, "e"),
         ]));
-        let ass = to_ass(&t, &style, 1920, 1080, 0.0, 10.0);
+        let ass = to_ass(&t, &style, 1920, 1080, full_vr(), 0.0, 10.0, false);
         // 5 words / 2 per chunk = 3 chunks, no emphasis → 3 events.
         assert_eq!(dialogues(&ass).len(), 3);
     }
@@ -486,8 +587,112 @@ mod tests {
         };
         let t = transcript(words(&[(2.0, 2.5, "a"), (2.5, 3.0, "b")]));
         // offset 1 shifts to [1,1.5]/[1.5,2]; clip 1.4 drops the second entirely.
-        let ass = to_ass(&t, &style, 1920, 1080, 1.0, 1.4);
+        let ass = to_ass(&t, &style, 1920, 1080, full_vr(), 1.0, 1.4, false);
         assert_eq!(dialogues(&ass).len(), 1);
+    }
+
+    fn style_bold(ass: &str) -> i32 {
+        // Style line: ...,BackColour,Bold,Italic,... → Bold is the field after the
+        // 7th comma of the "Style: Default,..." line.
+        let line = ass
+            .lines()
+            .find(|l| l.starts_with("Style: Default,"))
+            .unwrap();
+        line.split(',').nth(7).unwrap().trim().parse().unwrap()
+    }
+
+    #[test]
+    fn embedded_font_never_synthesizes_bold() {
+        let t = transcript(words(&[(0.0, 0.5, "hi")]));
+        // Embedded at heavy weight → Bold 0 (the TTF already carries the weight).
+        let heavy = CaptionStyle {
+            font_weight: 800,
+            animation: None,
+            ..Default::default()
+        };
+        assert_eq!(
+            style_bold(&to_ass(&t, &heavy, 1920, 1080, full_vr(), 0.0, 10.0, true)),
+            0
+        );
+        // Fallback face: bold only from 700+, so 600 (semibold) stays regular.
+        let semibold = CaptionStyle {
+            font_weight: 600,
+            animation: None,
+            ..Default::default()
+        };
+        assert_eq!(
+            style_bold(&to_ass(
+                &t,
+                &semibold,
+                1920,
+                1080,
+                full_vr(),
+                0.0,
+                10.0,
+                false
+            )),
+            0
+        );
+        let bold = CaptionStyle {
+            font_weight: 700,
+            animation: None,
+            ..Default::default()
+        };
+        assert_eq!(
+            style_bold(&to_ass(&t, &bold, 1920, 1080, full_vr(), 0.0, 10.0, false)),
+            -1
+        );
+    }
+
+    fn style_alignment(ass: &str) -> i32 {
+        let line = ass
+            .lines()
+            .find(|l| l.starts_with("Style: Default,"))
+            .unwrap();
+        line.split(',').nth(18).unwrap().trim().parse().unwrap()
+    }
+
+    #[test]
+    fn caption_top_frac_places_bottom_in_padding_and_clamps() {
+        let cap = 0.12;
+        // 15% padding top/bottom → block sits at/below the video's bottom edge.
+        let top = caption_top_frac("bottom", 0.0, cap, 0.15, 0.85).unwrap();
+        assert!(top >= 0.85 - 1e-9);
+        assert!(top + cap <= 1.0 + 1e-9);
+        // No padding → clamped so the caption stays on-frame (over the video).
+        let full = caption_top_frac("bottom", 8.0, cap, 0.0, 1.0).unwrap();
+        assert!((full - (1.0 - cap)).abs() < 1e-9);
+        // Centre is handled by the middle band.
+        assert!(caption_top_frac("center", 8.0, cap, 0.15, 0.85).is_none());
+    }
+
+    #[test]
+    fn bottom_caption_uses_top_band_and_center_uses_middle() {
+        let t = transcript(words(&[(0.0, 0.5, "hi")]));
+        // 200px bottom padding: video is [0, 880] in a 1080 canvas.
+        let video = VideoRectPx {
+            x: 0,
+            y: 0,
+            w: 1920,
+            h: 880,
+        };
+        let bottom = CaptionStyle {
+            position: "bottom".into(),
+            animation: None,
+            ..Default::default()
+        };
+        // Bottom now anchors from the top band (7-9) so it grows down into padding.
+        assert!((7..=9).contains(&style_alignment(&to_ass(
+            &t, &bottom, 1920, 1080, video, 0.0, 10.0, false
+        ))));
+        let center = CaptionStyle {
+            position: "center".into(),
+            animation: None,
+            ..Default::default()
+        };
+        assert!((4..=6).contains(&style_alignment(&to_ass(
+            &t, &center, 1920, 1080, video, 0.0, 10.0, false
+        ))));
     }
 }
 

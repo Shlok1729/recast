@@ -371,6 +371,22 @@ pub async fn transcribe_project(
     Ok(transcript)
 }
 
+/// True when at least one of the given media files actually carries an audio
+/// stream. The caption tab gates its Generate UI on this: a recording can have
+/// a video path but no audio track (recorded with mic + system audio off), and
+/// there's nothing to transcribe then. ffprobe subprocess → async + blocking.
+#[tauri::command]
+pub async fn has_transcribable_audio(paths: Vec<String>) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        paths
+            .iter()
+            .filter(|p| !p.trim().is_empty())
+            .any(|p| crate::commands::ffmpeg::has_audio(std::path::Path::new(p)))
+    })
+    .await
+    .map_err(|e| format!("audio probe task panicked: {e}"))
+}
+
 /// Serialize a transcript to a subtitle sidecar (`srt` | `vtt`) and write it to
 /// `dest_path` (chosen by the caller via the save dialog).
 #[tauri::command]

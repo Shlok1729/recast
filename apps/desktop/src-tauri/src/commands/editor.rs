@@ -1602,13 +1602,38 @@ pub async fn export_video(
                 .get("captionStyle")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default();
+            // Embed the preset's font so it renders in the burn instead of a
+            // libass fallback. System/generic faces are skipped (libass resolves
+            // them); a fetch failure degrades to the fallback, never blocks export.
+            let family = crate::transcription::subtitles::first_family(&style.font_family);
+            let fontsdir: Option<String> =
+                if crate::transcription::subtitles::is_system_family(&family) {
+                    None
+                } else {
+                    match crate::fonts::ensure_caption_font_dir(&app, &family, style.font_weight)
+                        .await
+                    {
+                        Ok(dir) => Some(dir.to_string_lossy().to_string()),
+                        Err(e) => {
+                            log::warn!("caption font embed ({family}): {e}");
+                            None
+                        }
+                    }
+                };
             let ass = crate::transcription::subtitles::to_ass(
                 &transcript,
                 &style,
                 canvas_width,
                 canvas_height,
+                crate::transcription::subtitles::VideoRectPx {
+                    x: canvas_geom.video_x,
+                    y: canvas_geom.video_y,
+                    w: canvas_geom.video_w,
+                    h: canvas_geom.video_h,
+                },
                 trim_start,
                 duration,
+                fontsdir.is_some(),
             );
             let ass_path =
                 std::env::temp_dir().join(format!("recast-captions-{}.ass", request.export_id));
@@ -1618,6 +1643,7 @@ pub async fn export_video(
                         filter_complex_after_cursor.as_deref(),
                         &video_map_after_cursor,
                         &ass_path.to_string_lossy(),
+                        fontsdir.as_deref(),
                     );
                     filter_complex_after_cursor = Some(new_complex);
                     video_map_after_cursor = new_map;

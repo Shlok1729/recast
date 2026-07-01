@@ -203,6 +203,7 @@ pub fn append_subtitles_to_complex(
     filter_complex: Option<&str>,
     current_video_map: &str,
     ass_path: &str,
+    fontsdir: Option<&str>,
 ) -> (String, String) {
     let out_label = "[vcap]";
     let normalized_current = if current_video_map.starts_with('[') {
@@ -218,8 +219,14 @@ pub fn append_subtitles_to_complex(
     //      original "No option name near '/Users/...'"). Backslash-escape it so
     //      that level unescapes `\:` back to `:` for libass.
     // Forward slashes work for libass and dodge backslash-escaping of separators.
-    let safe = ass_path.replace('\\', "/").replace(':', "\\:");
-    let stage = format!("{normalized_current}ass=filename='{safe}'{out_label}");
+    let escape = |p: &str| p.replace('\\', "/").replace(':', "\\:");
+    let safe = escape(ass_path);
+    // `fontsdir` points libass at a directory of TTFs so a preset's branded font
+    // actually renders in the burn (otherwise libass falls back to a system face).
+    let fonts = fontsdir
+        .map(|d| format!(":fontsdir='{}'", escape(d)))
+        .unwrap_or_default();
+    let stage = format!("{normalized_current}ass=filename='{safe}'{fonts}{out_label}");
     let new_complex = match filter_complex {
         Some(existing) if !existing.is_empty() => format!("{existing};{stage}"),
         _ => stage,

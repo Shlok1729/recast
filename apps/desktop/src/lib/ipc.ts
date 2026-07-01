@@ -737,6 +737,15 @@ export function transcribeProject(args: {
 	});
 }
 
+/** True when at least one given media file actually carries an audio stream
+ *  (ffprobe). The caption tab gates its Generate UI on this — a recording can
+ *  have a path but no audio track. */
+export function hasTranscribableAudio(paths: (string | null | undefined)[]): Promise<boolean> {
+	return invoke<boolean>("has_transcribable_audio", {
+		paths: paths.filter((p): p is string => !!p),
+	});
+}
+
 // Autosave / Recovery commands
 
 export function autosaveProject(projectPath: string, editsJson: string): Promise<void> {

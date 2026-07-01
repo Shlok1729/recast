@@ -8,12 +8,15 @@
     deleteCaptionModel,
     downloadCaptionModel,
     exportCaptions,
+    hasTranscribableAudio,
     listCaptionModels,
     transcribeProject,
     type CaptionModelInfo,
     type DeviceCapabilities,
   } from "$lib/ipc";
   import { registry } from "$lib/registry";
+  import type { CaptionPresetValue } from "$lib/registry/types";
+  import { ensureFontLoaded } from "$lib/fonts/font-options";
   import {
     resolveCaptionAnimation,
     type CaptionAnimation,
@@ -31,6 +34,7 @@
     FileDown,
     Loader2,
     Lock,
+    MicOff,
     Package,
     Sparkles,
     Trash2,
@@ -68,8 +72,37 @@
 
   const selected = $derived(models.find((m) => m.id === selectedModelId) ?? null);
   const usable = $derived(models.filter((m) => m.installed && m.runnable));
-  const hasAudio = $derived(!!(store.audioPath || store.microphonePath));
+  // A recording can have an audio path but no actual audio stream (mic + system
+  // audio off), so `hasAudio` is the ffprobe result, not just path existence.
+  // `null` = not yet probed → fall back to path presence so the UI doesn't flash
+  // the empty state before the probe resolves.
+  let audioProbe = $state<boolean | null>(null);
+  const pathHasAudio = $derived(!!(store.audioPath || store.microphonePath));
+  const hasAudio = $derived(audioProbe ?? pathHasAudio);
   const isDownloadingSelected = $derived(!!selected && downloadingId === selected.id);
+
+  // Re-probe whenever the project's audio sources change (e.g. project reload).
+  $effect(() => {
+    const paths = [store.audioPath, store.microphonePath];
+    if (!paths.some(Boolean)) {
+      audioProbe = false;
+      return;
+    }
+    audioProbe = null;
+    let cancelled = false;
+    hasTranscribableAudio(paths)
+      .then((present) => {
+        if (!cancelled) audioProbe = present;
+      })
+      // Don't hard-block on a probe failure — let the transcribe call be the
+      // authority (it reports "no audio" if the extract is truly empty).
+      .catch(() => {
+        if (!cancelled) audioProbe = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   // Group models by family, preserving first-seen order, for the picker.
   const families = $derived.by(() => {
@@ -244,6 +277,11 @@
   // Caption themes from the asset registry — built-ins first, extension packs
   // appended. Applying one overwrites the style fields but keeps `enabled`.
   const captionPresets = $derived(registry.list("captionPreset"));
+  // Preload each preset's font so the picker's live preview chips render in the
+  // right typeface (not a fallback) before one is applied.
+  $effect(() => {
+    for (const p of captionPresets) ensureFontLoaded(p.value.fontFamily, p.value.fontWeight);
+  });
   let themeOpen = $state(false);
   function applyPreset(style: Partial<CaptionStyle>) {
     store.updateCaptionStyle(style);
@@ -294,7 +332,7 @@
     defaultOpen={!store.transcript}
   >
     {#snippet action()}
-      {#if caps}
+      {#if caps && hasAudio}
         <span
           class="inline-flex items-center gap-1 rounded-full border border-border/50 bg-card/60 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
           title={caps.gpu.name ?? gpuLabel}
@@ -309,6 +347,20 @@
       {/if}
     {/snippet}
 
+    {#if !hasAudio}
+      <!-- Nothing to transcribe: a silent recording (no audio stream on the
+           video or a separate mic track) can't produce captions. -->
+      <div
+        class="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-border/60 bg-card/40 px-4 py-6 text-center"
+      >
+        <MicOff size={20} class="text-muted-foreground" />
+        <p class="text-[12px] font-medium text-foreground">No audio to caption</p>
+        <p class="max-w-60 text-[10.5px] leading-relaxed text-muted-foreground">
+          This recording has no audio to transcribe. Record with your microphone or
+          system audio on to generate captions.
+        </p>
+      </div>
+    {:else}
     <!-- Combobox selector: only the chosen model shows here; the full list
          lives in the popover so the tab stays compact. -->
     <Popover.Root open={pickerOpen} onOpenChange={(v) => (pickerOpen = v)}>
@@ -487,7 +539,7 @@
         variant="default"
         size="sm"
         class="w-full gap-1.5"
-        disabled={!selected?.installed || !selected?.runnable || !hasAudio || transcribing}
+        disabled={!selected?.installed || !selected?.runnable || transcribing}
         onclick={generate}
       >
         {#if transcribing}
@@ -499,11 +551,7 @@
         {/if}
       </Button>
 
-      {#if !hasAudio}
-        <p class="mt-2 text-[10.5px] text-muted-foreground">
-          This recording has no audio track to transcribe.
-        </p>
-      {:else if usable.length === 0}
+      {#if usable.length === 0}
         <p class="mt-2 text-[10.5px] text-muted-foreground">
           Download a model your device can run to enable captioning.
         </p>
@@ -518,6 +566,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   </PanelSection>
 
   {#if store.transcript && store.transcript.segments.length > 0}
@@ -540,22 +589,43 @@
             <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               Theme
             </span>
+            {#snippet themeSwatch(v: CaptionPresetValue)}
+              {@const accent =
+                v.animation && v.animation.emphasis !== "none" ? v.animation.emphasisColor : null}
+              <span
+                class="grid h-6 w-11 shrink-0 place-items-center overflow-hidden rounded bg-[#0b0b12]"
+                aria-hidden="true"
+              >
+                <span
+                  class="leading-none"
+                  style="font-family: {v.fontFamily}; font-weight: {v.fontWeight}; font-size: 14px;
+                    text-transform: {v.uppercase ? 'uppercase' : 'none'}; color: {v.color};
+                    {v.outlineWidth > 0
+                    ? `-webkit-text-stroke: ${(Math.min(v.outlineWidth, 8) / 100) * 14}px ${v.outlineColor}; paint-order: stroke fill;`
+                    : ''}"
+                >A<span style={accent ? `color: ${accent};` : ""}>a</span></span>
+              </span>
+            {/snippet}
+
             <Popover.Root open={themeOpen} onOpenChange={(v) => (themeOpen = v)}>
               <Popover.Trigger>
                 {#snippet child({ props })}
                   <button
                     {...props}
-                    class="flex h-7 w-36 items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2 text-left text-[11px] transition-colors hover:border-border hover:bg-card"
+                    class="flex h-7 w-36 items-center gap-1.5 rounded-md border border-border/60 bg-card/60 pl-1 pr-2 text-left text-[11px] transition-colors hover:border-border hover:bg-card"
                   >
+                    {#if activeTheme}
+                      {@render themeSwatch(activeTheme.value)}
+                    {/if}
                     <span class="min-w-0 flex-1 truncate">{activeThemeLabel}</span>
                     <ChevronsUpDown size={12} class="shrink-0 text-muted-foreground" />
                   </button>
                 {/snippet}
               </Popover.Trigger>
-              <Popover.Content align="end" sideOffset={6} class="w-56 p-0">
+              <Popover.Content align="end" sideOffset={6} class="w-64 p-0">
                 <Command.Root>
                   <Command.Input placeholder="Search themes…" class="h-9 text-[12px]" />
-                  <Command.List class="max-h-72 scrollbar-transparent pt-2">
+                  <Command.List class="max-h-80 scrollbar-transparent pt-2">
                     <Command.Empty class="py-6 text-center text-[11px] text-muted-foreground">
                       No themes found
                     </Command.Empty>
@@ -568,6 +638,7 @@
                         <span class="flex size-4 shrink-0 items-center justify-center">
                           {#if activeTheme?.id === preset.id}<Check size={13} class="text-primary" />{/if}
                         </span>
+                        {@render themeSwatch(preset.value)}
                         <span class="min-w-0 flex-1 truncate text-[12px]">{preset.label}</span>
                         {#if preset.description}
                           <span class="shrink-0 text-[10px] text-muted-foreground">{preset.description}</span>
@@ -661,6 +732,19 @@
               store.updateCaptionStyle({ align: v as "left" | "center" | "right" })}
           />
         </div>
+
+        {#if cs.position !== "center"}
+          <SliderControl
+            label="Offset"
+            value={cs.offsetPct}
+            min={-20}
+            max={40}
+            step={0.5}
+            unit="%"
+            onchange={(next) => store.updateCaptionStyle({ offsetPct: next })}
+            formatValue={(v) => `${v}%`}
+          />
+        {/if}
 
         <ColorField
           label="Color"
@@ -864,17 +948,6 @@
           unit="em"
           onchange={(next) => store.updateCaptionStyle({ letterSpacing: next })}
           formatValue={(v) => `${v.toFixed(2)}em`}
-        />
-
-        <SliderControl
-          label="Edge offset"
-          value={cs.offsetPct}
-          min={0}
-          max={20}
-          step={1}
-          unit="%"
-          onchange={(next) => store.updateCaptionStyle({ offsetPct: next })}
-          formatValue={(v) => `${v}%`}
         />
       </div>
     </PanelSection>
