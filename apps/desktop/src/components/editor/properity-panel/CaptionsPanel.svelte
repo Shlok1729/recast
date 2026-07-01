@@ -347,7 +347,21 @@
       {/if}
     {/snippet}
 
-    {#if !hasAudio}
+    {#if caps && !caps.captionsAvailable}
+      <!-- On-device captions aren't in this build (Intel Mac — no ONNX Runtime
+           for x86_64-apple-darwin). The rest of the editor works normally. -->
+      <div
+        class="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-border/60 bg-card/40 px-4 py-6 text-center"
+      >
+        <Cpu size={20} class="text-muted-foreground" />
+        <p class="text-[12px] font-medium text-foreground">Captions not available on Intel Mac</p>
+        <p class="max-w-60 text-[10.5px] leading-relaxed text-muted-foreground">
+          On-device transcription needs a runtime Apple no longer ships for Intel
+          Macs. Everything else in the editor works. Captions run on Apple Silicon,
+          Windows, and Linux.
+        </p>
+      </div>
+    {:else if !hasAudio}
       <!-- Nothing to transcribe: a silent recording (no audio stream on the
            video or a separate mic track) can't produce captions. -->
       <div

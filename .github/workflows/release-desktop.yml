@@ -105,10 +105,15 @@ jobs:
             os: macos-latest
             rust_target: aarch64-apple-darwin
             tauri_args: --target aarch64-apple-darwin
+          # macos-x64 (Intel) builds WITHOUT captions (`--no-default-features`):
+          # ort rc.12 has no x86_64-apple-darwin ONNX Runtime prebuilt (Microsoft
+          # dropped Intel-Mac at 1.24). Silence detection runs on pure-Rust tract,
+          # so the rest of the app builds fine; the UI warns captions are
+          # unavailable on Intel Mac.
           - name: macos-x64
             os: macos-latest
             rust_target: x86_64-apple-darwin
-            tauri_args: --target x86_64-apple-darwin
+            tauri_args: --target x86_64-apple-darwin --no-default-features
           - name: linux-x64
             os: ubuntu-24.04
             rust_target: x86_64-unknown-linux-gnu

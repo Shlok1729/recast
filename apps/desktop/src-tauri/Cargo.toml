@@ -70,13 +70,19 @@ urlencoding = "2"
 # Cryptographic-quality randomness for PKCE code verifier + state token.
 # The `getrandom` backend on each OS feeds /dev/urandom or BCryptGenRandom.
 rand = "0.8"
-# Silero VAD via `vad-rs` for silence detection. Pins `ort = 2.0.0-rc.12`, the
-# SAME version transcribe-rs (captions) uses — so the two share one ONNX
-# Runtime (ort's `download-binaries` fetches a prebuilt lib; no libclang/CMake).
-# Replaces `voice_activity_detector` (which pinned ort rc.10 and couldn't
-# coexist with Parakeet). Unlike that crate, vad-rs does NOT embed the model, so
-# `silero_vad.onnx` is downloaded on first use (see silence.rs).
-vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false }
+# Silence detection runs Silero VAD on `tract` — PURE RUST, no native ONNX
+# Runtime. This keeps the always-on silence path OS-agnostic (builds on every
+# target, incl. x86_64-apple-darwin where `ort` has no prebuilt). Replaces the
+# old `vad-rs` (which pulled `ort`). `silero_vad.onnx` is downloaded on first use
+# (see silence.rs); tract runs its Conv+LSTM graph natively.
+tract-onnx = "0.21"
+# `ort` (ONNX Runtime, native) is needed ONLY by the captions engine, so it's
+# optional and gated behind `captions`. `download-binaries` fetches the prebuilt
+# runtime. NOTE: ort rc.12 ships NO x86_64-apple-darwin prebuilt (Microsoft
+# dropped Intel-Mac at ONNX Runtime 1.24), so the Intel-Mac CI job builds with
+# `--no-default-features` (captions off → no ort); the app warns that captions
+# aren't available there. Pin must match transcribe-rs (rc.12); no libclang/CMake.
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["download-binaries"], optional = true }
 # Offline transcription — Parakeet via ONNX (ort rc.12, prebuilt runtime, NO
 # libclang/CMake). Optional, behind `captions`. whisper.cpp (the `whisper-cpp`
 # feature) is intentionally OFF — it would add the LLVM+CMake toolchain; revisit
@@ -164,10 +170,11 @@ device_query = "2.1"
 screencapturekit = { version = "6.0", default-features = false, features = ["macos_13_0"], optional = true }
 
 [features]
-# Captions on by default: the Parakeet/ONNX engine builds with no extra
-# toolchain (ort ships a prebuilt runtime; vad-rs already pulls ort), so the
-# normal `pnpm tauri dev` / `tauri build` includes transcription. Only the
-# whisper.cpp side (not enabled) would need LLVM+CMake.
+# Captions on by default: the Parakeet/ONNX engine builds with no extra toolchain
+# (ort ships a prebuilt runtime via download-binaries). Silence detection is NOT
+# gated — it runs on pure-Rust `tract`, so the app (minus captions) builds on
+# every target. The Intel-Mac CI job builds `--no-default-features` (no `ort`,
+# which has no x86_64-apple-darwin prebuilt); captions are then unavailable there.
 default = ["captions"]
 # Offline captions / transcription engine. Will gate the `transcribe-rs`
 # (Parakeet) + `whisper-rs` deps. BLOCKED for now: `transcribe-rs` pins
@@ -176,10 +183,11 @@ default = ["captions"]
 # DECIDED: align everything on rc.12. No VAD release > 0.2.1 exists, so this
 # needs a `[patch.crates-io]` fork of `voice_activity_detector` re-pinned to
 # rc.12, landed together with the engine deps so one `cargo build` verifies
-# both. The download/audio/command plumbing compiles without the feature;
-# flipping it on currently just changes the engine seam's error message.
-# See docs/captions-transcription-plan.md §7.
-captions = ["dep:transcribe-rs"]
+# Offline captions engine (Parakeet/ONNX via transcribe-rs). Pulls the native
+# `ort` runtime — hence excluded from the Intel-Mac build. The transcription
+# module's non-engine plumbing (model list, download, device caps) compiles
+# without the feature; the engine seam returns a "not available" error.
+captions = ["dep:transcribe-rs", "dep:ort"]
 # Enables the native ScreenCaptureKit audio loopback path on macOS.
 # See `audio/platform/macos_sckit.rs` for the runtime smoke-test
 # checklist before flipping this on for a release build.

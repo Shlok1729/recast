@@ -663,6 +663,9 @@ export interface DeviceCapabilities {
 	arch: string;
 	totalRamBytes: number | null;
 	gpu: GpuInfo;
+	/** Whether the on-device caption engine is in this build. False on the
+	 *  Intel-Mac build (no ONNX Runtime for x86_64-apple-darwin). */
+	captionsAvailable: boolean;
 }
 
 /** OS / arch / RAM / GPU probe used to gate which caption models are offered. */
